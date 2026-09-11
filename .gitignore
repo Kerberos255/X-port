@@ -1,0 +1,17 @@
+/dist/
+/bin/
+*.exe
+*.test
+*.out
+*.db
+*.db-shm
+*.db-wal
+.env
+.env.*
+!.env.example
+/data/
+/logs/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
