@@ -13,6 +13,8 @@ STAMP="$(date +%Y%m%d-%H%M%S)"
 BACKUP="$DATA_DIR/backups/xpanel-$STAMP"
 UNIT_STATE_FILE="$BACKUP/old-unit-states.tsv"
 XPORT_DB="$DATA_DIR/xport.db"
+MIGRATE_GLOBAL_ARGS=()
+[[ -f "$SOURCE_CONFIG" ]] && MIGRATE_GLOBAL_ARGS+=(--source-config "$SOURCE_CONFIG")
 
 CUTOVER_OK=0
 ROLLBACK_STARTED=0
@@ -148,17 +150,9 @@ rollback() {
   echo "Migration failed; restoring pre-migration state..." >&2
   restore_xport_snapshot
   restore_unit_states
-  if [[ $XPORT_PANEL_WAS_ACTIVE -eq 1 ]]; then
-    systemctl start xport.service >/dev/null 2>&1 || true
-  fi
-  if [[ $XPORT_XRAY_WAS_ACTIVE -eq 1 ]]; then
-    systemctl start xport-xray.service >/dev/null 2>&1 || true
-  fi
-  if verify_rollback; then
-    echo "Rollback verified: old panel state restored." >&2
-  else
-    echo "WARNING: automatic rollback needs manual attention." >&2
-  fi
+  if [[ $XPORT_PANEL_WAS_ACTIVE -eq 1 ]]; then systemctl start xport.service >/dev/null 2>&1 || true; fi
+  if [[ $XPORT_XRAY_WAS_ACTIVE -eq 1 ]]; then systemctl start xport-xray.service >/dev/null 2>&1 || true; fi
+  if verify_rollback; then echo "Rollback verified: old panel state restored." >&2; else echo "WARNING: automatic rollback needs manual attention." >&2; fi
   exit "$rc"
 }
 
@@ -167,7 +161,7 @@ trap rollback_on_error ERR
 trap 'rollback 130' INT TERM
 
 echo "=== X-port migration dry-run ==="
-"$XPORT_BIN" migrate --data "$DATA_DIR" --from "$SOURCE_DB"
+"$XPORT_BIN" migrate --data "$DATA_DIR" --from "$SOURCE_DB" "${MIGRATE_GLOBAL_ARGS[@]}"
 echo
 read -r -p "Continue with backup and guarded cutover? [y/N] " answer
 [[ "$answer" =~ ^[Yy]$ ]] || { echo "Cancelled. Nothing changed."; exit 0; }
@@ -194,7 +188,7 @@ cp -a "$SOURCE_DB" "$BACKUP/"
 [[ -f "$SOURCE_DB-shm" ]] && cp -a "$SOURCE_DB-shm" "$BACKUP/"
 [[ -f "$SOURCE_CONFIG" ]] && cp -a "$SOURCE_CONFIG" "$BACKUP/xray-config.json"
 
-"$XPORT_BIN" migrate --data "$DATA_DIR" --from "$SOURCE_DB" --apply
+"$XPORT_BIN" migrate --data "$DATA_DIR" --from "$SOURCE_DB" "${MIGRATE_GLOBAL_ARGS[@]}" --apply
 "$XPORT_BIN" render --data "$DATA_DIR" --output "$DEST_CONFIG"
 "$XRAY_BIN" run -test -config "$DEST_CONFIG"
 assert_old_quiet

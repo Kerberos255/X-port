@@ -9,21 +9,28 @@ import (
 	"testing"
 )
 
-func TestCheckRelease(t *testing.T) {
+func TestCheckReleaseUsesStableChannel(t *testing.T) {
 	asset, _ := linuxAssetName()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, `[{"tag_name":"v26.9.9","draft":false,"prerelease":true,"published_at":"2026-09-08T22:28:10Z","assets":[{"name":%q,"size":10,"digest":"sha256:00","browser_download_url":"https://example.invalid/x.zip"}]}]`, asset)
+		fmt.Fprintf(w, `[
+{"tag_name":"v27.0.0-rc1","draft":false,"prerelease":true,"published_at":"2026-09-10T22:28:10Z","assets":[{"name":%q,"size":10,"digest":"sha256:00","browser_download_url":"https://example.invalid/rc.zip"}]},
+{"tag_name":"v26.9.9","draft":false,"prerelease":false,"published_at":"2026-09-08T22:28:10Z","assets":[{"name":%q,"size":10,"digest":"sha256:00","browser_download_url":"https://example.invalid/stable.zip"}]}
+]`, asset, asset)
 	}))
 	defer srv.Close()
 	u := Updater{BinaryPath: "/not-there", ReleasesURL: srv.URL, Client: srv.Client()}
-	info, _, err := u.Check(context.Background())
+	info, selected, err := u.Check(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Latest != "26.9.9" || !info.Available || !info.Prerelease {
-		t.Fatalf("%+v", info)
+	if info.Latest != "26.9.9" || !info.Available || info.Prerelease {
+		t.Fatalf("unexpected info: %+v", info)
+	}
+	if selected.URL != "https://example.invalid/stable.zip" {
+		t.Fatalf("selected prerelease asset: %+v", selected)
 	}
 }
+
 func TestVerifyDigest(t *testing.T) {
 	s := sha256.Sum256([]byte("x"))
 	if err := verifyDigest("sha256:"+fmt.Sprintf("%x", s[:]), s[:]); err != nil {

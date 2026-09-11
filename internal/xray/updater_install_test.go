@@ -29,7 +29,7 @@ func TestUpdaterInstallsVerifiedBinary(t *testing.T) {
 			w.Write(buf.Bytes())
 			return
 		}
-		fmt.Fprintf(w, `[{"tag_name":"v26.9.9","draft":false,"prerelease":true,"published_at":"2026-09-08T22:28:10Z","assets":[{"name":%q,"size":%d,"digest":"sha256:%x","browser_download_url":%q}]}]`, assetName, buf.Len(), sum, srv.URL+"/x.zip")
+		fmt.Fprintf(w, `[{"tag_name":"v26.9.9","draft":false,"prerelease":false,"published_at":"2026-09-08T22:28:10Z","assets":[{"name":%q,"size":%d,"digest":"sha256:%x","browser_download_url":%q}]}]`, assetName, buf.Len(), sum, srv.URL+"/x.zip")
 	}))
 	defer srv.Close()
 	dir := t.TempDir()

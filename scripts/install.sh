@@ -40,13 +40,14 @@ After=network-online.target
 Wants=network-online.target
 [Service]
 Type=simple
+Environment=XRAY_LOCATION_ASSET=$PREFIX/bin
 ExecStart=$PREFIX/bin/xray run -config $DATA_DIR/xray/config.json
 Restart=on-failure
 RestartSec=3
 LimitNOFILE=1048576
 NoNewPrivileges=true
 PrivateTmp=true
-ProtectHome=true
+ProtectHome=read-only
 [Install]
 WantedBy=multi-user.target
 UNIT
@@ -57,13 +58,14 @@ After=network-online.target
 Wants=network-online.target
 [Service]
 Type=simple
+EnvironmentFile=-$DATA_DIR/xport.env
 ExecStart=$XPORT_BIN serve --data $DATA_DIR --xray-binary $PREFIX/bin/xray --xray-config $DATA_DIR/xray/config.json --xray-service xport-xray.service
 Restart=on-failure
 RestartSec=3
 UMask=0027
 NoNewPrivileges=true
 PrivateTmp=true
-ProtectHome=true
+ProtectHome=read-only
 [Install]
 WantedBy=multi-user.target
 UNIT
@@ -79,4 +81,5 @@ fi
 echo "X-port installed. Panel listen: $LISTEN"
 echo "Admin user: $ADMIN_USER"
 echo "Password is stored only as a bcrypt hash."
+echo "Optional private-release token file: $DATA_DIR/xport.env (root-only, e.g. XPORT_GITHUB_TOKEN=...)"
 if [[ "$LISTEN" == 127.0.0.1:* ]]; then echo "Panel is local-only by default. Put it behind HTTPS reverse proxy for remote access."; fi

@@ -6,6 +6,7 @@ type Account struct {
 	ID                 int64  `json:"id"`
 	Name               string `json:"name"`
 	Enabled            bool   `json:"enabled"`
+	DisabledReason     string `json:"disabledReason,omitempty"`
 	Listen             string `json:"listen"`
 	Port               int    `json:"port"`
 	Protocol           string `json:"protocol"`
@@ -18,6 +19,8 @@ type Account struct {
 	QuotaBytes         int64  `json:"quotaBytes"`
 	AllTimeBytes       int64  `json:"allTimeBytes"`
 	ExpiryTime         int64  `json:"expiryTime"`
+	MonthlyReset       bool   `json:"monthlyReset"`
+	LastMonthlyReset   string `json:"-"`
 	CreatedAt          int64  `json:"createdAt"`
 	UpdatedAt          int64  `json:"updatedAt"`
 }

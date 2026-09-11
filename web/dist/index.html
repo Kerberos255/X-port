@@ -1,98 +1,23 @@
 <!doctype html>
 <html lang="zh-CN">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="theme-color" content="#070b12">
-  <meta name="color-scheme" content="dark">
-  <title>X-port</title>
-  <link rel="stylesheet" href="/styles.css">
-</head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#070b12"><meta name="color-scheme" content="dark"><title>X-port</title><link rel="stylesheet" href="/styles.css"><link rel="stylesheet" href="/polish.css"></head>
 <body>
-<div id="login" class="login-shell hidden">
-  <div class="ambient a1"></div><div class="ambient a2"></div>
-  <form id="login-form" class="login-card">
-    <div class="brand big"><span class="brand-mark">X</span><div><b>X-port</b><small>CONTROL PLANE</small></div></div>
-    <div class="login-title"><span class="pulse-dot"></span><div><h1>控制台登录</h1><p>轻量 Xray 管理面板</p></div></div>
-    <label>用户名<input id="login-user" autocomplete="username" value="admin" required></label>
-    <label>密码<input id="login-pass" type="password" autocomplete="current-password" required></label>
-    <p id="login-error" class="error hidden"></p>
-    <button class="btn primary full" type="submit">进入控制台</button>
-    <div class="secure-note">● 本地会话 · HttpOnly Cookie</div>
-  </form>
-</div>
-
+<div id="login" class="login-shell hidden"><div class="ambient a1"></div><div class="ambient a2"></div><form id="login-form" class="login-card"><div class="brand big"><span class="brand-mark">X</span><div><b>X-port</b><small>CONTROL PLANE</small></div></div><div class="login-title"><span class="pulse-dot"></span><div><h1>控制台登录</h1><p>轻量 Xray 管理面板</p></div></div><label>用户名<input id="login-user" autocomplete="username" value="admin" required></label><label>密码<input id="login-pass" type="password" autocomplete="current-password" required></label><p id="login-error" class="error hidden"></p><button class="btn primary full" type="submit">进入控制台</button><div class="secure-note">● 本地会话 · HttpOnly Cookie</div></form></div>
 <div id="app" class="shell hidden">
-  <aside class="sidebar">
-    <div class="brand"><span class="brand-mark">X</span><div><b>X-port</b><small>CONTROL PLANE</small></div></div>
-    <nav id="nav">
-      <button data-page="overview" class="active"><span>◫</span>概览</button>
-      <button data-page="accounts"><span>◉</span>账号</button>
-      <button data-page="xray"><span>◇</span>Xray</button>
-      <button data-page="system"><span>⚙</span>系统</button>
-    </nav>
-    <div class="side-foot"><span class="pulse-dot"></span><span>PRIVATE NODE</span></div>
-  </aside>
-  <main>
-    <section id="page-overview" class="page active">
-      <header class="page-head"><div><span class="eyebrow">CONTROL CENTER</span><h1>服务器概览</h1><p>服务器状态、核心服务与运行健康度</p></div><button id="refresh-overview" class="btn ghost">↻ 刷新</button></header>
-      <div class="overview-grid">
-        <article class="panel server-panel span2">
-          <div class="panel-head"><div><span class="kicker">SERVER</span><h2 id="hostname">—</h2></div><span class="status ok"><i></i>运行中</span></div>
-          <div class="server-core"><div class="uptime-ring"><div><strong id="uptime-days">0</strong><span>DAYS</span></div></div><div><span class="muted">稳定运行</span><h3 id="uptime-text">—</h3><small id="server-os">Linux · — 个独立监听端口</small></div></div>
-          <div class="metrics">
-            <div><span class="metric-icon">CPU</span><p>处理器</p><b id="cpu">—</b><small id="load">load —</small></div>
-            <div><span class="metric-icon">RAM</span><p>内存</p><b id="memory">—</b><small id="memory-detail">—</small></div>
-            <div><span class="metric-icon">SSD</span><p>磁盘</p><b id="disk">—</b><small id="disk-detail">—</small></div>
-            <div><span class="metric-icon">NET</span><p>监听</p><b id="listeners">—</b><small>独立账号端口</small></div>
-          </div>
-        </article>
-        <article class="panel traffic-panel">
-          <div class="panel-head"><div><span class="kicker">TRAFFIC</span><h2>实时网络</h2></div><span class="mini-dot"></span></div>
-          <div class="traffic-number"><b id="traffic-total">0 B/s</b><span>实时吞吐</span></div>
-          <div class="wave"><svg viewBox="0 0 300 80" preserveAspectRatio="none"><path d="M0 59 C25 57 27 29 52 37 C78 45 81 65 111 45 C139 25 142 17 166 27 C194 39 195 57 218 38 C247 14 261 28 300 13"/></svg></div>
-          <div class="traffic-split"><span>↑ <b id="tx-rate">0 B/s</b></span><span>↓ <b id="rx-rate">0 B/s</b></span></div>
-        </article>
-        <article class="panel services span2">
-          <div class="panel-head"><div><span class="kicker">SERVICES</span><h2>核心服务</h2></div><span class="muted tiny">SYSTEMD</span></div>
-          <div class="service-row"><span class="service-icon">XR</span><div><b>Xray-core</b><small id="xray-desc">代理核心</small></div><code id="xray-version">—</code><span id="xray-status" class="status"><i></i>检测中</span></div>
-          <div class="service-row"><span class="service-icon">XP</span><div><b>X-port</b><small>管理面板 · API 正常</small></div><code id="xport-version">—</code><span class="status ok"><i></i>运行中</span></div>
-        </article>
-        <article class="panel update-panel">
-          <div class="panel-head"><div><span class="kicker">UPDATE</span><h2>Xray 更新</h2></div><span>⬆</span></div>
-          <div class="version-line"><div><small>当前版本</small><b id="update-current">—</b></div><div><small>最新版本</small><b id="update-latest">检查中</b></div></div>
-          <p id="update-note" class="muted tiny">正在读取 GitHub Release…</p>
-          <div class="button-row"><button id="check-update" class="btn ghost">检查更新</button><button id="do-update" class="btn primary" disabled>更新 Xray</button></div>
-        </article>
-        <article class="panel health-panel">
-          <div class="panel-head"><div><span class="kicker">HEALTH</span><h2>健康检查</h2></div><span>✓</span></div>
-          <div class="health-row"><span>SQLite</span><b class="ok-text">● 正常</b></div>
-          <div class="health-row"><span>Xray 服务</span><b id="health-xray">● 检测中</b></div>
-          <div class="health-row"><span>账号监听</span><b id="health-listeners">—</b></div>
-          <div class="health-row"><span>配置模型</span><b class="ok-text">● 独立端口</b></div>
-        </article>
-      </div>
-    </section>
-
-    <section id="page-accounts" class="page">
-      <header class="page-head"><div><span class="eyebrow">ACCOUNTS</span><h1>账号</h1><p>一个账号，一个 inbound，一个独立端口</p></div><button id="add-account" class="btn primary">＋ 新增账号</button></header>
-      <div class="summary-strip"><div><small>总账号</small><b id="sum-total">0</b></div><div><small>已启用</small><b id="sum-active">0</b></div><div><small>累计流量</small><b id="sum-traffic">0 B</b></div><div><small>端口冲突</small><b class="ok-text">0</b></div></div>
-      <div id="accounts-list" class="accounts-list"></div>
-    </section>
-
-    <section id="page-xray" class="page">
-      <header class="page-head"><div><span class="eyebrow">XRAY CORE</span><h1>Xray</h1><p>核心运行与版本管理</p></div></header>
-      <div class="two-col"><article class="panel"><span class="kicker">RUNTIME</span><h2>运行状态</h2><div class="big-state"><span id="xray-page-dot" class="pulse-dot"></span><div><b id="xray-page-status">—</b><small id="xray-page-version">—</small></div></div></article><article class="panel"><span class="kicker">UPDATE CHANNEL</span><h2>官方 Release</h2><p class="muted">直接读取 XTLS/Xray-core GitHub Release，下载后校验 GitHub 提供的 SHA-256 digest；新二进制先用当前配置测试，重启失败自动恢复旧版本。</p><button id="xray-page-update" class="btn primary">检查并更新</button></article></div>
-    </section>
-
-    <section id="page-system" class="page">
-      <header class="page-head"><div><span class="eyebrow">SYSTEM</span><h1>系统</h1><p>部署、安全与迁移</p></div></header>
-      <div class="two-col"><article class="panel"><span class="kicker">DEPLOYMENT</span><h2>Linux / systemd</h2><p class="muted">X-port 与 Xray 使用独立 systemd 服务。面板默认监听 127.0.0.1，建议通过 HTTPS 反向代理暴露。</p></article><article class="panel"><span class="kicker">MIGRATION</span><h2>X-Panel / 3x-ui</h2><p class="muted">迁移器只读旧数据库；切换前自动备份。多用户 inbound 不会被静默拆分，必须人工处理。</p></article></div>
-    </section>
-  </main>
-</div>
-
-<div id="modal" class="modal hidden"><div class="modal-card"><button id="modal-close" class="modal-x">×</button><div id="modal-body"></div></div></div>
-<div id="toast" class="toast hidden"></div>
-<script src="/app.js" defer></script>
-</body></html>
+<aside class="sidebar"><div class="brand"><span class="brand-mark">X</span><div><b>X-port</b><small>CONTROL PLANE</small></div></div><nav id="nav"><button data-page="overview" class="active"><span>◫</span>概览</button><button data-page="accounts"><span>◉</span>账号</button><button data-page="xray"><span>◇</span>Xray</button><button data-page="system"><span>⚙</span>系统</button></nav><div class="side-foot"><span class="pulse-dot"></span><span>PRIVATE NODE</span></div></aside>
+<main>
+<section id="page-overview" class="page active"><header class="page-head"><div><span class="eyebrow">CONTROL CENTER</span><h1>服务器概览</h1><p>服务器状态、核心服务与运行健康度</p></div><button id="refresh-overview" class="btn ghost">↻ 刷新</button></header><div class="overview-grid">
+<article class="panel server-panel span2"><div class="panel-head"><div><span class="kicker">SERVER</span><h2 id="hostname">—</h2></div><span class="status ok"><i></i>运行中</span></div><div class="server-core"><div class="uptime-ring"><div><strong id="uptime-days">0</strong><span>DAYS</span></div></div><div><span class="muted">稳定运行</span><h3 id="uptime-text">—</h3><small id="server-os">Linux · — 个独立监听端口</small></div></div><div class="metrics"><div><span class="metric-icon">CPU</span><p>处理器</p><b id="cpu">—</b><small id="load">load —</small></div><div><span class="metric-icon">RAM</span><p>内存</p><b id="memory">—</b><small id="memory-detail">—</small></div><div><span class="metric-icon">SSD</span><p>磁盘</p><b id="disk">—</b><small id="disk-detail">—</small></div><div><span class="metric-icon">NET</span><p>监听</p><b id="listeners">—</b><small>独立账号端口</small></div></div></article>
+<article class="panel traffic-panel"><div class="panel-head"><div><span class="kicker">TRAFFIC</span><h2>实时网络</h2></div><span class="mini-dot"></span></div><div class="traffic-number"><b id="traffic-total">0 B/s</b><span>实时吞吐</span></div><div class="wave"><svg viewBox="0 0 300 80" preserveAspectRatio="none"><path d="M0 59 C25 57 27 29 52 37 C78 45 81 65 111 45 C139 25 142 17 166 27 C194 39 195 57 218 38 C247 14 261 28 300 13"/></svg></div><div class="traffic-split"><span>↑ <b id="tx-rate">0 B/s</b></span><span>↓ <b id="rx-rate">0 B/s</b></span></div></article>
+<article class="panel services span2"><div class="panel-head"><div><span class="kicker">SERVICES</span><h2>核心服务</h2></div><span class="muted tiny">SYSTEMD</span></div><div class="service-row"><span class="service-icon">XR</span><div><b>Xray-core</b><small id="xray-desc">代理核心</small></div><code id="xray-version">—</code><span id="xray-status" class="status"><i></i>检测中</span></div><div class="service-row"><span class="service-icon">XP</span><div><b>X-port</b><small>管理面板 · API 正常</small></div><code id="xport-version">—</code><span class="status ok"><i></i>运行中</span></div></article>
+<article class="panel update-panel"><div class="panel-head"><div><span class="kicker">UPDATE</span><h2>Xray 更新</h2></div><span>⬆</span></div><div class="version-line"><div><small>当前版本</small><b id="update-current">—</b></div><div><small>最新版本</small><b id="update-latest">检查中</b></div></div><p id="update-note" class="muted tiny">正在读取 GitHub Release…</p><div class="button-row"><button id="check-update" class="btn ghost">检查更新</button><button id="do-update" class="btn primary" disabled>更新 Xray</button></div></article>
+<article class="panel health-panel"><div class="panel-head"><div><span class="kicker">HEALTH</span><h2>健康检查</h2></div><span>✓</span></div><div class="health-row"><span>SQLite</span><b class="ok-text">● 正常</b></div><div class="health-row"><span>Xray 服务</span><b id="health-xray">● 检测中</b></div><div class="health-row"><span>账号监听</span><b id="health-listeners">—</b></div><div class="health-row"><span>配置模型</span><b class="ok-text">● 独立端口</b></div></article>
+</div></section>
+<section id="page-accounts" class="page"><header class="page-head"><div><span class="eyebrow">ACCOUNTS</span><h1>账号</h1><p>一个账号，一个 inbound，一个独立端口</p></div><div class="button-row head-actions"><button id="export-accounts" class="btn ghost">⇩ 批量导出</button><button id="add-account" class="btn primary">＋ 新增账号</button></div></header><div class="summary-strip"><div><small>总账号</small><b id="sum-total">0</b></div><div><small>已启用</small><b id="sum-active">0</b></div><div><small>本期流量</small><b id="sum-traffic">0 B</b></div><div><small>月初清零</small><b id="sum-monthly">0</b></div></div><div id="accounts-list" class="accounts-list"></div><p class="muted tiny" style="margin-top:12px">防火墙规则由你手动管理；X-port 只检查端口是否已被本机进程占用，不修改 ufw / firewalld / nftables。</p></section>
+<section id="page-xray" class="page"><header class="page-head"><div><span class="eyebrow">XRAY CORE</span><h1>Xray</h1><p>核心运行、更新、GeoData 与日志</p></div><button id="restart-xray" class="btn ghost">重启 Xray</button></header><div class="two-col"><article class="panel"><span class="kicker">RUNTIME</span><h2>运行状态</h2><div class="big-state"><span id="xray-page-dot" class="pulse-dot"></span><div><b id="xray-page-status">—</b><small id="xray-page-version">—</small></div></div></article><article class="panel"><span class="kicker">UPDATE CHANNEL</span><h2>官方 Release</h2><p class="muted">下载官方 XTLS/Xray-core Release，校验 SHA-256；新核心先测试当前配置，重启失败自动恢复旧版本。</p><button id="xray-page-update" class="btn primary">检查并更新</button></article></div><article class="panel geodata-panel" style="margin-top:14px"><div class="panel-head"><div><span class="kicker">GEODATA</span><h2>geoip.dat / geosite.dat</h2></div><span id="geodata-state" class="status"><i></i>未检查</span></div><div class="version-line"><div><small>当前规则版本</small><b id="geodata-current">—</b></div><div><small>官方最新</small><b id="geodata-latest">—</b></div></div><p class="muted tiny">GeoData 与 Xray 核心分开更新；两个规则文件会一起替换，重启失败自动恢复旧文件。</p><div class="button-row"><button id="check-geodata" class="btn ghost">检查 GeoData</button><button id="update-geodata" class="btn primary" disabled>更新 GeoData</button></div></article><article class="panel log-panel" style="margin-top:14px"><div class="panel-head"><div><span class="kicker">JOURNAL</span><h2>服务日志</h2></div><div class="button-row compact"><select id="log-service"><option value="xray">Xray</option><option value="xport">X-port</option></select><select id="log-lines"><option>100</option><option selected>300</option><option>1000</option><option>2000</option></select><button id="load-logs" class="btn ghost">刷新</button><button id="download-logs" class="btn ghost">下载</button></div></div><pre id="log-output" class="log-output">选择服务后刷新日志。</pre></article></section>
+<section id="page-system" class="page"><header class="page-head"><div><span class="eyebrow">SYSTEM</span><h1>系统</h1><p>面板、默认参数与备份恢复</p></div><button id="restart-xport" class="btn ghost">重启 X-port</button></header><div class="two-col">
+<article class="panel"><span class="kicker">SETTINGS</span><h2>面板与默认参数</h2><form id="settings-form" class="form-grid settings-form"><label>面板监听<input name="panelListen" placeholder="127.0.0.1:8080"></label><label>面板 Base Path<input name="panelBasePath" placeholder="/"></label><label>面板域名<input name="panelDomain" placeholder="可选，例如 panel.example.com"></label><label>Xray API 端口<input name="xrayApiPort" type="number" min="1" max="65535"></label><label class="full">HTTPS 证书路径<input name="panelCertFile" placeholder="留空使用 HTTP，例如 /root/cert/example/fullchain.pem"></label><label class="full">HTTPS 私钥路径<input name="panelKeyFile" placeholder="必须与证书同时填写，例如 /root/cert/example/privkey.pem"></label><label>账号自动端口起点<input name="portMin" type="number" min="1" max="65535"></label><label>账号自动端口终点<input name="portMax" type="number" min="1" max="65535"></label><label>默认 REALITY SNI<input name="defaultRealitySni" placeholder="例如 www.microsoft.com"></label><label>默认 REALITY 目标<input name="defaultRealityDest" placeholder="例如 www.microsoft.com:443"></label><label>管理员用户名<input name="adminUsername"></label><label>新密码<input name="newPassword" type="password" placeholder="留空不修改"></label><label class="full">当前密码（修改管理员时需要）<input name="currentPassword" type="password"></label><p id="panel-mode-note" class="muted tiny full">面板监听、Base Path 或 HTTPS 变更后需要重启 X-port；防火墙仍由你手动放行。</p><div class="form-actions full"><button type="submit" class="btn primary">保存设置</button></div></form></article>
+<article class="panel"><div class="panel-head"><div><span class="kicker">BACKUP</span><h2>备份 / 导入 / 恢复</h2></div><div class="button-row compact"><button id="import-backup" class="btn ghost">导入备份</button><button id="create-backup" class="btn primary">立即备份</button></div></div><input id="backup-file" class="hidden" type="file" accept=".gz,application/gzip"><p class="muted tiny">快照包含账号原始配置、管理员密码 hash 和系统设置；导入只加入备份列表，不会立即覆盖当前配置；恢复前会自动再创建一个恢复点。</p><div id="backup-list" class="backup-list"></div></article>
+</div><article class="panel" style="margin-top:14px"><div class="panel-head"><div><span class="kicker">MAINTENANCE</span><h2>运维边界</h2></div><span class="status ok"><i></i>手动防火墙</span></div><p class="muted">X-port 可以重启自身或 Xray，但不会从 WebUI 停止自己，也不会修改 ufw / firewalld / nftables。面板监听和 HTTPS 变更请先确认新地址可达，再执行重启。</p></article></section>
+</main></div>
+<div id="modal" class="modal hidden"><div class="modal-card"><button id="modal-close" class="modal-x">×</button><div id="modal-body"></div></div></div><div id="toast" class="toast hidden"></div><script src="/app.js" defer></script><script src="/extra.js" defer></script></body></html>
