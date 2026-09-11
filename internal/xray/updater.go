@@ -140,9 +140,8 @@ func (u *Updater) Update(ctx context.Context) (UpdateInfo, error) {
 			return UpdateInfo{}, err
 		}
 	}
-	// Update only the core binary here. Keeping geodata outside the core swap
-	// makes rollback complete: one failed service restart can restore the exact
-	// previous executable without leaving version-skewed auxiliary files.
+	// Update only the core binary here. GeoData is managed separately so a core
+	// rollback never leaves auxiliary rule files half-updated.
 	installErr := copyFile(candidate, u.BinaryPath, 0755)
 	if installErr == nil && u.Service != "" {
 		installErr = restartAndVerify(u.Service)
@@ -187,7 +186,9 @@ func (u *Updater) latest(ctx context.Context) (Release, ReleaseAsset, error) {
 		return Release{}, ReleaseAsset{}, err
 	}
 	for _, rel := range releases {
-		if rel.Draft {
+		// The panel's one-click channel is intentionally stable-only. A future
+		// explicit update-channel setting can opt into prereleases separately.
+		if rel.Draft || rel.Prerelease {
 			continue
 		}
 		for _, a := range rel.Assets {
@@ -196,7 +197,7 @@ func (u *Updater) latest(ctx context.Context) (Release, ReleaseAsset, error) {
 			}
 		}
 	}
-	return Release{}, ReleaseAsset{}, fmt.Errorf("no %s asset found", assetName)
+	return Release{}, ReleaseAsset{}, fmt.Errorf("no stable %s asset found", assetName)
 }
 func (u *Updater) client() *http.Client {
 	if u.Client != nil {
@@ -299,6 +300,10 @@ func binaryVersion(path string) string {
 	}
 	line := strings.TrimSpace(strings.SplitN(string(out), "\n", 2)[0])
 	line = strings.TrimPrefix(line, "Xray ")
-	return strings.Fields(line)[0]
+	fields := strings.Fields(line)
+	if len(fields) == 0 {
+		return ""
+	}
+	return fields[0]
 }
 func normalizeVersion(v string) string { return strings.TrimPrefix(strings.TrimSpace(v), "v") }
