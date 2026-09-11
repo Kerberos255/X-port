@@ -2,9 +2,11 @@ package migrate
 
 import (
 	"database/sql"
-	_ "modernc.org/sqlite"
 	"path/filepath"
 	"testing"
+
+	"golang.org/x/crypto/bcrypt"
+	_ "modernc.org/sqlite"
 )
 
 func TestReadXUIOneClient(t *testing.T) {
@@ -18,6 +20,19 @@ func TestReadXUIOneClient(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
+	hash, _ := bcrypt.GenerateFromPassword([]byte("old-panel-password"), bcrypt.DefaultCost)
+	if _, e = db.Exec(`CREATE TABLE users(id INTEGER PRIMARY KEY, username TEXT, password TEXT);`); e != nil {
+		t.Fatal(e)
+	}
+	if _, e = db.Exec(`INSERT INTO users VALUES(1,?,?)`, "legacy-admin", string(hash)); e != nil {
+		t.Fatal(e)
+	}
+	if _, e = db.Exec(`CREATE TABLE settings(id INTEGER PRIMARY KEY, key TEXT, value TEXT);`); e != nil {
+		t.Fatal(e)
+	}
+	if _, e = db.Exec(`INSERT INTO settings(key,value) VALUES('webListen',''),('webPort','13688')`); e != nil {
+		t.Fatal(e)
+	}
 	db.Close()
 	r, e := ReadXUI(p)
 	if e != nil {
@@ -25,6 +40,15 @@ func TestReadXUIOneClient(t *testing.T) {
 	}
 	if len(r.Accounts) != 1 || r.Accounts[0].Port != 21001 {
 		t.Fatalf("%+v", r)
+	}
+	if len(r.Admins) != 1 || r.Admins[0].Username != "legacy-admin" {
+		t.Fatalf("admins: %+v", r.Admins)
+	}
+	if bcrypt.CompareHashAndPassword([]byte(r.Admins[0].PasswordHash), []byte("old-panel-password")) != nil {
+		t.Fatal("migrated bcrypt hash does not preserve the old password")
+	}
+	if r.PanelListen != ":13688" {
+		t.Fatalf("panel listen: %q", r.PanelListen)
 	}
 }
 func TestReadXUIMultiClientSkipped(t *testing.T) {
