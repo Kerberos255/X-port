@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 )
 
 type GeodataInfo struct {
@@ -166,5 +165,3 @@ func (u *Updater) downloadAsset(ctx context.Context, asset ReleaseAsset, dst str
 	}
 	return nil
 }
-
-var _ = time.Second
