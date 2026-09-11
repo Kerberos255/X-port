@@ -27,3 +27,18 @@
 .metrics>div:nth-child(3) b{background:radial-gradient(circle at center,#0b111b 0 61%,transparent 62%),conic-gradient(from -90deg,#9a82ff var(--metric-pct,0%),rgba(112,143,180,.12) 0);box-shadow:0 0 26px rgba(154,130,255,.07),inset 0 0 18px rgba(154,130,255,.03)}
 @media(max-width:700px){.metrics{gap:10px;padding-top:18px}.metrics b{width:78px;height:78px;font-size:16px}.metrics p{font-size:10px;margin-bottom:8px}.metrics small{font-size:8px;margin-top:8px;white-space:normal}}
 @media(max-width:430px){.metrics b{width:70px;height:70px;font-size:15px}.metrics{gap:7px}}
+
+/* Daily account controls. */
+.account-row{grid-template-columns:minmax(150px,1.25fr) 54px 82px minmax(108px,.85fr) minmax(125px,1fr) 88px auto}
+.enable-cell{display:flex;align-items:center;justify-content:center}
+.account-toggle{position:relative;width:36px;height:20px;padding:0;border:1px solid rgba(126,154,190,.22);border-radius:999px;background:rgba(87,106,132,.22);cursor:pointer;transition:.18s}
+.account-toggle i{position:absolute;left:3px;top:3px;width:12px;height:12px;border-radius:50%;background:#dbe6f2;box-shadow:0 1px 5px rgba(0,0,0,.32);transition:.18s}
+.account-toggle.on{background:rgba(30,184,165,.72);border-color:rgba(70,224,205,.38);box-shadow:0 0 16px rgba(45,205,188,.08)}
+.account-toggle.on i{left:19px;background:#f6ffff}
+.account-toggle:disabled{opacity:.55;cursor:wait}
+.icon-btn.danger-icon{color:#ee8894;border-color:rgba(238,124,137,.18);background:rgba(238,124,137,.035)}
+.icon-btn.danger-icon:hover{color:#ffb0b8;border-color:rgba(238,124,137,.38);background:rgba(238,124,137,.08)}
+#sum-traffic{font-size:13px;white-space:nowrap}
+.xport-update-panel{margin-top:14px}
+#xray-page-rollback{margin-left:8px}
+@media(max-width:700px){.account-row .account-name{grid-column:1!important}.account-row .enable-cell{grid-column:2;grid-row:1;justify-self:end}.account-row>.port-cell{grid-row:2}.account-row>.protocol-cell{grid-row:2}.account-row>.usage-cell{grid-row:3}.account-row .row-actions{grid-row:4}.account-toggle{width:38px;height:22px}.account-toggle i{width:14px;height:14px}.account-toggle.on i{left:19px}#sum-traffic{font-size:10px;white-space:normal}.summary-strip b{overflow-wrap:anywhere}}
