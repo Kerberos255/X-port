@@ -16,11 +16,10 @@ import (
 
 	"github.com/Kerberos255/X-port/internal/accountcfg"
 	"github.com/Kerberos255/X-port/internal/backup"
+	"github.com/Kerberos255/X-port/internal/buildinfo"
 	"github.com/Kerberos255/X-port/internal/ops"
 	"github.com/Kerberos255/X-port/internal/selfupdate"
 )
-
-const xportRuntimeVersion = "0.1.0-alpha"
 
 func (s *Server) registerExtraRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /api/accounts/export", s.require(http.HandlerFunc(s.exportAccounts)))
@@ -109,7 +108,7 @@ func (s *Server) restartPanel(w http.ResponseWriter, r *http.Request) {
 
 func panelSelfUpdater() (*selfupdate.Updater, error) {
 	exe, err := os.Executable(); if err != nil { return nil, err }
-	return &selfupdate.Updater{CurrentVersion: xportRuntimeVersion, BinaryPath: exe, Repo: "Kerberos255/X-port", Token: os.Getenv("XPORT_GITHUB_TOKEN")}, nil
+	return &selfupdate.Updater{CurrentVersion: buildinfo.Current, BinaryPath: exe, Repo: "Kerberos255/X-port", Token: os.Getenv("XPORT_GITHUB_TOKEN")}, nil
 }
 func (s *Server) checkPanelUpdate(w http.ResponseWriter, r *http.Request) {
 	u, err := panelSelfUpdater(); if err != nil { writeError(w, 500, err.Error()); return }
