@@ -2,12 +2,15 @@ package server
 
 import (
 	"net/http"
+	"strconv"
 
 	"github.com/Kerberos255/X-port/internal/service"
+	sysinfo "github.com/Kerberos255/X-port/internal/system"
 )
 
 func (s *Server) registerUXRoutes(mux *http.ServeMux) {
 	mux.Handle("PATCH /api/accounts/{id}/enabled", s.require(http.HandlerFunc(s.setAccountEnabled)))
+	mux.Handle("GET /api/accounts/online", s.require(http.HandlerFunc(s.accountOnlineConnections)))
 	mux.Handle("GET /api/accounts/{id}/advanced", s.require(http.HandlerFunc(s.getAccountAdvanced)))
 	mux.Handle("PUT /api/accounts/{id}/advanced", s.require(http.HandlerFunc(s.updateAccountAdvanced)))
 	mux.Handle("GET /api/xray/rollback", s.require(http.HandlerFunc(s.checkXrayRollback)))
@@ -32,6 +35,24 @@ func (s *Server) setAccountEnabled(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, view)
+}
+
+func (s *Server) accountOnlineConnections(w http.ResponseWriter, r *http.Request) {
+	views, err := s.accounts.List()
+	if err != nil {
+		writeError(w, 500, "database error")
+		return
+	}
+	ports := make(map[int]struct{}, len(views))
+	for _, v := range views {
+		ports[v.Port] = struct{}{}
+	}
+	byPort := sysinfo.EstablishedTCPByLocalPort(ports)
+	byID := make(map[string]int, len(views))
+	for _, v := range views {
+		byID[strconv.FormatInt(v.ID, 10)] = byPort[v.Port]
+	}
+	writeJSON(w, 200, map[string]any{"connections": byID})
 }
 
 func (s *Server) getAccountAdvanced(w http.ResponseWriter, r *http.Request) {
