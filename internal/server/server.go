@@ -28,6 +28,7 @@ type Server struct {
 	accounts     *service.Accounts
 	sessions     *auth.Sessions
 	loginLimiter *auth.LoginLimiter
+	ipLimiter    *auth.LoginLimiter
 	updater      *xray.Updater
 	static       fs.FS
 	dataDir      string
@@ -39,7 +40,9 @@ type Server struct {
 func New(st *store.Store, accounts *service.Accounts, updater *xray.Updater, static fs.FS) *Server {
 	return &Server{
 		store: st, accounts: accounts, updater: updater, static: static,
-		sessions: auth.NewSessions(24 * time.Hour), loginLimiter: auth.NewLoginLimiter(8, 10*time.Minute),
+		sessions: auth.NewSessions(24 * time.Hour),
+		loginLimiter: auth.NewLoginLimiter(8, 10*time.Minute),
+		ipLimiter: auth.NewLoginLimiter(24, 30*time.Minute),
 	}
 }
 
@@ -69,6 +72,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("DELETE /api/backups/{name}", s.require(http.HandlerFunc(s.deleteBackup)))
 	mux.Handle("GET /api/settings", s.require(http.HandlerFunc(s.getSettings)))
 	mux.Handle("PUT /api/settings", s.require(http.HandlerFunc(s.updateSettings)))
+	s.registerExtraRoutes(mux)
 	if s.static != nil {
 		files := http.FileServerFS(s.static)
 		mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -96,8 +100,9 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		Password string `json:"password"`
 	}
 	if decodeJSON(w, r, &req) != nil { return }
-	key := remoteIP(r) + "|" + strings.ToLower(strings.TrimSpace(req.Username))
-	if !s.loginLimiter.Allowed(key) {
+	ip := remoteIP(r)
+	key := ip + "|" + strings.ToLower(strings.TrimSpace(req.Username))
+	if !s.ipLimiter.Allowed(ip) || !s.loginLimiter.Allowed(key) {
 		writeError(w, http.StatusTooManyRequests, "too many login attempts; try again later")
 		return
 	}
@@ -105,11 +110,13 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	if err != nil || bcrypt.CompareHashAndPassword([]byte(admin.PasswordHash), []byte(req.Password)) != nil {
 		subtle.ConstantTimeCompare([]byte("xport"), []byte("xxxxx"))
 		s.loginLimiter.Fail(key)
+		s.ipLimiter.Fail(ip)
 		time.Sleep(120 * time.Millisecond)
 		writeError(w, 401, "invalid credentials")
 		return
 	}
 	s.loginLimiter.Success(key)
+	s.ipLimiter.Success(ip)
 	token, err := s.sessions.Create(admin.Username)
 	if err != nil { writeError(w, 500, "session failure"); return }
 	http.SetCookie(w, &http.Cookie{Name: "xport_session", Value: token, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https"), MaxAge: 86400})
@@ -135,6 +142,7 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 	err := s.store.Ping()
 	writeJSON(w, 200, map[string]any{"ok": err == nil, "database": err == nil, "time": time.Now().UnixMilli()})
 }
+
 func (s *Server) overview(w http.ResponseWriter, r *http.Request) {
 	views, err := s.accounts.List(); if err != nil { writeError(w, 500, "database error"); return }
 	enabled := 0; for _, v := range views { if v.Enabled { enabled++ } }
@@ -169,7 +177,9 @@ func (s *Server) cloneAccount(w http.ResponseWriter, r *http.Request) {
 func (s *Server) shareAccount(w http.ResponseWriter, r *http.Request) {
 	id, e := pathID(r); if e != nil { writeError(w, 400, "invalid account id"); return }
 	a, e := s.accounts.Raw(id); if e != nil { writeError(w, 404, e.Error()); return }
-	uri, e := accountcfg.ShareURI(a, shareHost(r)); if e != nil { writeError(w, 400, e.Error()); return }; writeJSON(w, 200, map[string]any{"uri": uri})
+	uri, e := accountcfg.ShareURI(a, shareHost(r)); if e != nil { writeError(w, 400, e.Error()); return }
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, 200, map[string]any{"uri": uri})
 }
 func (s *Server) qrAccount(w http.ResponseWriter, r *http.Request) {
 	id, e := pathID(r); if e != nil { writeError(w, 400, "invalid account id"); return }
