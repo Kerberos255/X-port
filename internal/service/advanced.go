@@ -134,6 +134,7 @@ func (s *Accounts) UpdateAdvanced(id int64, in AdvancedConfig) (AdvancedConfig, 
 			} else {
 				stream[key] = transport
 			}
+		}
 	}
 
 	settingsJSON, err := json.Marshal(settings)
