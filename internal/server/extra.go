@@ -29,6 +29,7 @@ func (s *Server) registerExtraRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/xport/restart", s.require(http.HandlerFunc(s.restartPanel)))
 	mux.Handle("GET /api/xport/update", s.require(http.HandlerFunc(s.checkPanelUpdate)))
 	mux.Handle("POST /api/xport/update", s.require(http.HandlerFunc(s.updatePanel)))
+	s.registerUXRoutes(mux)
 }
 
 func (s *Server) exportAccounts(w http.ResponseWriter, r *http.Request) {
