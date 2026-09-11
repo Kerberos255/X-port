@@ -24,7 +24,7 @@ if [[ -n "${XPORT_ADMIN_PASSWORD:-}" ]]; then ADMIN_PASSWORD="$XPORT_ADMIN_PASSW
   [[ "$ADMIN_PASSWORD" == "$ADMIN_PASSWORD_CONFIRM" ]] || { echo "Passwords do not match." >&2; exit 1; }
 fi
 [[ ${#ADMIN_PASSWORD} -ge 12 ]] || { echo "Password must be at least 12 characters." >&2; exit 1; }
-printf '%s\n' "$ADMIN_PASSWORD" | "$XPORT_BIN" init --data "$DATA_DIR" --admin-user "$ADMIN_USER"
+printf '%s\n' "$ADMIN_PASSWORD" | "$XPORT_BIN" init --data "$DATA_DIR" --admin-user "$ADMIN_USER" --listen "$LISTEN"
 unset ADMIN_PASSWORD ADMIN_PASSWORD_CONFIRM XPORT_ADMIN_PASSWORD
 
 # Install the latest published Xray release through X-port itself. The updater
@@ -57,7 +57,7 @@ After=network-online.target
 Wants=network-online.target
 [Service]
 Type=simple
-ExecStart=$XPORT_BIN serve --data $DATA_DIR --listen $LISTEN --xray-binary $PREFIX/bin/xray --xray-config $DATA_DIR/xray/config.json --xray-service xport-xray.service
+ExecStart=$XPORT_BIN serve --data $DATA_DIR --xray-binary $PREFIX/bin/xray --xray-config $DATA_DIR/xray/config.json --xray-service xport-xray.service
 Restart=on-failure
 RestartSec=3
 UMask=0027
