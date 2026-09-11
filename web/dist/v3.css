@@ -10,14 +10,16 @@
 .server-core>div:last-child>.muted{display:block;line-height:1.2}
 .server-core h3{margin:5px 0 4px;line-height:1.25}
 
-/* Account row: account -> current connections -> enable -> port -> protocol -> usage -> expiry -> actions. */
-.account-row{grid-template-columns:minmax(150px,1.25fr) 70px 54px 76px minmax(108px,.85fr) minmax(125px,1fr) 88px auto}
+/* Account row: account -> current connections -> port -> protocol -> usage -> expiry -> enable -> actions. */
+.account-row{grid-template-columns:minmax(150px,1.25fr) 70px 76px minmax(108px,.85fr) minmax(125px,1fr) 88px 54px auto}
 .online-cell{display:flex;justify-content:center;align-items:center;min-width:0}
 .online-pill{display:inline-flex;align-items:center;gap:5px;padding:4px 7px;border:1px solid rgba(110,142,177,.13);border-radius:999px;color:#72839a;font-size:9px;white-space:nowrap;background:rgba(83,108,139,.045)}
 .online-pill i{width:6px;height:6px;border-radius:50%;background:#627187}
 .online-pill.on{color:#62a98e;border-color:rgba(68,183,143,.18);background:rgba(52,169,132,.055)}
 .online-pill.on i{background:var(--green);box-shadow:0 0 8px rgba(98,220,168,.42)}
 .online-pill.loading{opacity:.58}
+.enable-cell{grid-column:7;justify-self:end}
+.row-actions{grid-column:8}
 .port-cell .tag{padding-left:7px;padding-right:7px}
 
 .required-mark{color:#e89b79;margin-left:2px;font-weight:800}
@@ -49,16 +51,16 @@ html[data-theme="light"] .expert-section input,html[data-theme="light"] .expert-
 html[data-theme="light"] .online-pill{background:rgba(232,239,247,.55);border-color:rgba(68,96,130,.12);color:#65768c}
 html[data-theme="light"] .online-pill.on{background:rgba(55,178,141,.07);color:#39856c}
 
-@media(max-width:900px) and (min-width:701px){.account-row{grid-template-columns:minmax(135px,1fr) 64px 50px 72px minmax(100px,.8fr) auto}.account-row>.usage-cell,.account-row>.hide-mid:not(.protocol-cell){display:none}}
+@media(max-width:900px) and (min-width:701px){.account-row{grid-template-columns:minmax(135px,1fr) 64px 72px minmax(100px,.8fr) 50px auto}.enable-cell{grid-column:5}.row-actions{grid-column:6}.account-row>.usage-cell,.account-row>.hide-mid:not(.protocol-cell){display:none}}
 @media(max-width:700px){
  .server-core{gap:13px}.uptime-ring{min-width:78px}.uptime-ring strong{font-size:29px}.uptime-ring span{font-size:11px}
  .account-row{grid-template-columns:minmax(0,1fr) auto auto!important}
  .account-row .account-name{grid-column:1!important;grid-row:1}
- .account-row .online-cell{grid-column:2;grid-row:1;justify-self:end}
- .account-row .enable-cell{grid-column:3;grid-row:1;justify-self:end}
+ .account-row .online-cell{grid-column:2/4;grid-row:1;justify-self:end}
+ .account-row .enable-cell{grid-column:1;grid-row:4;justify-self:start;align-self:center}
  .account-row>.port-cell{grid-column:1;grid-row:2}
  .account-row>.protocol-cell{grid-column:2/4;grid-row:2;justify-content:flex-end}
  .account-row>.usage-cell{grid-column:1/-1;grid-row:3}
- .account-row .row-actions{grid-column:1/-1;grid-row:4}
+ .account-row .row-actions{grid-column:2/4;grid-row:4}
  .expert-section{grid-template-columns:1fr}.expert-section-title,.expert-section label.full{grid-column:1}
 }
