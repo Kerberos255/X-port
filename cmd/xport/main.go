@@ -59,8 +59,8 @@ func main() {
 }
 func usage() {
 	fmt.Fprintln(os.Stderr, `X-port
-  xport serve       --data /etc/x-port --listen 127.0.0.1:8080
-  xport init        --data /etc/x-port --admin-user admin   # password from stdin
+  xport serve       --data /etc/x-port [--listen 127.0.0.1:8080]
+  xport init        --data /etc/x-port --admin-user admin --listen 127.0.0.1:8080
   xport migrate     --data /etc/x-port --from /etc/x-ui/x-ui.db [--apply]
   xport render      --data /etc/x-port --output /etc/x-port/xray/config.json
   xport xray-check  --binary /usr/local/x-port/bin/xray
@@ -77,7 +77,7 @@ func openData(data string) (*store.Store, error) {
 func serve(args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	data := fs.String("data", "/etc/x-port", "data directory")
-	listen := fs.String("listen", "127.0.0.1:8080", "listen address")
+	listen := fs.String("listen", "", "listen address override; defaults to stored panel setting")
 	xrayBin := fs.String("xray-binary", "/usr/local/x-port/bin/xray", "Xray binary")
 	xrayConfig := fs.String("xray-config", "/etc/x-port/xray/config.json", "Xray config")
 	xrayService := fs.String("xray-service", "xport-xray.service", "systemd service")
@@ -90,6 +90,17 @@ func serve(args []string) error {
 		return err
 	}
 	defer st.Close()
+	listenAddr := strings.TrimSpace(*listen)
+	if listenAddr == "" {
+		if stored, ok, err := st.Setting("panel_listen"); err != nil {
+			return err
+		} else if ok && strings.TrimSpace(stored) != "" {
+			listenAddr = strings.TrimSpace(stored)
+		}
+	}
+	if listenAddr == "" {
+		listenAddr = "127.0.0.1:8080"
+	}
 	static, err := webui.FS()
 	if err != nil {
 		return err
@@ -97,8 +108,8 @@ func serve(args []string) error {
 	manager := &xray.Manager{BinaryPath: *xrayBin, ConfigPath: *xrayConfig, Service: *xrayService, APIPort: *apiPort}
 	accounts := service.NewAccounts(st, manager)
 	updater := &xray.Updater{BinaryPath: *xrayBin, ConfigPath: *xrayConfig, Service: *xrayService}
-	srv := &http.Server{Addr: *listen, Handler: server.New(st, accounts, updater, static).Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 20 * time.Second, WriteTimeout: 2 * time.Minute, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 1 << 20}
-	log.Printf("X-port %s listening on %s", version, *listen)
+	srv := &http.Server{Addr: listenAddr, Handler: server.New(st, accounts, updater, static).Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 20 * time.Second, WriteTimeout: 2 * time.Minute, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 1 << 20}
+	log.Printf("X-port %s listening on %s", version, listenAddr)
 	err = srv.ListenAndServe()
 	if errors.Is(err, http.ErrServerClosed) {
 		return nil
@@ -109,6 +120,7 @@ func initDB(args []string) error {
 	fs := flag.NewFlagSet("init", flag.ContinueOnError)
 	data := fs.String("data", "/etc/x-port", "data directory")
 	user := fs.String("admin-user", "admin", "admin username")
+	listen := fs.String("listen", "127.0.0.1:8080", "initial panel listen address")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -130,13 +142,16 @@ func initDB(args []string) error {
 	if err != nil {
 		return err
 	}
-	return st.SetAdmin(*user, string(hash))
+	if err := st.SetAdmin(*user, string(hash)); err != nil {
+		return err
+	}
+	return st.SetSetting("panel_listen", strings.TrimSpace(*listen))
 }
 func migrateDB(args []string) error {
 	fs := flag.NewFlagSet("migrate", flag.ContinueOnError)
 	data := fs.String("data", "/etc/x-port", "data directory")
 	from := fs.String("from", "/etc/x-ui/x-ui.db", "source x-ui database")
-	apply := fs.Bool("apply", false, "replace X-port accounts with compatible source accounts")
+	apply := fs.Bool("apply", false, "replace X-port accounts and compatible panel settings")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -144,9 +159,13 @@ func migrateDB(args []string) error {
 	if err != nil {
 		return err
 	}
+	adminNames := make([]string, 0, len(result.Admins))
+	for _, a := range result.Admins {
+		adminNames = append(adminNames, a.Username)
+	}
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
-	_ = enc.Encode(map[string]any{"source": *from, "compatible": len(result.Accounts), "warnings": result.Warnings, "skipped": result.Skipped, "apply": *apply})
+	_ = enc.Encode(map[string]any{"source": *from, "compatible": len(result.Accounts), "adminUsernames": adminNames, "panelListen": result.PanelListen, "warnings": result.Warnings, "skipped": result.Skipped, "apply": *apply})
 	if !*apply {
 		return nil
 	}
@@ -158,7 +177,20 @@ func migrateDB(args []string) error {
 		return err
 	}
 	defer st.Close()
-	return st.ReplaceAccounts(result.Accounts)
+	if err := st.ReplaceAccounts(result.Accounts); err != nil {
+		return err
+	}
+	if len(result.Admins) > 0 {
+		if err := st.ReplaceAdmins(result.Admins); err != nil {
+			return err
+		}
+	}
+	if result.PanelListen != "" {
+		if err := st.SetSetting("panel_listen", result.PanelListen); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 func render(args []string) error {
 	fs := flag.NewFlagSet("render", flag.ContinueOnError)
