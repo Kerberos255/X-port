@@ -16,12 +16,17 @@ import (
 )
 
 type Result struct {
-	Accounts    []model.Account `json:"accounts"`
-	Admins      []model.Admin   `json:"-"`
-	PanelListen string          `json:"panelListen,omitempty"`
-	Warnings    []string        `json:"warnings"`
-	Skipped     []string        `json:"skipped"`
+	Accounts      []model.Account `json:"accounts"`
+	Admins        []model.Admin   `json:"-"`
+	PanelListen   string          `json:"panelListen,omitempty"`
+	PanelBasePath string          `json:"panelBasePath,omitempty"`
+	PanelCertFile string          `json:"-"`
+	PanelKeyFile  string          `json:"-"`
+	PanelDomain   string          `json:"panelDomain,omitempty"`
+	Warnings      []string        `json:"warnings"`
+	Skipped       []string        `json:"skipped"`
 }
+
 type sourceInbound struct {
 	ID                                                int64
 	Up, Down, Total, AllTime                          int64
@@ -32,6 +37,7 @@ type sourceInbound struct {
 	Port                                              int
 	Protocol, Settings, StreamSettings, Tag, Sniffing string
 }
+
 type clientHint struct {
 	ID         string `json:"id"`
 	Email      string `json:"email"`
@@ -60,7 +66,10 @@ func ReadXUI(path string) (Result, error) {
 		res.Accounts=append(res.Accounts,model.Account{Name:name,Enabled:in.Enable,DisabledReason:reason,Listen:in.Listen,Port:in.Port,Protocol:strings.ToLower(in.Protocol),SettingsJSON:normalizeJSON(in.Settings,"{}"),StreamSettingsJSON:normalizeJSON(in.StreamSettings,"{}"),SniffingJSON:normalizeJSON(in.Sniffing,"{}"),Tag:tag,UpBytes:in.Up,DownBytes:in.Down,QuotaBytes:quota,AllTimeBytes:in.AllTime,ExpiryTime:expiry})
 	}
 	if err:=rows.Err();err!=nil{rows.Close();return Result{},err};_ = rows.Close()
-	admins,warnings,err:=readAdmins(db);if err!=nil{return Result{},err};res.Admins=admins;res.Warnings=append(res.Warnings,warnings...);panelListen,warnings,err:=readPanelListen(db);if err!=nil{return Result{},err};res.PanelListen=panelListen;res.Warnings=append(res.Warnings,warnings...);if len(res.Accounts)==0{res.Warnings=append(res.Warnings,"no compatible one-account inbounds found")};return res,nil
+	admins,warnings,err:=readAdmins(db);if err!=nil{return Result{},err};res.Admins=admins;res.Warnings=append(res.Warnings,warnings...)
+	panelListen,warnings,err:=readPanelListen(db);if err!=nil{return Result{},err};res.PanelListen=panelListen;res.Warnings=append(res.Warnings,warnings...)
+	panel,warnings,err:=readPanelSettings(db);if err!=nil{return Result{},err};res.PanelBasePath=panel.BasePath;res.PanelCertFile=panel.CertFile;res.PanelKeyFile=panel.KeyFile;res.PanelDomain=panel.Domain;res.Warnings=append(res.Warnings,warnings...)
+	if len(res.Accounts)==0{res.Warnings=append(res.Warnings,"no compatible one-account inbounds found")};return res,nil
 }
 
 func extractCredentialHints(protocol,raw string)([]clientHint,int,error){
