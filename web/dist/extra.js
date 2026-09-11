@@ -1,6 +1,17 @@
 let xportGeodata=null
 let xportSelfUpdate=null
 let xrayRollback=null
+const xportThemeKey='xport-theme'
+
+function applyTheme(theme){
+ const value=theme==='light'?'light':'dark'
+ document.documentElement.dataset.theme=value
+ document.documentElement.style.colorScheme=value
+ localStorage.setItem(xportThemeKey,value)
+ const meta=document.querySelector('meta[name="theme-color"]');if(meta)meta.content=value==='light'?'#f4f7fb':'#070b12'
+ const b=$('#theme-toggle');if(b){b.querySelector('.theme-icon').textContent=value==='light'?'☾':'☀';b.querySelector('.theme-label').textContent=value==='light'?'夜间模式':'白天模式';b.title=value==='light'?'切换到夜间模式':'切换到白天模式'}
+}
+applyTheme(localStorage.getItem(xportThemeKey)||'dark')
 
 async function loadSettings(){
  try{
@@ -69,13 +80,32 @@ async function updateGeodata(){
  try{const d=await api('/api/xray/geodata',{method:'POST',body:'{}'});xportGeodata=d;toast(`GeoData 已更新到 ${d.current}`);await checkGeodata()}catch(e){toast(e.message,true);b.disabled=false;b.textContent='重试更新'}
 }
 
+function buildXrayUpdatePanel(){
+ const panels=$$('#page-xray .two-col .panel'),panel=panels[1];if(!panel||$('#xray-page-update-state'))return
+ panel.innerHTML=`<div class="panel-head"><div><span class="kicker">UPDATE CHANNEL</span><h2>官方 Release</h2></div><span id="xray-page-update-state" class="status"><i></i>检查中</span></div><div class="version-line"><div><small>当前版本</small><b id="xray-page-update-current">—</b></div><div><small>官方最新</small><b id="xray-page-update-latest">—</b></div></div><p id="xray-page-update-note" class="muted tiny">与概览共用同一次检查结果，不重复请求。</p><div class="button-row"><button id="xray-page-check" class="btn ghost">重新检查</button><button id="xray-page-do-update" class="btn primary" disabled>更新 Xray</button><button id="xray-page-rollback" class="btn ghost" disabled>暂无上一版</button></div>`
+ $('#xray-page-check').onclick=()=>checkUpdate(true)
+ $('#xray-page-do-update').onclick=updateXray
+ $('#xray-page-rollback').onclick=rollbackXray
+}
+
+function renderXrayUpdateState(d,error=''){
+ buildXrayUpdatePanel()
+ const stateEl=$('#xray-page-update-state'),cur=$('#xray-page-update-current'),latest=$('#xray-page-update-latest'),note=$('#xray-page-update-note'),btn=$('#xray-page-do-update')
+ if(!stateEl||!cur||!latest||!note||!btn)return
+ if(error){stateEl.className='status bad';stateEl.innerHTML='<i></i>检查失败';latest.textContent='—';note.textContent=error;btn.disabled=true;btn.textContent='更新 Xray';return}
+ if(!d){stateEl.className='status';stateEl.innerHTML='<i></i>检查中';note.textContent='与概览共用同一次检查结果，不重复请求。';return}
+ cur.textContent=d.current?`v${String(d.current).replace(/^v/,'')}`:'未安装'
+ latest.textContent=d.latest?`v${String(d.latest).replace(/^v/,'')}`:'—'
+ stateEl.className=`status ${d.available?'':'ok'}`;stateEl.innerHTML=`<i></i>${d.available?'可更新':'已是最新'}`
+ note.textContent=d.available?`发现${d.prerelease?'预发布':''}新版本 · ${d.asset}`:'当前已是最新版本'
+ btn.disabled=!d.available;btn.textContent=d.available?'更新 Xray':'已是最新'
+}
+
 function ensureXrayRollbackButtons(){
  const overview=$('#do-update')?.parentElement
  if(overview&&!$('#rollback-xray'))overview.insertAdjacentHTML('beforeend','<button id="rollback-xray" class="btn ghost" disabled>暂无上一版</button>')
- const pageBtn=$('#xray-page-update')
- if(pageBtn&&!$('#xray-page-rollback'))pageBtn.insertAdjacentHTML('afterend','<button id="xray-page-rollback" class="btn ghost" disabled>暂无上一版</button>')
+ buildXrayUpdatePanel()
  $('#rollback-xray')?.addEventListener('click',rollbackXray)
- $('#xray-page-rollback')?.addEventListener('click',rollbackXray)
 }
 
 async function checkXrayRollback(){
@@ -96,16 +126,19 @@ async function rollbackXray(){
 }
 
 async function checkUpdate(manual=false){
- const latest=$('#update-latest'),note=$('#update-note'),btn=$('#do-update');latest.textContent='检查中';btn.disabled=true
- try{const d=await api('/api/xray/update');state.update=d;$('#update-current').textContent=d.current?`v${String(d.current).replace(/^v/,'')}`:'未安装';latest.textContent=d.latest?`v${String(d.latest).replace(/^v/,'')}`:'—';note.textContent=d.available?`发现${d.prerelease?'预发布':''}新版本 · ${d.asset}`:'当前已是最新版本';btn.disabled=!d.available;btn.textContent=d.available?'更新 Xray':'已是最新';if(manual)toast(d.available?'发现可用更新':'Xray 已是最新')}catch(e){latest.textContent='检查失败';note.textContent=e.message;if(manual)toast(e.message,true)}
+ const latest=$('#update-latest'),note=$('#update-note'),btn=$('#do-update');latest.textContent='检查中';btn.disabled=true;renderXrayUpdateState(null)
+ try{
+  const d=await api('/api/xray/update');state.update=d
+  $('#update-current').textContent=d.current?`v${String(d.current).replace(/^v/,'')}`:'未安装';latest.textContent=d.latest?`v${String(d.latest).replace(/^v/,'')}`:'—';note.textContent=d.available?`发现${d.prerelease?'预发布':''}新版本 · ${d.asset}`:'当前已是最新版本';btn.disabled=!d.available;btn.textContent=d.available?'更新 Xray':'已是最新';renderXrayUpdateState(d);if(manual)toast(d.available?'发现可用更新':'Xray 已是最新')
+ }catch(e){latest.textContent='检查失败';note.textContent=e.message;renderXrayUpdateState(null,e.message);if(manual)toast(e.message,true)}
  await checkXrayRollback()
 }
 
 async function updateXray(){
  if(!state.update?.available){await checkUpdate(true);if(!state.update?.available)return}
  if(!confirm(`将 Xray 从 ${state.update.current||'当前版本'} 更新到 ${state.update.latest}？\n更新失败自动恢复旧版本。`))return
- const b=$('#do-update');b.disabled=true;b.textContent='更新中…'
- try{const d=await api('/api/xray/update',{method:'POST',body:'{}'});state.update=d;toast(`Xray 已更新到 ${d.current}`);await loadOverview();await checkUpdate()}catch(e){toast(e.message,true);b.disabled=false;b.textContent='重试更新'}
+ const buttons=[$('#do-update'),$('#xray-page-do-update')].filter(Boolean);buttons.forEach(b=>{b.disabled=true;b.textContent='更新中…'})
+ try{const d=await api('/api/xray/update',{method:'POST',body:'{}'});state.update=d;toast(`Xray 已更新到 ${d.current}`);await loadOverview();await checkUpdate()}catch(e){toast(e.message,true);renderXrayUpdateState(state.update);const b=$('#do-update');if(b){b.disabled=false;b.textContent='重试更新'}}
 }
 
 async function importBackupFile(file){
@@ -155,28 +188,58 @@ function bindMetricRings(){
  }
 }
 
+function initThemeControl(){
+ const foot=$('.side-foot');if(!foot)return
+ foot.innerHTML=`<button id="theme-toggle" class="theme-toggle" type="button"><span class="theme-icon">☀</span><span class="theme-label">白天模式</span></button><div class="node-badge"><span class="pulse-dot"></span><span>PRIVATE NODE</span></div>`
+ $('#theme-toggle').onclick=()=>applyTheme(document.documentElement.dataset.theme==='light'?'dark':'light')
+ applyTheme(localStorage.getItem(xportThemeKey)||'dark')
+}
+
+async function enhanceAccountEditor(a){
+ const form=$('#account-form');if(!form)return
+ const protocol=$('#protocol-select')?.closest('label')
+ if(protocol){protocol.classList.add('protocol-first','full');form.prepend(protocol);if(a?.id&&!protocol.querySelector('.field-hint'))protocol.insertAdjacentHTML('beforeend','<small class="field-hint">创建后不可修改</small>')}
+ const proto=$('#proto-fields');if(!proto||$('#account-advanced'))return
+ const details=document.createElement('details');details.id='account-advanced';details.className='advanced account-advanced full'
+ details.innerHTML=`<summary><span>高级</span><small>Fallbacks · PROXY Protocol · HTTP 伪装</small></summary><div class="advanced-loading muted tiny">${a?.id?'正在读取高级配置…':'创建账号后可配置高级选项。'}</div>`
+ proto.insertAdjacentElement('afterend',details)
+ if(!a?.id)return
+ try{
+  const d=await api(`/api/accounts/${a.id}/advanced`)
+  const fallback=d.supportsFallbacks?`<label class="full advanced-fallbacks">Fallbacks JSON<textarea id="advanced-fallbacks" spellcheck="false" placeholder='[{"dest":80}]'>${esc(d.fallbacksJson||'[]')}</textarea><small class="field-hint">仅 VLESS/Trojan + TCP/RAW + TLS 生效</small></label>`:''
+  const httpHeader=d.supportsHttpHeader?`<label class="full advanced-http-header">HTTP 伪装 Header JSON<textarea id="advanced-http-header" spellcheck="false" placeholder='{"type":"http","request":{},"response":{}}'>${esc(d.httpHeaderJson||'')}</textarea><small class="field-hint">留空表示不使用；TCP/RAW 客户端需保持一致</small></label>`:''
+  details.innerHTML=`<summary><span>高级</span><small>Fallbacks · PROXY Protocol · HTTP 伪装</small></summary><div class="advanced-body"><label class="checkline advanced-proxy"><input id="advanced-proxy" type="checkbox" ${d.acceptProxyProtocol?'checked':''}>接收 PROXY Protocol</label>${fallback}${httpHeader}<p class="muted tiny full">未列出的迁移参数继续原样保留；以后新增的 Xray 高级项也放在这里。</p><div class="advanced-actions full"><button id="save-advanced" type="button" class="btn ghost">保存高级设置</button></div></div>`
+  $('#save-advanced').onclick=async()=>{
+   const b=$('#save-advanced');b.disabled=true;b.textContent='应用中…'
+   try{
+    await api(`/api/accounts/${a.id}/advanced`,{method:'PUT',body:JSON.stringify({acceptProxyProtocol:$('#advanced-proxy')?.checked||false,fallbacksJson:$('#advanced-fallbacks')?.value||'',httpHeaderJson:$('#advanced-http-header')?.value||''})})
+    toast('高级设置已应用');b.textContent='已保存';setTimeout(()=>{if(b.isConnected){b.disabled=false;b.textContent='保存高级设置'}},900)
+   }catch(e){toast(e.message,true);b.disabled=false;b.textContent='保存高级设置'}
+  }
+ }catch(e){details.innerHTML=`<summary><span>高级</span></summary><p class="error tiny">${esc(e.message)}</p>`}
+}
+
 function polishStaticCopy(){
  const labels=$$('.summary-strip small');['总账号','已启用','总上传 / 下载','总用量'].forEach((v,i)=>{if(labels[i])labels[i].textContent=v})
  $('#page-accounts > p.muted.tiny')?.remove()
  $('#panel-mode-note')?.remove()
- const xrayPanels=$$('#page-xray .two-col .panel');if(xrayPanels[1]){const p=xrayPanels[1].querySelector('p.muted');if(p)p.textContent='下载官方 XTLS/Xray-core Release，更新失败自动恢复旧版本。'}
  const maintenance=$$('#page-system > article.panel').find(p=>p.querySelector('h2')?.textContent.trim()==='运维边界');maintenance?.remove()
- ensureXrayRollbackButtons()
+ const unit=$('#uptime-days')?.nextElementSibling;if(unit)unit.textContent='天'
+ buildXrayUpdatePanel();ensureXrayRollbackButtons();renderXrayUpdateState(state.update)
 }
 
 function bindAdvancedControls(){
- polishStaticCopy()
+ polishStaticCopy();initThemeControl()
+ const baseOpen=openAccountModal;openAccountModal=async function(a=null){await baseOpen(a);await enhanceAccountEditor(a)}
  $('#export-accounts')?.addEventListener('click',exportAccounts)
  $('#check-geodata')?.addEventListener('click',()=>checkGeodata(true))
  $('#update-geodata')?.addEventListener('click',updateGeodata)
  $('#restart-xport')?.addEventListener('click',restartXport)
  $('#import-backup')?.addEventListener('click',()=>$('#backup-file')?.click())
  $('#backup-file')?.addEventListener('change',e=>importBackupFile(e.target.files?.[0]))
- const xrayNav=$('#nav button[data-page="xray"]');xrayNav?.addEventListener('click',()=>{void checkGeodata(false);void checkXrayRollback()})
- const systemNav=$('#nav button[data-page="system"]');systemNav?.addEventListener('click',()=>{ensureSelfUpdateCard();void checkXportUpdate(false)})
- bindMetricRings()
- ensureSelfUpdateCard()
- void checkXrayRollback()
+ const xrayNav=$('#nav button[data-page="xray"]');xrayNav?.addEventListener('click',()=>{renderXrayUpdateState(state.update);if(!xportGeodata)void checkGeodata(false);if(!xrayRollback)void checkXrayRollback()})
+ const systemNav=$('#nav button[data-page="system"]');systemNav?.addEventListener('click',()=>{ensureSelfUpdateCard();if(!xportSelfUpdate)void checkXportUpdate(false)})
+ bindMetricRings();ensureSelfUpdateCard();void checkXrayRollback()
 }
 
 document.addEventListener('DOMContentLoaded',bindAdvancedControls)
