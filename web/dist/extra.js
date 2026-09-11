@@ -102,26 +102,20 @@ function renderXrayUpdateState(d,error=''){
 }
 
 function ensureXrayRollbackButtons(){
- const overview=$('#do-update')?.parentElement
- if(overview&&!$('#rollback-xray'))overview.insertAdjacentHTML('beforeend','<button id="rollback-xray" class="btn ghost" disabled>暂无上一版</button>')
  buildXrayUpdatePanel()
- $('#rollback-xray')?.addEventListener('click',rollbackXray)
 }
 
 async function checkXrayRollback(){
  ensureXrayRollbackButtons()
  try{xrayRollback=await api('/api/xray/rollback')}catch{xrayRollback=null}
- for(const b of [$('#rollback-xray'),$('#xray-page-rollback')]){
-  if(!b)continue
-  b.disabled=!xrayRollback?.available
-  b.textContent=xrayRollback?.available?`回退到 ${xrayRollback.previous}`:'暂无上一版'
- }
+ const b=$('#xray-page-rollback')
+ if(b){b.disabled=!xrayRollback?.available;b.textContent=xrayRollback?.available?`回退到 ${xrayRollback.previous}`:'暂无上一版'}
 }
 
 async function rollbackXray(){
  if(!xrayRollback?.available){await checkXrayRollback();if(!xrayRollback?.available)return}
  if(!confirm(`将 Xray 从 ${xrayRollback.current} 回退到 ${xrayRollback.previous}？\n旧 core 会先验证当前配置；失败自动保持当前版本。`))return
- const buttons=[$('#rollback-xray'),$('#xray-page-rollback')].filter(Boolean);buttons.forEach(b=>b.disabled=true)
+ const b=$('#xray-page-rollback');if(b)b.disabled=true
  try{const d=await api('/api/xray/rollback',{method:'POST',body:'{}'});toast(`Xray 已切换到 ${d.current}`);await loadOverview();await checkUpdate();await checkXrayRollback()}catch(e){toast(e.message,true);await checkXrayRollback()}
 }
 
