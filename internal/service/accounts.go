@@ -28,11 +28,11 @@ func (s *Accounts) List() ([]accountcfg.View, error) {
 	}
 	out := make([]accountcfg.View, 0, len(accounts))
 	for _, a := range accounts {
-		v, _ := accountcfg.ToView(a)
-		out = append(out, v)
+		out = append(out, accountcfg.PublicView(a))
 	}
 	return out, nil
 }
+
 func (s *Accounts) Get(id int64) (accountcfg.View, error) {
 	a, err := s.raw(id)
 	if err != nil {
@@ -49,13 +49,13 @@ func (s *Accounts) Create(in accountcfg.Input) (accountcfg.View, error) {
 	if err != nil {
 		return accountcfg.View{}, err
 	}
-	if in.Port == 0 {
-		in.Port = accountcfg.NextPort(old)
-		if in.Port == 0 {
-			return accountcfg.View{}, errors.New("no automatic port available")
-		}
+	if err := s.prepareInput(&in, old); err != nil {
+		return accountcfg.View{}, err
 	}
 	if err := uniquePort(old, in.Port, 0); err != nil {
+		return accountcfg.View{}, err
+	}
+	if err := ensurePortFree(in.Port); err != nil {
 		return accountcfg.View{}, err
 	}
 	a, err := accountcfg.New(in, in.Port)
@@ -72,6 +72,7 @@ func (s *Accounts) Create(in accountcfg.Input) (accountcfg.View, error) {
 	}
 	return accountcfg.ToView(saved)
 }
+
 func (s *Accounts) Update(id int64, in accountcfg.Input) (accountcfg.View, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -89,6 +90,11 @@ func (s *Accounts) Update(id int64, in accountcfg.Input) (accountcfg.View, error
 	if err := uniquePort(old, in.Port, id); err != nil {
 		return accountcfg.View{}, err
 	}
+	if in.Port != old[idx].Port {
+		if err := ensurePortFree(in.Port); err != nil {
+			return accountcfg.View{}, err
+		}
+	}
 	a, err := accountcfg.Update(old[idx], in)
 	if err != nil {
 		return accountcfg.View{}, err
@@ -104,6 +110,7 @@ func (s *Accounts) Update(id int64, in accountcfg.Input) (accountcfg.View, error
 	}
 	return accountcfg.ToView(saved)
 }
+
 func (s *Accounts) Delete(id int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -118,6 +125,7 @@ func (s *Accounts) Delete(id int64) error {
 	next := append(copyAccounts(old[:idx]), old[idx+1:]...)
 	return s.applyAndPersist(old, next)
 }
+
 func (s *Accounts) Clone(id int64, name string, port int) (accountcfg.View, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -130,10 +138,13 @@ func (s *Accounts) Clone(id int64, name string, port int) (accountcfg.View, erro
 		return accountcfg.View{}, errors.New("account not found")
 	}
 	if port == 0 {
-		port = accountcfg.NextPort(old)
+		minPort, maxPort, apiPort := s.portDefaults()
+		port = nextFreePort(old, minPort, maxPort, apiPort)
 		if port == 0 {
-			return accountcfg.View{}, errors.New("no automatic port available")
+			return accountcfg.View{}, fmt.Errorf("no automatic port available in %d-%d", minPort, maxPort)
 		}
+	} else if err := ensurePortFree(port); err != nil {
+		return accountcfg.View{}, err
 	}
 	if err := uniquePort(old, port, 0); err != nil {
 		return accountcfg.View{}, err
@@ -169,6 +180,7 @@ func (s *Accounts) applyAndPersist(old, next []model.Account) error {
 	}
 	return nil
 }
+
 func (s *Accounts) raw(id int64) (model.Account, error) {
 	a, err := s.store.Accounts()
 	if err != nil {
