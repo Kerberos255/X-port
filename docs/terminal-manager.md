@@ -28,7 +28,7 @@ The menu intentionally keeps server operations in the terminal while the WebUI s
  11. 更新 GeoData
 
  12. 备份与恢复
- 13. X-Panel / 3x-ui 迁移
+ 13. x-ui / 3x-ui 迁移
  14. 开机自启设置
  15. 防火墙管理（仅终端）
  16. 修复 systemd 安装
@@ -80,13 +80,9 @@ The terminal restore path creates a pre-restore backup, validates the target pan
 
 ## Migration
 
-`scripts/install.sh` installs the guarded migration helper to:
+`scripts/install.sh` installs the guarded migration helper under `/usr/local/lib/xport/`.
 
-```text
-/usr/local/lib/xport/migrate-xpanel.sh
-```
-
-The menu's X-Panel / 3x-ui migration item runs that guarded script. It retains the existing dry-run, backup, watchdog suppression and rollback behavior rather than bypassing it with a simpler migration path.
+The menu's x-ui / 3x-ui migration item runs that guarded script. It retains the existing dry-run, backup, watchdog suppression and rollback behavior rather than bypassing it with a simpler migration path.
 
 ## First installation
 
