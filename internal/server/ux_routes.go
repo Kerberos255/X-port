@@ -13,6 +13,8 @@ func (s *Server) registerUXRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /api/accounts/online", s.require(http.HandlerFunc(s.accountOnlineConnections)))
 	mux.Handle("GET /api/accounts/{id}/advanced", s.require(http.HandlerFunc(s.getAccountAdvanced)))
 	mux.Handle("PUT /api/accounts/{id}/advanced", s.require(http.HandlerFunc(s.updateAccountAdvanced)))
+	mux.Handle("GET /api/accounts/{id}/expert", s.require(http.HandlerFunc(s.getAccountExpert)))
+	mux.Handle("PUT /api/accounts/{id}/expert", s.require(http.HandlerFunc(s.updateAccountExpert)))
 	mux.Handle("GET /api/xray/rollback", s.require(http.HandlerFunc(s.checkXrayRollback)))
 	mux.Handle("POST /api/xray/rollback", s.require(http.HandlerFunc(s.rollbackXray)))
 }
@@ -80,6 +82,38 @@ func (s *Server) updateAccountAdvanced(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	view, err := s.accounts.UpdateAdvanced(id, req)
+	if err != nil {
+		writeError(w, 400, err.Error())
+		return
+	}
+	writeJSON(w, 200, view)
+}
+
+func (s *Server) getAccountExpert(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, 400, "invalid account id")
+		return
+	}
+	view, err := s.accounts.Expert(id)
+	if err != nil {
+		writeError(w, 400, err.Error())
+		return
+	}
+	writeJSON(w, 200, view)
+}
+
+func (s *Server) updateAccountExpert(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, 400, "invalid account id")
+		return
+	}
+	var req service.ExpertConfig
+	if decodeJSON(w, r, &req) != nil {
+		return
+	}
+	view, err := s.accounts.UpdateExpert(id, req)
 	if err != nil {
 		writeError(w, 400, err.Error())
 		return
