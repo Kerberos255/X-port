@@ -1,7 +1,6 @@
 package server
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -10,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"golang.org/x/crypto/bcrypt"
 
@@ -144,7 +144,7 @@ func (s *Server) downloadBackup(w http.ResponseWriter, r *http.Request) {
 	defer f.Close()
 	w.Header().Set("Content-Type", "application/gzip")
 	w.Header().Set("Content-Disposition", `attachment; filename="`+info.Name+`"`)
-	http.ServeContent(w, r, info.Name, timeFromMillis(info.CreatedAt), f)
+	http.ServeContent(w, r, info.Name, time.UnixMilli(info.CreatedAt), f)
 }
 
 func (s *Server) restoreBackup(w http.ResponseWriter, r *http.Request) {
@@ -153,7 +153,6 @@ func (s *Server) restoreBackup(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 503, "backup directory is not configured")
 		return
 	}
-	// Always take a fresh recovery point before a restore operation.
 	current, err := s.store.Snapshot()
 	if err != nil {
 		writeError(w, 500, err.Error())
@@ -280,7 +279,3 @@ func settingString(st interface{ Setting(string)(string,bool,error) }, key, fall
 func settingIntServer(st interface{ Setting(string)(string,bool,error) }, key string, fallback int) int {
 	v := settingString(st,key,""); if v=="" { return fallback }; n,err:=strconv.Atoi(v);if err!=nil{return fallback};return n
 }
-
-func timeFromMillis(ms int64) time.Time { return time.UnixMilli(ms) }
-
-var _ = json.Valid
