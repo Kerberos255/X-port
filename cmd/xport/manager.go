@@ -148,16 +148,16 @@ func pauseReader(r *bufio.Reader) { fmt.Print("按 Enter 返回菜单..."); _, _
 func confirmReader(r *bufio.Reader, label string) bool { v := strings.ToLower(promptReader(r, label+" [y/N]", "")); return v == "y" || v == "yes" }
 func readSecret(r *bufio.Reader, label string) string {
 	fmt.Print(label)
-	_ = exec.Command("stty", "-echo").Run()
+	off:=exec.Command("stty","-echo");off.Stdin=os.Stdin;_ = off.Run()
 	v, _ := r.ReadString('\n')
-	_ = exec.Command("stty", "echo").Run()
+	on:=exec.Command("stty","echo");on.Stdin=os.Stdin;_ = on.Run()
 	fmt.Println()
 	return strings.TrimSpace(v)
 }
 
 func requireRoot() error { if os.Geteuid() != 0 { return errors.New("此操作需要 root，请使用 sudo xport") }; return nil }
 func runCommand(name string, args ...string) error { out, err := exec.Command(name, args...).CombinedOutput(); if err != nil { return fmt.Errorf("%s %s: %w: %s", name, strings.Join(args, " "), err, strings.TrimSpace(string(out))) }; if len(out) > 0 { fmt.Print(string(out)) }; return nil }
-func outputCommand(name string, args ...string) string { out, err := exec.Command(name, args...).CombinedOutput(); if err != nil { return "" }; return strings.TrimSpace(string(out)) }
+func outputCommand(name string, args ...string) string { out, _ := exec.Command(name, args...).CombinedOutput(); return strings.TrimSpace(string(out)) }
 func unitState(unit string) string { s := outputCommand("systemctl", "is-active", unit); if s == "" { return "unknown" }; return s }
 
 func serviceAction(action string, units ...string) error {
@@ -232,7 +232,7 @@ func settingsMenu() error {
 
 func adminMenu() error {
 	if err:=requireRoot();err!=nil{return err};st,err:=store.Open(dbPath(managerDataDir));if err!=nil{return err};defer st.Close();admins,err:=st.Admins();if err!=nil{return err};if len(admins)==0{return errors.New("未找到管理员")};r:=bufio.NewReader(os.Stdin);old:=admins[0].Username
-	user:=promptReader(r,"管理员用户名",old);p1:=readSecret(r,"新密码（至少 12 位；直接回车表示只改用户名）: ");hash:=admins[0].PasswordHash
+	user:=strings.TrimSpace(promptReader(r,"管理员用户名",old));if user==""{return errors.New("管理员用户名不能为空")};p1:=readSecret(r,"新密码（至少 12 位；直接回车表示只改用户名）: ");hash:=admins[0].PasswordHash
 	if p1!=""{if len(p1)<12{return errors.New("密码至少 12 位")};p2:=readSecret(r,"重复新密码: ");if p1!=p2{return errors.New("两次密码不一致")};h,err:=bcrypt.GenerateFromPassword([]byte(p1),bcrypt.DefaultCost);if err!=nil{return err};hash=string(h)}
 	if user==old&&p1==""{fmt.Println("没有修改。");return nil};return st.ApplySettings(nil,old,user,hash)
 }
@@ -261,13 +261,16 @@ func backupMenu() error {
 	case "3":items,err:=backup.List(dir);if err!=nil{return err};if len(items)==0{return errors.New("没有可恢复的备份")};for i,v:=range items{fmt.Printf("%2d. %s\n",i+1,v.Name)};n,err:=strconv.Atoi(promptReader(r,"备份编号",""));if err!=nil||n<1||n>len(items){return errors.New("无效编号")};if !confirmReader(r,"恢复会覆盖当前账号和设置，继续？"){return nil};return restoreSnapshotCLI(st,dir,items[n-1].Name)
 	default:return nil}
 }
+func validateSnapshotPanelSettings(settings map[string]string)error{
+	listen:=settings["panel_listen"];if listen!=""{if _,_,err:=net.SplitHostPort(listen);err!=nil{return fmt.Errorf("备份 panel listen 无效: %w",err)}};base:=normalizeBasePath(settings["panel_base_path"]);if !validManagerBasePath(base){return errors.New("备份 Base Path 无效")};cert:=strings.TrimSpace(settings["panel_cert_file"]);key:=strings.TrimSpace(settings["panel_key_file"]);if (cert=="")!=(key==""){return errors.New("备份 TLS cert/key 不完整")};if cert!=""{if _,err:=tls.LoadX509KeyPair(cert,key);err!=nil{return fmt.Errorf("备份 TLS cert/key 无法加载: %w",err)}};return nil
+}
 func restoreSnapshotCLI(st *store.Store,dir,name string)error{
-	old,err:=st.Snapshot();if err!=nil{return err};if _,err:=backup.Create(dir,old);err!=nil{return fmt.Errorf("恢复前备份失败: %w",err)};target,err:=backup.Load(dir,name);if err!=nil{return err}
+	old,err:=st.Snapshot();if err!=nil{return err};if _,err:=backup.Create(dir,old);err!=nil{return fmt.Errorf("恢复前备份失败: %w",err)};target,err:=backup.Load(dir,name);if err!=nil{return err};if err:=validateSnapshotPanelSettings(target.Settings);err!=nil{return err}
 	managerFor:=func(settings map[string]string)*xray.Manager{api:=10085;if v:=settings["xray_api_port"];v!=""{if n,e:=strconv.Atoi(v);e==nil{api=n}};return &xray.Manager{BinaryPath:managerXrayBinary,ConfigPath:managerXrayConfig,Service:managerXrayUnit,APIPort:api,BaseConfigJSON:settings["xray_global_config"]}}
-	targetMgr:=managerFor(target.Settings);if err:=targetMgr.Apply(target.Accounts);err!=nil{return fmt.Errorf("备份 Xray 配置验证失败: %w",err)}
-	if err:=st.ReplaceSnapshot(target);err!=nil{_ = managerFor(old.Settings).Apply(old.Accounts);return fmt.Errorf("恢复数据库失败，Xray 已回滚: %w",err)}
-	fmt.Println("备份已恢复。面板设置可能已变化。")
-	return serviceAction("restart",managerPanelUnit)
+	oldMgr:=managerFor(old.Settings);targetMgr:=managerFor(target.Settings);if err:=targetMgr.Apply(target.Accounts);err!=nil{return fmt.Errorf("备份 Xray 配置验证失败: %w",err)}
+	if err:=st.ReplaceSnapshot(target);err!=nil{_ = oldMgr.Apply(old.Accounts);return fmt.Errorf("恢复数据库失败，Xray 已回滚: %w",err)}
+	if err:=serviceAction("restart",managerPanelUnit);err!=nil{_ = st.ReplaceSnapshot(old);_ = oldMgr.Apply(old.Accounts);_ = serviceAction("restart",managerPanelUnit);return fmt.Errorf("恢复后的面板启动失败，已回滚旧快照: %w",err)}
+	fmt.Println("备份已恢复。");return nil
 }
 
 func guardedMigration() error {
@@ -286,7 +289,14 @@ func firewallMenu()error{
 	if err:=requireRoot();err!=nil{return err};r:=bufio.NewReader(os.Stdin);kind:=firewallKind();fmt.Println("检测到防火墙:",kind);fmt.Println("1. 查看规则\n2. 放行端口\n3. 撤销端口\n0. 返回");choice:=promptReader(r,"请选择","");if choice=="0"{return nil};if choice=="1"{return firewallList(kind)};if choice!="2"&&choice!="3"{return errors.New("无效选项")};if kind!="ufw"&&kind!="firewalld"{return errors.New("当前规则体系只提供只读查看；X-port 不猜测自定义 nftables/iptables 规则")};port,err:=strconv.Atoi(promptReader(r,"端口",""));if err!=nil||port<1||port>65535{return errors.New("无效端口")};proto:=strings.ToLower(promptReader(r,"协议 tcp / udp / both","both"));if proto!="tcp"&&proto!="udp"&&proto!="both"{return errors.New("协议只能是 tcp、udp 或 both")};remove:=choice=="3";verb:="放行";if remove{verb="撤销"};if !confirmReader(r,fmt.Sprintf("确认%s %d/%s？",verb,port,proto)){return nil};return firewallChange(kind,remove,port,proto)
 }
 func firewallList(kind string)error{switch kind{case "ufw":return runCommand("ufw","status","numbered");case "firewalld":return runCommand("firewall-cmd","--list-all");case "nftables-readonly":return runCommand("nft","list","ruleset");case "iptables-readonly":return runCommand("iptables","-S");default:return errors.New("未检测到防火墙工具")}}
-func firewallChange(kind string,remove bool,port int,proto string)error{protos:=[]string{proto};if proto=="both"{protos=[]string{"tcp","udp"}};for _,p:=range protos{spec:=fmt.Sprintf("%d/%s",port,p);switch kind{case "ufw":args:=[]string{"allow",spec};if remove{args=[]string{"delete","allow",spec}};if err:=runCommand("ufw",args...);err!=nil{return err};case "firewalld":flag:="--add-port="+spec;if remove{flag="--remove-port="+spec};if err:=runCommand("firewall-cmd",flag);err!=nil{return err};if err:=runCommand("firewall-cmd","--permanent",flag);err!=nil{return err}}};return nil}
+func firewallChange(kind string,remove bool,port int,proto string)error{
+	protos:=[]string{proto};if proto=="both"{protos=[]string{"tcp","udp"}}
+	for _,p:=range protos{spec:=fmt.Sprintf("%d/%s",port,p);switch kind{
+		case "ufw":args:=[]string{"allow",spec};if remove{args=[]string{"delete","allow",spec}};if err:=runCommand("ufw",args...);err!=nil{return err}
+		case "firewalld":flag:="--add-port="+spec;rollback:="--remove-port="+spec;if remove{flag="--remove-port="+spec;rollback="--add-port="+spec};if err:=runCommand("firewall-cmd",flag);err!=nil{return err};if err:=runCommand("firewall-cmd","--permanent",flag);err!=nil{_ = runCommand("firewall-cmd",rollback);return err}
+	}}
+	return nil
+}
 
 func repairInstall()error{
 	if err:=requireRoot();err!=nil{return err};if _,err:=os.Stat(managerBinary);err!=nil{return errors.New("/usr/local/bin/xport 不存在；首次安装请在源码目录运行 scripts/install.sh")};if _,err:=os.Stat(managerXrayBinary);err!=nil{return errors.New("Xray binary 不存在；首次安装请在源码目录运行 scripts/install.sh")}
