@@ -15,6 +15,7 @@ jobs:
       - run: |
           node --check web/dist/app.js
           node --check web/dist/extra.js
+          node --check web/dist/v3.js
       - run: bash -n scripts/build-linux.sh scripts/install.sh scripts/migrate-xpanel.sh
       - run: go mod tidy
       - run: go test ./...
