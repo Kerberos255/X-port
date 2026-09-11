@@ -81,7 +81,7 @@ Useful checks:
 ```bash
 node --check web/dist/app.js
 node --check web/dist/extra.js
-bash -n scripts/build-linux.sh scripts/install.sh scripts/migrate-xpanel.sh
+bash -n scripts/build-linux.sh scripts/install.sh scripts/migrate-*.sh
 go mod tidy
 go test ./...
 go vet ./...
@@ -103,13 +103,13 @@ If an existing compatible x-ui / 3x-ui installation is detected, the installer d
 
 ## Legacy x-ui / 3x-ui migration
 
-The migration is designed as a guarded cutover, not a blind database copy.
+The migration is designed as a guarded cutover, not a blind database copy. After installation, open the terminal manager:
 
 ```bash
-sudo ./scripts/migrate-xpanel.sh
+sudo xport
 ```
 
-The migration flow:
+Choose the legacy x-ui / 3x-ui migration item. The guarded flow:
 
 1. Reads the old SQLite database and reports compatible/skipped inbounds before changing anything.
 2. Requires the X-port account model: supported migrated inbounds must represent one account on one port. Multi-client inbounds are skipped and block apply until reviewed.
