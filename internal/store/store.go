@@ -35,11 +35,12 @@ func (s *Store) Close() error { return s.db.Close() }
 func (s *Store) Ping() error  { return s.db.Ping() }
 
 func (s *Store) migrate() error {
-	_, err := s.db.Exec(`
+	if _, err := s.db.Exec(`
 CREATE TABLE IF NOT EXISTS accounts (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL,
   enabled INTEGER NOT NULL DEFAULT 1,
+  disabled_reason TEXT NOT NULL DEFAULT '',
   listen TEXT NOT NULL DEFAULT '',
   port INTEGER NOT NULL UNIQUE CHECK(port > 0 AND port <= 65535),
   protocol TEXT NOT NULL,
@@ -52,6 +53,8 @@ CREATE TABLE IF NOT EXISTS accounts (
   quota_bytes INTEGER NOT NULL DEFAULT 0,
   all_time_bytes INTEGER NOT NULL DEFAULT 0,
   expiry_time INTEGER NOT NULL DEFAULT 0,
+  monthly_reset INTEGER NOT NULL DEFAULT 0,
+  last_monthly_reset TEXT NOT NULL DEFAULT '',
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
@@ -64,12 +67,53 @@ CREATE TABLE IF NOT EXISTS admins (
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
-);`)
+);`); err != nil {
+		return err
+	}
+	// Upgrade databases created by early X-port builds in place.
+	for _, c := range []struct{ name, ddl string }{
+		{"disabled_reason", `disabled_reason TEXT NOT NULL DEFAULT ''`},
+		{"monthly_reset", `monthly_reset INTEGER NOT NULL DEFAULT 0`},
+		{"last_monthly_reset", `last_monthly_reset TEXT NOT NULL DEFAULT ''`},
+	} {
+		if err := s.ensureAccountColumn(c.name, c.ddl); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Store) ensureAccountColumn(name, ddl string) error {
+	rows, err := s.db.Query(`PRAGMA table_info(accounts)`)
+	if err != nil {
+		return err
+	}
+	found := false
+	for rows.Next() {
+		var cid, notnull, pk int
+		var column, typ string
+		var dflt any
+		if err := rows.Scan(&cid, &column, &typ, &notnull, &dflt, &pk); err != nil {
+			rows.Close()
+			return err
+		}
+		if column == name {
+			found = true
+		}
+	}
+	err = rows.Close()
+	if err != nil {
+		return err
+	}
+	if found {
+		return nil
+	}
+	_, err = s.db.Exec(`ALTER TABLE accounts ADD COLUMN ` + ddl)
 	return err
 }
 
 func (s *Store) Accounts() ([]model.Account, error) {
-	return scanAccounts(s.db.Query(`SELECT id,name,enabled,listen,port,protocol,settings_json,stream_settings_json,sniffing_json,tag,up_bytes,down_bytes,quota_bytes,all_time_bytes,expiry_time,created_at,updated_at FROM accounts ORDER BY port`))
+	return scanAccounts(s.db.Query(`SELECT id,name,enabled,disabled_reason,listen,port,protocol,settings_json,stream_settings_json,sniffing_json,tag,up_bytes,down_bytes,quota_bytes,all_time_bytes,expiry_time,monthly_reset,last_monthly_reset,created_at,updated_at FROM accounts ORDER BY port`))
 }
 
 func scanAccounts(rows *sql.Rows, err error) ([]model.Account, error) {
@@ -80,7 +124,7 @@ func scanAccounts(rows *sql.Rows, err error) ([]model.Account, error) {
 	out := make([]model.Account, 0)
 	for rows.Next() {
 		var a model.Account
-		if err := rows.Scan(&a.ID, &a.Name, &a.Enabled, &a.Listen, &a.Port, &a.Protocol, &a.SettingsJSON, &a.StreamSettingsJSON, &a.SniffingJSON, &a.Tag, &a.UpBytes, &a.DownBytes, &a.QuotaBytes, &a.AllTimeBytes, &a.ExpiryTime, &a.CreatedAt, &a.UpdatedAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.Name, &a.Enabled, &a.DisabledReason, &a.Listen, &a.Port, &a.Protocol, &a.SettingsJSON, &a.StreamSettingsJSON, &a.SniffingJSON, &a.Tag, &a.UpBytes, &a.DownBytes, &a.QuotaBytes, &a.AllTimeBytes, &a.ExpiryTime, &a.MonthlyReset, &a.LastMonthlyReset, &a.CreatedAt, &a.UpdatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, a)
@@ -99,27 +143,8 @@ func (s *Store) ReplaceAccounts(accounts []model.Account) error {
 	if _, err := tx.Exec(`DELETE FROM accounts`); err != nil {
 		return err
 	}
-	now := time.Now().UnixMilli()
-	for _, a := range accounts {
-		if a.Port < 1 || a.Port > 65535 {
-			return fmt.Errorf("invalid port %d", a.Port)
-		}
-		if a.CreatedAt == 0 {
-			a.CreatedAt = now
-		}
-		a.UpdatedAt = now
-		var q string
-		var args []any
-		if a.ID > 0 {
-			q = `INSERT INTO accounts(id,name,enabled,listen,port,protocol,settings_json,stream_settings_json,sniffing_json,tag,up_bytes,down_bytes,quota_bytes,all_time_bytes,expiry_time,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
-			args = []any{a.ID, a.Name, a.Enabled, a.Listen, a.Port, a.Protocol, a.SettingsJSON, a.StreamSettingsJSON, a.SniffingJSON, a.Tag, a.UpBytes, a.DownBytes, a.QuotaBytes, a.AllTimeBytes, a.ExpiryTime, a.CreatedAt, a.UpdatedAt}
-		} else {
-			q = `INSERT INTO accounts(name,enabled,listen,port,protocol,settings_json,stream_settings_json,sniffing_json,tag,up_bytes,down_bytes,quota_bytes,all_time_bytes,expiry_time,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
-			args = []any{a.Name, a.Enabled, a.Listen, a.Port, a.Protocol, a.SettingsJSON, a.StreamSettingsJSON, a.SniffingJSON, a.Tag, a.UpBytes, a.DownBytes, a.QuotaBytes, a.AllTimeBytes, a.ExpiryTime, a.CreatedAt, a.UpdatedAt}
-		}
-		if _, err = tx.Exec(q, args...); err != nil {
-			return fmt.Errorf("insert account %q port %d: %w", a.Name, a.Port, err)
-		}
+	if err := insertAccountsTx(tx, accounts); err != nil {
+		return err
 	}
 	return tx.Commit()
 }
