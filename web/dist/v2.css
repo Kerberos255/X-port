@@ -1,0 +1,79 @@
+/* X-port daily UX refinements: uptime tile, advanced editor, shared update state and light theme. */
+
+/* Uptime is elapsed time, not a percentage: show it as a compact time tile. */
+.uptime-ring{width:108px;height:74px;padding:0;border:1px solid rgba(93,224,219,.16);border-radius:14px;background:linear-gradient(145deg,rgba(68,202,201,.09),rgba(83,124,207,.045));box-shadow:inset 0 1px rgba(255,255,255,.025),0 10px 30px rgba(0,0,0,.08);flex:0 0 auto}
+.uptime-ring>div{height:100%;border-radius:13px;display:flex;align-items:baseline;justify-content:center;gap:6px;background:transparent}
+.uptime-ring strong{font-size:30px;line-height:1;font-weight:760;letter-spacing:-1px}
+.uptime-ring span{font-size:11px;color:#7c8da5;letter-spacing:0;font-weight:650;text-transform:none}
+
+/* Protocol is immutable after creation, so keep it visually first. */
+.protocol-first{padding:10px 12px;border:1px solid rgba(108,157,206,.12);border-radius:10px;background:rgba(81,126,176,.045)}
+.protocol-first select:disabled{opacity:.82;cursor:not-allowed}
+.field-hint{display:block;color:#697b93;font-size:9px;font-weight:500;line-height:1.45;margin-top:1px}
+
+/* Advanced account settings stay collapsed until needed. */
+.account-advanced{border:1px solid rgba(128,157,197,.11);border-radius:10px;padding:0;margin-top:2px;background:rgba(5,10,17,.22)}
+.account-advanced summary{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 13px;margin:0;list-style:none;cursor:pointer;color:#9aacbf;font-size:11px;font-weight:680}
+.account-advanced summary::-webkit-details-marker{display:none}
+.account-advanced summary::after{content:'⌄';font-size:15px;color:#687b94;transition:.15s}
+.account-advanced[open] summary::after{transform:rotate(180deg)}
+.account-advanced summary small{margin-left:auto;color:#60728b;font-size:9px;font-weight:500}
+.account-advanced .advanced-body,.account-advanced .advanced-loading{border-top:1px solid var(--line);padding:14px 13px}
+.account-advanced .advanced-body{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.account-advanced textarea{width:100%;min-height:112px;resize:vertical;border:1px solid rgba(130,160,201,.14);background:rgba(4,8,14,.45);border-radius:8px;padding:10px 11px;color:inherit;font:11px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace;outline:none}
+.account-advanced textarea:focus{border-color:rgba(91,218,215,.4);box-shadow:0 0 0 3px rgba(91,218,215,.04)}
+.advanced-actions{display:flex;justify-content:flex-end;padding-top:2px}
+.advanced-proxy{padding:5px 0}
+
+/* Xray update detail mirrors the overview check instead of issuing another request. */
+#xray-page-update-note{min-height:16px}
+#xray-page-do-update,#xray-page-rollback,#xray-page-check{white-space:nowrap}
+
+/* Bottom-left theme switch. */
+.side-foot{display:flex;flex-direction:column;align-items:stretch;gap:9px;padding:0 4px}
+.theme-toggle{width:100%;border:1px solid var(--line);border-radius:9px;background:rgba(255,255,255,.025);color:#7f90a6;padding:9px 10px;display:flex;align-items:center;gap:9px;cursor:pointer;text-align:left;font-size:10px;transition:.15s}
+.theme-toggle:hover{color:#dbe6f5;border-color:rgba(100,213,216,.25);background:rgba(255,255,255,.04)}
+.theme-icon{font-size:14px;width:18px;text-align:center}
+.node-badge{display:flex;align-items:center;gap:7px;padding:0 5px;color:#5d6b80;font-size:8px;letter-spacing:1.1px}
+
+/* Light theme. Keep the same cyan/blue identity, but use paper-like surfaces. */
+html[data-theme="light"]{--bg:#f4f7fb;--panel:#ffffff;--line:rgba(67,91,123,.15);--muted:#68798f;--soft:#43536a;color:#1b293a;background:#f4f7fb}
+html[data-theme="light"] body{color:#1b293a;background:radial-gradient(circle at 76% -8%,rgba(76,151,211,.10),transparent 31%),#f4f7fb}
+html[data-theme="light"] .sidebar{background:rgba(250,252,255,.92);border-right-color:rgba(67,91,123,.14);box-shadow:8px 0 28px rgba(56,78,104,.035)}
+html[data-theme="light"] .brand b,html[data-theme="light"] .page-head h1,html[data-theme="light"] .panel h2,html[data-theme="light"] .panel-head h2,html[data-theme="light"] .account-name b,html[data-theme="light"] .metrics b,html[data-theme="light"] .big-state b{color:#172536}
+html[data-theme="light"] .brand small,html[data-theme="light"] .node-badge{color:#7c8b9f}
+html[data-theme="light"] nav button{color:#66778e}
+html[data-theme="light"] nav button:hover{background:rgba(56,126,175,.055);color:#18324b}
+html[data-theme="light"] nav button.active{color:#143047;background:linear-gradient(90deg,rgba(49,188,184,.12),rgba(80,139,200,.055))}
+html[data-theme="light"] .panel,html[data-theme="light"] .summary-strip,html[data-theme="light"] .account-row{background:linear-gradient(145deg,rgba(255,255,255,.98),rgba(247,250,254,.98));box-shadow:0 14px 38px rgba(48,71,98,.065),inset 0 1px rgba(255,255,255,.8)}
+html[data-theme="light"] .account-row:hover{background:linear-gradient(145deg,#fff,#f6faff);border-color:rgba(63,163,172,.25)}
+html[data-theme="light"] .btn{background:rgba(255,255,255,.72);color:#53677f}
+html[data-theme="light"] .btn:hover{background:#fff;color:#21364c}
+html[data-theme="light"] .btn.primary{color:#06202a}
+html[data-theme="light"] .tag{color:#47799b;background:rgba(72,129,171,.055);border-color:rgba(74,124,164,.13)}
+html[data-theme="light"] .icon-btn{background:rgba(255,255,255,.82);color:#60748c}
+html[data-theme="light"] .icon-btn:hover{color:#23435e;background:#fff}
+html[data-theme="light"] .version-line>div{background:rgba(231,238,247,.42);border-color:rgba(78,105,139,.09)}
+html[data-theme="light"] .login-card{background:linear-gradient(145deg,rgba(255,255,255,.98),rgba(246,249,253,.98));box-shadow:0 30px 80px rgba(49,72,101,.16)}
+html[data-theme="light"] .login-card input,html[data-theme="light"] .form-grid input,html[data-theme="light"] .form-grid select,html[data-theme="light"] .share-link,html[data-theme="light"] .account-advanced textarea{background:#fff;color:#1b293a;border-color:rgba(71,96,128,.18)}
+html[data-theme="light"] .modal{background:rgba(45,58,76,.25)}
+html[data-theme="light"] .modal-card{background:#fbfdff;box-shadow:0 30px 90px rgba(43,62,87,.22)}
+html[data-theme="light"] .protocol-first{background:rgba(73,142,188,.055);border-color:rgba(68,119,155,.13)}
+html[data-theme="light"] .account-advanced{background:rgba(235,241,248,.45);border-color:rgba(68,96,130,.12)}
+html[data-theme="light"] .account-advanced summary{color:#536a82}
+html[data-theme="light"] .account-advanced summary small,html[data-theme="light"] .field-hint{color:#7a8ba0}
+html[data-theme="light"] .log-output{background:#f7f9fc;color:#33485f;border-color:rgba(65,91,123,.12)}
+html[data-theme="light"] .toast{background:#fff;color:#33475d;box-shadow:0 14px 40px rgba(44,66,93,.16)}
+html[data-theme="light"] .uptime-ring{background:linear-gradient(145deg,rgba(73,199,195,.10),rgba(89,143,205,.06));border-color:rgba(55,164,165,.18);box-shadow:0 10px 26px rgba(58,91,120,.06)}
+html[data-theme="light"] .metrics>div:nth-child(1) b{background:radial-gradient(circle at center,#fff 0 61%,transparent 62%),conic-gradient(from -90deg,var(--cyan) var(--metric-pct,0%),rgba(91,117,148,.12) 0)}
+html[data-theme="light"] .metrics>div:nth-child(2) b{background:radial-gradient(circle at center,#fff 0 61%,transparent 62%),conic-gradient(from -90deg,#65b8ff var(--metric-pct,0%),rgba(91,117,148,.12) 0)}
+html[data-theme="light"] .metrics>div:nth-child(3) b{background:radial-gradient(circle at center,#fff 0 61%,transparent 62%),conic-gradient(from -90deg,#8c78ef var(--metric-pct,0%),rgba(91,117,148,.12) 0)}
+html[data-theme="light"] .theme-toggle{background:#fff;color:#526981;box-shadow:0 5px 18px rgba(54,77,103,.05)}
+html[data-theme="light"] .theme-toggle:hover{color:#183650;background:#fafdff}
+html[data-theme="light"] .qr-box{box-shadow:0 6px 20px rgba(45,65,90,.08)}
+
+@media(max-width:700px){
+ .uptime-ring{width:92px;height:66px}.uptime-ring strong{font-size:25px}
+ .account-advanced .advanced-body{grid-template-columns:1fr}.account-advanced summary small{display:none}
+ .theme-label,.node-badge span:last-child{display:none}.side-foot{gap:4px}.theme-toggle{justify-content:center;padding:8px}.node-badge{justify-content:center}
+}
