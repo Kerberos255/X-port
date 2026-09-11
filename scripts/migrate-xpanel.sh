@@ -42,6 +42,30 @@ collect_old_units() {
     | sort -u || true
 }
 
+preflight_candidate() {
+  local tmp candidate
+  tmp="$(mktemp -d "${TMPDIR:-/tmp}/xport-migration-preflight.XXXXXX")"
+  candidate="$tmp/xray.json"
+  echo "=== Candidate validation while old X-Panel stays online ==="
+  if ! "$XPORT_BIN" migrate --data "$tmp" --from "$SOURCE_DB" "${MIGRATE_GLOBAL_ARGS[@]}" --apply >/dev/null; then
+    rm -rf "$tmp"
+    echo "Candidate migration preflight failed. Old X-Panel was not touched." >&2
+    return 1
+  fi
+  if ! "$XPORT_BIN" render --data "$tmp" --output "$candidate"; then
+    rm -rf "$tmp"
+    echo "Candidate render preflight failed. Old X-Panel was not touched." >&2
+    return 1
+  fi
+  if ! "$XRAY_BIN" run -test -config "$candidate"; then
+    rm -rf "$tmp"
+    echo "Candidate Xray validation failed. Old X-Panel was not touched." >&2
+    return 1
+  fi
+  rm -rf "$tmp"
+  echo "Candidate validation passed; old X-Panel is still online."
+}
+
 record_unit_states() {
   : > "$UNIT_STATE_FILE"
   local units unit enabled active
@@ -59,11 +83,15 @@ record_unit_states() {
 
 quiesce_old_stack() {
   local unit
-  echo "Suppressing old X-Panel services/timers and watchdogs..."
+  echo "Suppressing old X-Panel services/timers with reversible runtime masks..."
   while IFS=$'\t' read -r unit _ _; do
     [[ -n "$unit" ]] || continue
-    systemctl mask --now "$unit" >/dev/null 2>&1 || {
-      echo "Unable to stop/mask old related unit: $unit" >&2
+    systemctl mask --runtime "$unit" >/dev/null 2>&1 || {
+      echo "Unable to runtime-mask old related unit: $unit" >&2
+      return 1
+    }
+    systemctl stop "$unit" >/dev/null 2>&1 || {
+      echo "Unable to stop old related unit: $unit" >&2
       return 1
     }
   done < "$UNIT_STATE_FILE"
@@ -71,7 +99,7 @@ quiesce_old_stack() {
 
 assert_old_quiet() {
   local i
-  for i in 1 2 3 4 5; do
+  for i in 1 2 3; do
     if unit_active "$OLD_SERVICE"; then
       echo "Old service restarted while migration guard is active: $OLD_SERVICE" >&2
       return 1
@@ -81,7 +109,7 @@ assert_old_quiet() {
       pgrep -af '/usr/local/x-ui/(x-ui|bin/xray)' >&2 || true
       return 1
     fi
-    sleep 1
+    sleep 0.5
   done
 }
 
@@ -90,20 +118,18 @@ restore_unit_states() {
   [[ -f "$UNIT_STATE_FILE" ]] || return 0
   while IFS=$'\t' read -r unit enabled active; do
     [[ -n "$unit" ]] || continue
+    systemctl unmask --runtime "$unit" >/dev/null 2>&1 || true
     case "$enabled" in
-      masked|masked-runtime)
-        systemctl mask "$unit" >/dev/null 2>&1 || true
+      masked)
         ;;
-      *)
-        systemctl unmask "$unit" >/dev/null 2>&1 || true
-        case "$enabled" in
-          enabled|enabled-runtime|linked|linked-runtime|alias)
-            systemctl enable "$unit" >/dev/null 2>&1 || true
-            ;;
-          disabled)
-            systemctl disable "$unit" >/dev/null 2>&1 || true
-            ;;
-        esac
+      masked-runtime)
+        systemctl mask --runtime "$unit" >/dev/null 2>&1 || true
+        ;;
+      enabled|enabled-runtime|linked|linked-runtime|alias)
+        systemctl enable "$unit" >/dev/null 2>&1 || true
+        ;;
+      disabled)
+        systemctl disable "$unit" >/dev/null 2>&1 || true
         ;;
     esac
   done < "$UNIT_STATE_FILE"
@@ -113,6 +139,14 @@ restore_unit_states() {
     if [[ "$active" == "active" ]]; then
       systemctl start "$unit" >/dev/null 2>&1 || true
     fi
+  done < "$UNIT_STATE_FILE"
+}
+
+finalize_old_units() {
+  local unit
+  while IFS=$'\t' read -r unit _ _; do
+    [[ -n "$unit" ]] || continue
+    systemctl disable "$unit" >/dev/null 2>&1 || true
   done < "$UNIT_STATE_FILE"
 }
 
@@ -132,9 +166,9 @@ restore_xport_snapshot() {
 
 verify_rollback() {
   if [[ $OLD_WAS_ACTIVE -eq 1 ]]; then
-    for _ in 1 2 3 4 5; do
+    for _ in 1 2 3 4 5 6 7 8 9 10; do
       unit_active "$OLD_SERVICE" && return 0
-      sleep 1
+      sleep 0.5
     done
     echo "Rollback completed but $OLD_SERVICE did not become active." >&2
     return 1
@@ -157,11 +191,11 @@ rollback() {
 }
 
 rollback_on_error() { local rc=$?; [[ $CUTOVER_OK -eq 1 ]] || rollback "$rc"; exit "$rc"; }
-trap rollback_on_error ERR
-trap 'rollback 130' INT TERM
 
 echo "=== X-port migration dry-run ==="
 "$XPORT_BIN" migrate --data "$DATA_DIR" --from "$SOURCE_DB" "${MIGRATE_GLOBAL_ARGS[@]}"
+echo
+preflight_candidate
 echo
 read -r -p "Continue with backup and guarded cutover? [y/N] " answer
 [[ "$answer" =~ ^[Yy]$ ]] || { echo "Cancelled. Nothing changed."; exit 0; }
@@ -173,13 +207,15 @@ unit_active xport-xray.service && XPORT_XRAY_WAS_ACTIVE=1 || true
 [[ -f "$XPORT_DB" ]] && XPORT_DB_EXISTED=1 || true
 [[ -f "$DEST_CONFIG" ]] && XPORT_CONFIG_EXISTED=1 || true
 record_unit_states
-
-systemctl stop xport.service xport-xray.service >/dev/null 2>&1 || true
 [[ -f "$XPORT_DB" ]] && cp -a "$XPORT_DB" "$BACKUP/xport-before.db"
 [[ -f "$XPORT_DB-wal" ]] && cp -a "$XPORT_DB-wal" "$BACKUP/xport-before.db-wal"
 [[ -f "$XPORT_DB-shm" ]] && cp -a "$XPORT_DB-shm" "$BACKUP/xport-before.db-shm"
 [[ -f "$DEST_CONFIG" ]] && cp -a "$DEST_CONFIG" "$BACKUP/xport-config-before.json"
 
+trap rollback_on_error ERR
+trap 'rollback 130' INT TERM
+
+systemctl stop xport.service xport-xray.service >/dev/null 2>&1 || true
 quiesce_old_stack
 assert_old_quiet
 
@@ -194,10 +230,11 @@ cp -a "$SOURCE_DB" "$BACKUP/"
 assert_old_quiet
 
 systemctl restart xport-xray.service
-sleep 1
+sleep 0.5
 systemctl is-active --quiet xport-xray.service
 systemctl restart xport.service
 systemctl is-active --quiet xport.service
+finalize_old_units
 
 CUTOVER_OK=1
 trap - ERR INT TERM
@@ -228,15 +265,12 @@ rm -f "\$DEST_CONFIG"
 
 while IFS=\$'\t' read -r unit enabled active; do
   [[ -n "\$unit" ]] || continue
+  systemctl unmask --runtime "\$unit" >/dev/null 2>&1 || true
   case "\$enabled" in
-    masked|masked-runtime) systemctl mask "\$unit" >/dev/null 2>&1 || true ;;
-    *)
-      systemctl unmask "\$unit" >/dev/null 2>&1 || true
-      case "\$enabled" in
-        enabled|enabled-runtime|linked|linked-runtime|alias) systemctl enable "\$unit" >/dev/null 2>&1 || true ;;
-        disabled) systemctl disable "\$unit" >/dev/null 2>&1 || true ;;
-      esac
-      ;;
+    masked) ;;
+    masked-runtime) systemctl mask --runtime "\$unit" >/dev/null 2>&1 || true ;;
+    enabled|enabled-runtime|linked|linked-runtime|alias) systemctl enable "\$unit" >/dev/null 2>&1 || true ;;
+    disabled) systemctl disable "\$unit" >/dev/null 2>&1 || true ;;
   esac
 done < "\$UNIT_STATE_FILE"
 systemctl daemon-reload >/dev/null 2>&1 || true
@@ -248,9 +282,9 @@ done < "\$UNIT_STATE_FILE"
 [[ \$XPORT_XRAY_WAS_ACTIVE -eq 1 ]] && systemctl start xport-xray.service >/dev/null 2>&1 || true
 
 if [[ \$OLD_WAS_ACTIVE -eq 1 ]]; then
-  for _ in 1 2 3 4 5; do
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
     systemctl is-active --quiet "\$OLD_SERVICE" && { echo "Rollback verified: old panel is active."; exit 0; }
-    sleep 1
+    sleep 0.5
   done
   echo "Rollback restored files/units, but old panel is not active." >&2
   exit 1
@@ -261,5 +295,5 @@ ROLLBACK
 chmod 0700 "$BACKUP/rollback.sh"
 
 echo "Migration complete. Backup: $BACKUP"
-echo "Old X-Panel files were not deleted. Related old systemd units remain masked to prevent watchdog restart."
+echo "Old X-Panel files were not deleted. Related old systemd units are disabled and runtime-masked until reboot."
 echo "Snapshot rollback: $BACKUP/rollback.sh"

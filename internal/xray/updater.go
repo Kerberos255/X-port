@@ -29,6 +29,7 @@ type ReleaseAsset struct {
 	URL    string `json:"browser_download_url"`
 	Size   int64  `json:"size"`
 }
+
 type Release struct {
 	Tag         string         `json:"tag_name"`
 	Draft       bool           `json:"draft"`
@@ -36,6 +37,7 @@ type Release struct {
 	PublishedAt time.Time      `json:"published_at"`
 	Assets      []ReleaseAsset `json:"assets"`
 }
+
 type UpdateInfo struct {
 	Current     string    `json:"current"`
 	Latest      string    `json:"latest"`
@@ -61,7 +63,55 @@ func (u *Updater) Check(ctx context.Context) (UpdateInfo, ReleaseAsset, error) {
 	}
 	current := binaryVersion(u.BinaryPath)
 	latest := strings.TrimPrefix(rel.Tag, "v")
-	return UpdateInfo{Current: current, Latest: latest, Available: current == "" || normalizeVersion(current) != normalizeVersion(latest), Prerelease: rel.Prerelease, PublishedAt: rel.PublishedAt, Asset: asset.Name}, asset, nil
+	return UpdateInfo{
+		Current:     current,
+		Latest:      latest,
+		Available:   current == "" || normalizeVersion(current) != normalizeVersion(latest),
+		Prerelease:  rel.Prerelease,
+		PublishedAt: rel.PublishedAt,
+		Asset:       asset.Name,
+	}, asset, nil
+}
+
+func missingGeodata(assetDir string) []string {
+	missing := make([]string, 0, 2)
+	for _, name := range []string{"geoip.dat", "geosite.dat"} {
+		st, err := os.Stat(filepath.Join(assetDir, name))
+		if err != nil || st.Size() == 0 {
+			missing = append(missing, name)
+		}
+	}
+	return missing
+}
+
+func bootstrapMissingGeodata(candidateDir, assetDir string, names []string) ([]string, error) {
+	if len(names) == 0 {
+		return nil, nil
+	}
+	if err := os.MkdirAll(assetDir, 0755); err != nil {
+		return nil, err
+	}
+	created := make([]string, 0, len(names))
+	rollback := func() {
+		for _, path := range created {
+			_ = os.Remove(path)
+		}
+	}
+	for _, name := range names {
+		src := filepath.Join(candidateDir, name)
+		st, err := os.Stat(src)
+		if err != nil || st.Size() == 0 {
+			rollback()
+			return nil, fmt.Errorf("%s missing from Xray release", name)
+		}
+		dst := filepath.Join(assetDir, name)
+		if err := copyFile(src, dst, 0644); err != nil {
+			rollback()
+			return nil, err
+		}
+		created = append(created, dst)
+	}
+	return created, nil
 }
 
 func (u *Updater) Update(ctx context.Context) (UpdateInfo, error) {
@@ -69,12 +119,16 @@ func (u *Updater) Update(ctx context.Context) (UpdateInfo, error) {
 	if err != nil {
 		return UpdateInfo{}, err
 	}
-	if !info.Available {
+
+	assetDir := filepath.Dir(u.BinaryPath)
+	missingGeo := missingGeodata(assetDir)
+	if !info.Available && len(missingGeo) == 0 {
 		return info, nil
 	}
 	if asset.Size <= 0 || asset.Size > 128<<20 {
 		return UpdateInfo{}, fmt.Errorf("unexpected release asset size %d", asset.Size)
 	}
+
 	client := u.client()
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, asset.URL, nil)
 	req.Header.Set("User-Agent", "X-port/0.1")
@@ -86,11 +140,13 @@ func (u *Updater) Update(ctx context.Context) (UpdateInfo, error) {
 	if resp.StatusCode != http.StatusOK {
 		return UpdateInfo{}, fmt.Errorf("download Xray: HTTP %d", resp.StatusCode)
 	}
+
 	tmpDir, err := os.MkdirTemp("", "xport-xray-update-*")
 	if err != nil {
 		return UpdateInfo{}, err
 	}
 	defer os.RemoveAll(tmpDir)
+
 	zipPath := filepath.Join(tmpDir, "xray.zip")
 	f, err := os.OpenFile(zipPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
 	if err != nil {
@@ -111,6 +167,7 @@ func (u *Updater) Update(ctx context.Context) (UpdateInfo, error) {
 	if err := verifyDigest(asset.Digest, h.Sum(nil)); err != nil {
 		return UpdateInfo{}, err
 	}
+
 	candidateDir := filepath.Join(tmpDir, "candidate")
 	if err := os.Mkdir(candidateDir, 0700); err != nil {
 		return UpdateInfo{}, err
@@ -125,33 +182,60 @@ func (u *Updater) Update(ctx context.Context) (UpdateInfo, error) {
 	if out, err := run(8*time.Second, candidate, "version"); err != nil {
 		return UpdateInfo{}, fmt.Errorf("new Xray binary check failed: %v: %s", err, out)
 	}
-	if u.ConfigPath != "" {
+
+	// Validate an upgraded core before replacing it. The verified release archive
+	// is extracted as a complete candidate directory, so configs using GeoIP or
+	// GeoSite can resolve the candidate GeoData during this test as well.
+	if info.Available && u.ConfigPath != "" {
 		if _, err := os.Stat(u.ConfigPath); err == nil {
 			if out, err := run(10*time.Second, candidate, "run", "-test", "-config", u.ConfigPath); err != nil {
 				return UpdateInfo{}, fmt.Errorf("new Xray rejected current config: %v: %s", err, out)
 			}
 		}
 	}
-	if err := os.MkdirAll(filepath.Dir(u.BinaryPath), 0755); err != nil {
+
+	if err := os.MkdirAll(assetDir, 0755); err != nil {
 		return UpdateInfo{}, err
 	}
+
+	// Fresh installs need the GeoIP/GeoSite files shipped in the same verified
+	// archive. Existing non-empty GeoData is deliberately preserved so routine
+	// core updates do not silently change rule data.
+	createdGeo, err := bootstrapMissingGeodata(candidateDir, assetDir, missingGeo)
+	if err != nil {
+		return UpdateInfo{}, err
+	}
+	rollbackBootstrappedGeo := func() {
+		for _, path := range createdGeo {
+			_ = os.Remove(path)
+		}
+	}
+
+	// If the installed core is already current, filling missing GeoData is the
+	// only required work.
+	if !info.Available {
+		info.Current = binaryVersion(u.BinaryPath)
+		return info, nil
+	}
+
 	backup := u.BinaryPath + ".previous"
 	hadOld := false
 	if _, err := os.Stat(u.BinaryPath); err == nil {
 		hadOld = true
 		_ = os.Remove(backup)
 		if err := os.Rename(u.BinaryPath, backup); err != nil {
+			rollbackBootstrappedGeo()
 			return UpdateInfo{}, err
 		}
 	}
-	// Update only the core binary here. GeoData is managed separately so a core
-	// rollback never leaves auxiliary rule files half-updated.
+
 	installErr := copyFile(candidate, u.BinaryPath, 0755)
 	if installErr == nil && u.Service != "" {
 		installErr = restartAndVerify(u.Service)
 	}
 	if installErr != nil {
 		_ = os.Remove(u.BinaryPath)
+		rollbackBootstrappedGeo()
 		if hadOld {
 			_ = os.Rename(backup, u.BinaryPath)
 			if u.Service != "" {
@@ -210,8 +294,6 @@ func (u *Updater) latest(ctx context.Context) (Release, ReleaseAsset, error) {
 
 func findStableAsset(releases []Release, assetName string) (Release, ReleaseAsset, bool) {
 	for _, rel := range releases {
-		// The panel's one-click channel is intentionally stable-only. A future
-		// explicit update-channel setting can opt into prereleases separately.
 		if rel.Draft || rel.Prerelease {
 			continue
 		}
@@ -245,6 +327,7 @@ func (u *Updater) client() *http.Client {
 	}
 	return &http.Client{Timeout: 30 * time.Second}
 }
+
 func linuxAssetName() (string, error) {
 	switch runtime.GOARCH {
 	case "amd64":
@@ -255,6 +338,7 @@ func linuxAssetName() (string, error) {
 		return "", fmt.Errorf("unsupported architecture %s", runtime.GOARCH)
 	}
 }
+
 func verifyDigest(digest string, sum []byte) error {
 	if !strings.HasPrefix(digest, "sha256:") {
 		return errors.New("release asset has no SHA-256 digest")
@@ -265,6 +349,7 @@ func verifyDigest(digest string, sum []byte) error {
 	}
 	return nil
 }
+
 func extractSelected(zipPath, dest string) error {
 	r, err := zip.OpenReader(zipPath)
 	if err != nil {
@@ -305,6 +390,7 @@ func extractSelected(zipPath, dest string) error {
 	}
 	return nil
 }
+
 func copyFile(src, dst string, mode os.FileMode) error {
 	in, err := os.Open(src)
 	if err != nil {
@@ -328,6 +414,7 @@ func copyFile(src, dst string, mode os.FileMode) error {
 	}
 	return os.Rename(tmp, dst)
 }
+
 func binaryVersion(path string) string {
 	if path == "" {
 		return ""
@@ -346,4 +433,7 @@ func binaryVersion(path string) string {
 	}
 	return fields[0]
 }
-func normalizeVersion(v string) string { return strings.TrimPrefix(strings.TrimSpace(v), "v") }
+
+func normalizeVersion(v string) string {
+	return strings.TrimPrefix(strings.TrimSpace(v), "v")
+}
