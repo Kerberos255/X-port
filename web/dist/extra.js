@@ -1,4 +1,5 @@
 let xportGeodata=null
+let xportSelfUpdate=null
 
 async function loadSettings(){
  try{
@@ -32,7 +33,7 @@ async function checkGeodata(manual=false){
   stateEl.className=`status ${d.available?'':'ok'}`;stateEl.innerHTML=`<i></i>${d.available?'可更新':'已是最新'}`
   btn.disabled=!d.available;btn.textContent=d.available?'更新 GeoData':'已是最新'
   if(manual)toast(d.available?'发现 GeoData 更新':'GeoData 已是最新')
- }catch(e){latest.textContent='检查失败';stateEl.className='status bad';stateEl.innerHTML='<i></i>检查失败';if(manual)toast(e.message,true)}
+ }catch(e){xportGeodata=null;latest.textContent='检查失败';stateEl.className='status bad';stateEl.innerHTML='<i></i>检查失败';if(manual)toast(e.message,true)}
 }
 
 async function updateGeodata(){
@@ -58,6 +59,29 @@ async function restartXport(){
  try{await api('/api/xport/restart',{method:'POST',body:'{}'});toast('已安排重启，几秒后自动刷新');setTimeout(()=>location.reload(),3500)}catch(e){toast(e.message,true)}
 }
 
+function ensureSelfUpdateCard(){
+ if($('#xport-self-update'))return
+ const maintenance=$('#page-system > article.panel:last-of-type');if(!maintenance)return
+ maintenance.insertAdjacentHTML('beforeend',`<div id="xport-self-update" class="maintenance-update"><div class="panel-head"><div><span class="kicker">X-PORT UPDATE</span><h2>面板更新</h2></div><span id="xport-update-state" class="status"><i></i>未检查</span></div><div class="version-line"><div><small>当前版本</small><b id="xport-update-current">${esc(state.overview?.xportVersion||'0.1.0-alpha')}</b></div><div><small>最新版本</small><b id="xport-update-latest">—</b></div></div><p id="xport-update-note" class="muted tiny">私有仓库需要服务器环境变量 XPORT_GITHUB_TOKEN；token 不会写入数据库或显示在 WebUI。</p><div class="button-row"><button id="check-xport-update" class="btn ghost">检查 X-port</button><button id="do-xport-update" class="btn primary" disabled>更新 X-port</button></div></div>`)
+ $('#check-xport-update').onclick=()=>checkXportUpdate(true)
+ $('#do-xport-update').onclick=updateXport
+}
+
+async function checkXportUpdate(manual=false){
+ ensureSelfUpdateCard();const cur=$('#xport-update-current'),latest=$('#xport-update-latest'),stateEl=$('#xport-update-state'),note=$('#xport-update-note'),btn=$('#do-xport-update');if(!btn)return
+ latest.textContent='检查中';btn.disabled=true
+ try{
+  const d=await api('/api/xport/update');xportSelfUpdate=d;cur.textContent=d.current||'—';latest.textContent=d.latest||'—';stateEl.className=`status ${d.available?'':'ok'}`;stateEl.innerHTML=`<i></i>${d.available?'可更新':'已是最新'}`;note.textContent=d.authMode==='token'?'通过服务器环境 token 检查私有 Release；token 不进入 WebUI。':'使用公开 GitHub Release 通道。';btn.disabled=!d.available;btn.textContent=d.available?'更新 X-port':'已是最新';if(manual)toast(d.available?'发现 X-port 更新':'X-port 已是最新')
+ }catch(e){xportSelfUpdate=null;latest.textContent='暂不可用';stateEl.className='status';stateEl.innerHTML='<i></i>不可用';note.textContent=e.message;btn.disabled=true;btn.textContent='更新 X-port';if(manual)toast(e.message,true)}
+}
+
+async function updateXport(){
+ if(!xportSelfUpdate?.available){await checkXportUpdate(true);if(!xportSelfUpdate?.available)return}
+ if(!confirm(`将 X-port 从 ${xportSelfUpdate.current} 更新到 ${xportSelfUpdate.latest}？\n候选二进制会校验 SHA-256 和版本；新服务启动失败自动恢复旧版。`))return
+ const b=$('#do-xport-update');b.disabled=true;b.textContent='更新中…'
+ try{const d=await api('/api/xport/update',{method:'POST',body:'{}'}),info=d.update||d;toast(d.scheduled?`X-port ${info.latest} 已安装，正在验证重启`:'X-port 已是最新');if(d.scheduled)setTimeout(()=>location.reload(),4500);else await checkXportUpdate()}catch(e){toast(e.message,true);b.disabled=false;b.textContent='重试更新'}
+}
+
 function bindAdvancedControls(){
  $('#export-accounts')?.addEventListener('click',exportAccounts)
  $('#check-geodata')?.addEventListener('click',()=>checkGeodata(true))
@@ -66,6 +90,8 @@ function bindAdvancedControls(){
  $('#import-backup')?.addEventListener('click',()=>$('#backup-file')?.click())
  $('#backup-file')?.addEventListener('change',e=>importBackupFile(e.target.files?.[0]))
  const xrayNav=$('#nav button[data-page="xray"]');xrayNav?.addEventListener('click',()=>void checkGeodata(false))
+ const systemNav=$('#nav button[data-page="system"]');systemNav?.addEventListener('click',()=>{ensureSelfUpdateCard();void checkXportUpdate(false)})
+ ensureSelfUpdateCard()
 }
 
 document.addEventListener('DOMContentLoaded',bindAdvancedControls)
