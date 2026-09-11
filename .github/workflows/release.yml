@@ -1,0 +1,86 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - internal/buildinfo/version.go
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.1'
+          cache: false
+
+      - name: Verify source
+        run: |
+          node --check web/dist/app.js
+          node --check web/dist/extra.js
+          node --check web/dist/v3.js
+          bash -n scripts/build-linux.sh scripts/install.sh scripts/migrate-xpanel.sh
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+          go test ./...
+          go vet ./...
+
+      - name: Read version
+        id: version
+        shell: bash
+        run: |
+          VERSION="$(sed -n 's/^const Current = "\([^"]*\)"$/\1/p' internal/buildinfo/version.go)"
+          test -n "$VERSION"
+          case "$VERSION" in
+            *[!0-9A-Za-z.-]*) echo "Invalid version: $VERSION" >&2; exit 1 ;;
+          esac
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Build Linux binaries
+        run: |
+          ./scripts/build-linux.sh amd64
+          ./scripts/build-linux.sh arm64
+          test "$(./dist/xport-linux-amd64 version)" = "${{ steps.version.outputs.version }}"
+          sha256sum dist/xport-linux-amd64 dist/xport-linux-arm64 > dist/SHA256SUMS
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+        shell: bash
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; refusing to overwrite it." >&2
+            exit 1
+          fi
+          cat > /tmp/release-notes.md <<EOF
+          X-port ${VERSION}
+
+          First stable X-port release.
+
+          - Linux amd64 and arm64 standalone binaries
+          - Xray-native account editor and safe account controls
+          - dark/light WebUI with server, Xray, backup and update management
+          - guarded Xray and X-port update flows with rollback protection
+          - migrated/unknown Xray fields preserved when editing supported settings
+
+          X-port self-update verifies GitHub's SHA-256 asset digest and the candidate binary version before replacement. The previous working X-port binary is retained as one rollback generation after a successful update.
+          EOF
+          gh release create "$TAG" \
+            dist/xport-linux-amd64 \
+            dist/xport-linux-arm64 \
+            dist/SHA256SUMS \
+            --target "$GITHUB_SHA" \
+            --title "X-port $TAG" \
+            --notes-file /tmp/release-notes.md \
+            --latest
