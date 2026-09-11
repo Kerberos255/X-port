@@ -14,7 +14,7 @@ jobs:
           cache: false
       - run: node --check web/dist/app.js
       - run: bash -n scripts/build-linux.sh scripts/install.sh scripts/migrate-xpanel.sh
-      - run: go mod download
+      - run: go mod tidy
       - run: go test ./...
       - run: go vet ./...
       - run: CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o /tmp/xport ./cmd/xport
