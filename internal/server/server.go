@@ -84,7 +84,11 @@ func (s *Server) Handler() http.Handler {
 			r.URL.Path = "/"; files.ServeHTTP(w, r)
 		})
 	}
-	return securityHeaders(mux)
+	handler := http.Handler(mux)
+	if basePath, ok, err := s.store.Setting("panel_base_path"); err == nil && ok {
+		handler = MountBasePath(handler, basePath)
+	}
+	return securityHeaders(handler)
 }
 
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
