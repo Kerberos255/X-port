@@ -19,6 +19,7 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 
+	"github.com/Kerberos255/X-port/internal/buildinfo"
 	"github.com/Kerberos255/X-port/internal/migrate"
 	"github.com/Kerberos255/X-port/internal/server"
 	"github.com/Kerberos255/X-port/internal/service"
@@ -27,7 +28,7 @@ import (
 	webui "github.com/Kerberos255/X-port/web"
 )
 
-const version = "0.1.0-alpha"
+const version = buildinfo.Current
 
 func main() {
 	if len(os.Args)<2{usage();os.Exit(2)}
