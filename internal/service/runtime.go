@@ -30,7 +30,9 @@ func (s *Accounts) ApplyTraffic(stats map[string]xray.Traffic, now time.Time) er
 	for i := range next {
 		a := &next[i]
 		changedThis := false
-		if now.Day() == 1 && a.MonthlyReset && a.LastMonthlyReset != monthKey {
+		// LastMonthlyReset stores the accounted month. This catches up even when
+		// X-port was offline for the whole first day of a new month.
+		if a.MonthlyReset && a.LastMonthlyReset != "" && a.LastMonthlyReset != monthKey {
 			a.UpBytes, a.DownBytes = 0, 0
 			a.LastMonthlyReset = monthKey
 			changedThis, dbChanged = true, true
