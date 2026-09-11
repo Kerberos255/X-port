@@ -133,8 +133,52 @@ func (s *Store) SetAdmin(username, passwordHash string) error {
 	return err
 }
 
+func (s *Store) ReplaceAdmins(admins []model.Admin) error {
+	if len(admins) == 0 {
+		return errors.New("at least one admin is required")
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`DELETE FROM admins`); err != nil {
+		return err
+	}
+	now := time.Now().UnixMilli()
+	for _, a := range admins {
+		if a.Username == "" || a.PasswordHash == "" {
+			return errors.New("admin username and password hash are required")
+		}
+		if _, err := tx.Exec(`INSERT INTO admins(username,password_hash,created_at,updated_at) VALUES(?,?,?,?)`, a.Username, a.PasswordHash, now, now); err != nil {
+			return fmt.Errorf("insert admin %q: %w", a.Username, err)
+		}
+	}
+	return tx.Commit()
+}
+
 func (s *Store) Admin(username string) (model.Admin, error) {
 	var a model.Admin
 	err := s.db.QueryRow(`SELECT username,password_hash FROM admins WHERE username=?`, username).Scan(&a.Username, &a.PasswordHash)
 	return a, err
+}
+
+func (s *Store) SetSetting(key, value string) error {
+	if key == "" {
+		return errors.New("setting key is required")
+	}
+	_, err := s.db.Exec(`INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, key, value)
+	return err
+}
+
+func (s *Store) Setting(key string) (string, bool, error) {
+	var value string
+	err := s.db.QueryRow(`SELECT value FROM settings WHERE key=?`, key).Scan(&value)
+	if err == nil {
+		return value, true, nil
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	return "", false, err
 }
