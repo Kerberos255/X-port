@@ -4,18 +4,23 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"net"
 	"path/filepath"
+	"strconv"
 	"strings"
 
+	"golang.org/x/crypto/bcrypt"
 	_ "modernc.org/sqlite"
 
 	"github.com/Kerberos255/X-port/internal/model"
 )
 
 type Result struct {
-	Accounts []model.Account `json:"accounts"`
-	Warnings []string        `json:"warnings"`
-	Skipped  []string        `json:"skipped"`
+	Accounts    []model.Account `json:"accounts"`
+	Admins      []model.Admin   `json:"-"`
+	PanelListen string          `json:"panelListen,omitempty"`
+	Warnings    []string        `json:"warnings"`
+	Skipped     []string        `json:"skipped"`
 }
 type sourceInbound struct {
 	ID                                                int64
@@ -66,12 +71,12 @@ func ReadXUI(path string) (Result, error) {
 	if err != nil {
 		return Result{}, fmt.Errorf("read x-ui inbounds: %w", err)
 	}
-	defer rows.Close()
 	res := Result{}
 	ports := map[int]bool{}
 	for rows.Next() {
 		var in sourceInbound
 		if err := rows.Scan(&in.ID, &in.Up, &in.Down, &in.Total, &in.AllTime, &in.Remark, &in.Enable, &in.ExpiryTime, &in.Listen, &in.Port, &in.Protocol, &in.Settings, &in.StreamSettings, &in.Tag, &in.Sniffing); err != nil {
+			rows.Close()
 			return Result{}, err
 		}
 		if in.Port < 1 || in.Port > 65535 {
@@ -79,6 +84,7 @@ func ReadXUI(path string) (Result, error) {
 			continue
 		}
 		if ports[in.Port] {
+			rows.Close()
 			return Result{}, fmt.Errorf("duplicate source port %d", in.Port)
 		}
 		ports[in.Port] = true
@@ -114,13 +120,112 @@ func ReadXUI(path string) (Result, error) {
 		res.Accounts = append(res.Accounts, model.Account{Name: name, Enabled: in.Enable, Listen: in.Listen, Port: in.Port, Protocol: in.Protocol, SettingsJSON: normalizeJSON(in.Settings, "{}"), StreamSettingsJSON: normalizeJSON(in.StreamSettings, "{}"), SniffingJSON: normalizeJSON(in.Sniffing, "{}"), Tag: tag, UpBytes: in.Up, DownBytes: in.Down, QuotaBytes: quota, AllTimeBytes: in.AllTime, ExpiryTime: expiry})
 	}
 	if err := rows.Err(); err != nil {
+		rows.Close()
 		return Result{}, err
 	}
+	_ = rows.Close()
+
+	admins, warnings, err := readAdmins(db)
+	if err != nil {
+		return Result{}, err
+	}
+	res.Admins = admins
+	res.Warnings = append(res.Warnings, warnings...)
+	panelListen, warnings, err := readPanelListen(db)
+	if err != nil {
+		return Result{}, err
+	}
+	res.PanelListen = panelListen
+	res.Warnings = append(res.Warnings, warnings...)
 	if len(res.Accounts) == 0 {
 		res.Warnings = append(res.Warnings, "no compatible one-client inbounds found")
 	}
 	return res, nil
 }
+
+func readAdmins(db *sql.DB) ([]model.Admin, []string, error) {
+	exists, err := tableExists(db, "users")
+	if err != nil {
+		return nil, nil, err
+	}
+	if !exists {
+		return nil, []string{"users table not found; X-port bootstrap login will be kept"}, nil
+	}
+	rows, err := db.Query(`SELECT username,password FROM users ORDER BY id`)
+	if err != nil {
+		return nil, nil, fmt.Errorf("read x-ui users: %w", err)
+	}
+	defer rows.Close()
+	admins := make([]model.Admin, 0)
+	warnings := make([]string, 0)
+	for rows.Next() {
+		var username, hash string
+		if err := rows.Scan(&username, &hash); err != nil {
+			return nil, nil, err
+		}
+		username = strings.TrimSpace(username)
+		hash = strings.TrimSpace(hash)
+		if username == "" || hash == "" {
+			warnings = append(warnings, "ignored an empty X-Panel admin record")
+			continue
+		}
+		if _, err := bcrypt.Cost([]byte(hash)); err != nil {
+			warnings = append(warnings, fmt.Sprintf("admin %q uses an unsupported password format; bootstrap X-port login will be kept unless another valid admin exists", username))
+			continue
+		}
+		admins = append(admins, model.Admin{Username: username, PasswordHash: hash})
+	}
+	return admins, warnings, rows.Err()
+}
+
+func readPanelListen(db *sql.DB) (string, []string, error) {
+	exists, err := tableExists(db, "settings")
+	if err != nil {
+		return "", nil, err
+	}
+	if !exists {
+		return "", []string{"settings table not found; X-port bootstrap panel port will be kept"}, nil
+	}
+	rows, err := db.Query(`SELECT key,value FROM settings WHERE key IN ('webListen','webPort')`)
+	if err != nil {
+		return "", nil, fmt.Errorf("read x-ui panel settings: %w", err)
+	}
+	defer rows.Close()
+	values := map[string]string{}
+	for rows.Next() {
+		var key, value string
+		if err := rows.Scan(&key, &value); err != nil {
+			return "", nil, err
+		}
+		values[key] = strings.TrimSpace(value)
+	}
+	if err := rows.Err(); err != nil {
+		return "", nil, err
+	}
+	portText := values["webPort"]
+	if portText == "" {
+		return "", []string{"webPort not found; X-port bootstrap panel port will be kept"}, nil
+	}
+	port, err := strconv.Atoi(portText)
+	if err != nil || port < 1 || port > 65535 {
+		return "", []string{fmt.Sprintf("invalid X-Panel webPort %q; X-port bootstrap panel port will be kept", portText)}, nil
+	}
+	host := strings.Trim(values["webListen"], "[]")
+	return net.JoinHostPort(host, strconv.Itoa(port)), nil, nil
+}
+
+func tableExists(db *sql.DB, name string) (bool, error) {
+	var found string
+	err := db.QueryRow(`SELECT name FROM sqlite_master WHERE type='table' AND name=?`, name).Scan(&found)
+	if err == nil {
+		return true, nil
+	}
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	return false, err
+}
+
 func inboundColumns(db *sql.DB) (map[string]bool, error) {
 	rows, err := db.Query(`PRAGMA table_info(inbounds)`)
 	if err != nil {
