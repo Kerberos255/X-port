@@ -18,7 +18,10 @@ import (
 	"time"
 )
 
-const releasesURL = "https://api.github.com/repos/XTLS/Xray-core/releases?per_page=10"
+const (
+	releasesURL      = "https://api.github.com/repos/XTLS/Xray-core/releases?per_page=10"
+	latestReleaseURL = "https://api.github.com/repos/XTLS/Xray-core/releases/latest"
+)
 
 type ReleaseAsset struct {
 	Name   string `json:"name"`
@@ -43,11 +46,12 @@ type UpdateInfo struct {
 }
 
 type Updater struct {
-	BinaryPath  string
-	ConfigPath  string
-	Service     string
-	Client      *http.Client
-	ReleasesURL string
+	BinaryPath       string
+	ConfigPath       string
+	Service          string
+	Client           *http.Client
+	ReleasesURL      string
+	LatestReleaseURL string
 }
 
 func (u *Updater) Check(ctx context.Context) (UpdateInfo, ReleaseAsset, error) {
@@ -162,43 +166,79 @@ func (u *Updater) Update(ctx context.Context) (UpdateInfo, error) {
 }
 
 func (u *Updater) latest(ctx context.Context) (Release, ReleaseAsset, error) {
-	endpoint := u.ReleasesURL
-	if endpoint == "" {
-		endpoint = releasesURL
-	}
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
-	req.Header.Set("User-Agent", "X-port/0.1")
-	req.Header.Set("Accept", "application/vnd.github+json")
-	resp, err := u.client().Do(req)
-	if err != nil {
-		return Release{}, ReleaseAsset{}, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return Release{}, ReleaseAsset{}, fmt.Errorf("GitHub releases: HTTP %d", resp.StatusCode)
-	}
-	var releases []Release
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(&releases); err != nil {
-		return Release{}, ReleaseAsset{}, err
-	}
 	assetName, err := linuxAssetName()
 	if err != nil {
 		return Release{}, ReleaseAsset{}, err
 	}
+
+	endpoint := u.ReleasesURL
+	if endpoint == "" {
+		endpoint = releasesURL
+	}
+	var releases []Release
+	if err := u.getJSON(ctx, endpoint, &releases); err != nil {
+		return Release{}, ReleaseAsset{}, err
+	}
+	if rel, asset, ok := findStableAsset(releases, assetName); ok {
+		return rel, asset, nil
+	}
+
+	// Xray sometimes publishes enough prereleases to push the newest stable
+	// release beyond the first page. Fall back to GitHub's canonical latest
+	// stable endpoint instead of assuming the first page always contains one.
+	latestEndpoint := u.LatestReleaseURL
+	if latestEndpoint == "" {
+		if u.ReleasesURL != "" {
+			return Release{}, ReleaseAsset{}, fmt.Errorf("no stable %s asset found", assetName)
+		}
+		latestEndpoint = latestReleaseURL
+	}
+	var rel Release
+	if err := u.getJSON(ctx, latestEndpoint, &rel); err != nil {
+		return Release{}, ReleaseAsset{}, err
+	}
+	if rel.Draft || rel.Prerelease {
+		return Release{}, ReleaseAsset{}, fmt.Errorf("latest release endpoint returned a non-stable release %s", rel.Tag)
+	}
+	for _, asset := range rel.Assets {
+		if asset.Name == assetName {
+			return rel, asset, nil
+		}
+	}
+	return Release{}, ReleaseAsset{}, fmt.Errorf("no stable %s asset found", assetName)
+}
+
+func findStableAsset(releases []Release, assetName string) (Release, ReleaseAsset, bool) {
 	for _, rel := range releases {
 		// The panel's one-click channel is intentionally stable-only. A future
 		// explicit update-channel setting can opt into prereleases separately.
 		if rel.Draft || rel.Prerelease {
 			continue
 		}
-		for _, a := range rel.Assets {
-			if a.Name == assetName {
-				return rel, a, nil
+		for _, asset := range rel.Assets {
+			if asset.Name == assetName {
+				return rel, asset, true
 			}
 		}
 	}
-	return Release{}, ReleaseAsset{}, fmt.Errorf("no stable %s asset found", assetName)
+	return Release{}, ReleaseAsset{}, false
 }
+
+func (u *Updater) getJSON(ctx context.Context, endpoint string, dst any) error {
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	req.Header.Set("User-Agent", "X-port/0.1")
+	req.Header.Set("Accept", "application/vnd.github+json")
+	resp, err := u.client().Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("GitHub releases: HTTP %d", resp.StatusCode)
+	}
+	return json.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(dst)
+}
+
 func (u *Updater) client() *http.Client {
 	if u.Client != nil {
 		return u.Client
