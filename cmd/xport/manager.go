@@ -20,23 +20,23 @@ import (
 	"github.com/Kerberos255/X-port/internal/buildinfo"
 	"github.com/Kerberos255/X-port/internal/ops"
 	"github.com/Kerberos255/X-port/internal/selfupdate"
-	"github.com/Kerberos255/X-port/internal/service"
 	"github.com/Kerberos255/X-port/internal/store"
 	"github.com/Kerberos255/X-port/internal/xray"
 )
 
 const (
-	managerDataDir     = "/etc/x-port"
-	managerXrayBinary  = "/usr/local/x-port/bin/xray"
-	managerXrayConfig  = "/etc/x-port/xray/config.json"
-	managerPanelUnit   = "xport.service"
-	managerXrayUnit    = "xport-xray.service"
-	managerMigration   = "/usr/local/lib/xport/migrate-xpanel.sh"
+	managerDataDir    = "/etc/x-port"
+	managerXrayBinary = "/usr/local/x-port/bin/xray"
+	managerXrayConfig = "/etc/x-port/xray/config.json"
+	managerPanelUnit  = "xport.service"
+	managerXrayUnit   = "xport-xray.service"
+	managerMigration  = "/usr/local/lib/xport/migrate-xpanel.sh"
+	managerBinary     = "/usr/local/bin/xport"
 )
 
-// Keep the low-level CLI in main.go stable for scripts, while exposing the
-// human-facing management commands from the same binary. Go test always passes
-// -test.* arguments, so this pre-main dispatcher is inactive in tests.
+// Keep the low-level CLI in main.go stable for scripts while exposing the
+// human-facing manager from the same binary. go test always passes -test.*
+// arguments, so this pre-main dispatcher is inactive during tests.
 func init() {
 	if len(os.Args) == 1 {
 		if err := runManagerMenu(); err != nil { fmt.Fprintln(os.Stderr, "xport:", err); os.Exit(1) }
@@ -69,7 +69,7 @@ func runManagerCommand(cmd string, args []string) error {
 	case "settings": return settingsMenu()
 	case "admin": return adminMenu()
 	case "update": return updateXportCLI()
-	case "update-xray": return xrayUpdate([]string{"--binary", managerXrayBinary, "--config", managerXrayConfig, "--service", managerXrayUnit})
+	case "update-xray": return updateXrayCLI()
 	case "update-geodata": return updateGeodataCLI()
 	case "backup": return backupMenu()
 	case "firewall": return firewallMenu()
@@ -122,7 +122,7 @@ func runManagerMenu() error {
 		case "7": err = serviceAction("restart", managerXrayUnit)
 		case "8": err = logsMenu()
 		case "9": err = updateXportCLI()
-		case "10": err = xrayUpdate([]string{"--binary", managerXrayBinary, "--config", managerXrayConfig, "--service", managerXrayUnit})
+		case "10": err = updateXrayCLI()
 		case "11": err = updateGeodataCLI()
 		case "12": err = backupMenu()
 		case "13": err = guardedMigration()
@@ -146,6 +146,14 @@ func promptReader(r *bufio.Reader, label, def string) string {
 }
 func pauseReader(r *bufio.Reader) { fmt.Print("按 Enter 返回菜单..."); _, _ = r.ReadString('\n') }
 func confirmReader(r *bufio.Reader, label string) bool { v := strings.ToLower(promptReader(r, label+" [y/N]", "")); return v == "y" || v == "yes" }
+func readSecret(r *bufio.Reader, label string) string {
+	fmt.Print(label)
+	_ = exec.Command("stty", "-echo").Run()
+	v, _ := r.ReadString('\n')
+	_ = exec.Command("stty", "echo").Run()
+	fmt.Println()
+	return strings.TrimSpace(v)
+}
 
 func requireRoot() error { if os.Geteuid() != 0 { return errors.New("此操作需要 root，请使用 sudo xport") }; return nil }
 func runCommand(name string, args ...string) error { out, err := exec.Command(name, args...).CombinedOutput(); if err != nil { return fmt.Errorf("%s %s: %w: %s", name, strings.Join(args, " "), err, strings.TrimSpace(string(out))) }; if len(out) > 0 { fmt.Print(string(out)) }; return nil }
@@ -171,8 +179,7 @@ func printManagerStatus(w *os.File) error {
 	domain := strings.TrimSpace(stringSetting(st, "panel_domain", ""))
 	cert := strings.TrimSpace(stringSetting(st, "panel_cert_file", ""))
 	scheme := "http"; if cert != "" { scheme = "https" }
-	host := domain
-	if host == "" { host = listen }
+	host := domain; if host == "" { host = listen }
 	fmt.Fprintf(w, "Panel       %s://%s%s\n", scheme, host, base)
 	fmt.Fprintf(w, "Listen      %s\n", listen)
 	fmt.Fprintf(w, "Base Path   %s\n", base)
@@ -185,8 +192,7 @@ func printManagerStatus(w *os.File) error {
 }
 
 func directLogs(args []string) error {
-	serviceName := "xport"
-	follow := false
+	serviceName := "xport"; follow := false
 	for _, a := range args { if a == "xray" || a == "xport" { serviceName = a }; if a == "-f" || a == "--follow" { follow = true } }
 	unit := managerPanelUnit; if serviceName == "xray" { unit = managerXrayUnit }
 	if follow { cmd := exec.Command("journalctl", "-u", unit, "-f", "-n", "100", "-o", "short-iso"); cmd.Stdin=os.Stdin;cmd.Stdout=os.Stdout;cmd.Stderr=os.Stderr;return cmd.Run() }
@@ -204,13 +210,19 @@ func directAutostart(args []string) error {
 }
 func autostartMenu() error { r:=bufio.NewReader(os.Stdin); _=directAutostart([]string{"status"}); fmt.Println("1. 启用开机自启\n2. 关闭开机自启\n0. 返回"); switch promptReader(r,"请选择",""){case "1":return directAutostart([]string{"on"});case "2":return directAutostart([]string{"off"});default:return nil} }
 
+func validManagerBasePath(v string) bool {
+	if v == "/" { return true }
+	if !strings.HasPrefix(v,"/") || !strings.HasSuffix(v,"/") || strings.ContainsAny(v,"?#\\\t\r\n ") { return false }
+	for _,part:=range strings.Split(strings.Trim(v,"/"),"/"){if part==""||part=="."||part==".."{return false}}
+	return true
+}
 func settingsMenu() error {
 	if err:=requireRoot();err!=nil{return err}
 	st,err:=store.Open(dbPath(managerDataDir));if err!=nil{return err};defer st.Close();r:=bufio.NewReader(os.Stdin)
 	oldListen:=stringSetting(st,"panel_listen","127.0.0.1:8080");oldBase:=normalizeBasePath(stringSetting(st,"panel_base_path","/"));oldDomain:=stringSetting(st,"panel_domain","");oldCert:=stringSetting(st,"panel_cert_file","");oldKey:=stringSetting(st,"panel_key_file","")
 	fmt.Println("直接回车保留当前值；TLS cert/key 同时留空表示关闭 TLS。")
 	listen:=promptReader(r,"Listen",oldListen);base:=normalizeBasePath(promptReader(r,"Base Path",oldBase));domain:=promptReader(r,"Domain",oldDomain);cert:=promptReader(r,"TLS cert path",oldCert);key:=promptReader(r,"TLS key path",oldKey)
-	if _,_,err:=net.SplitHostPort(listen);err!=nil{return fmt.Errorf("Listen 必须是 host:port: %w",err)}
+	if _,_,err:=net.SplitHostPort(listen);err!=nil{return fmt.Errorf("Listen 必须是 host:port: %w",err)};if !validManagerBasePath(base){return errors.New("Base Path 无效")}
 	if (cert=="")!=(key==""){return errors.New("TLS cert/key 必须同时设置或同时清空")};if cert!=""{if !filepath.IsAbs(cert)||!filepath.IsAbs(key){return errors.New("TLS 路径必须是绝对路径")};if _,err:=tls.LoadX509KeyPair(cert,key);err!=nil{return fmt.Errorf("TLS 证书/私钥无法加载: %w",err)}}
 	for k,v:=range map[string]string{"panel_listen":listen,"panel_base_path":base,"panel_domain":strings.TrimSpace(domain),"panel_cert_file":strings.TrimSpace(cert),"panel_key_file":strings.TrimSpace(key)}{if err:=st.SetSetting(k,v);err!=nil{return err}}
 	fmt.Println("设置已保存。")
@@ -220,16 +232,23 @@ func settingsMenu() error {
 
 func adminMenu() error {
 	if err:=requireRoot();err!=nil{return err};st,err:=store.Open(dbPath(managerDataDir));if err!=nil{return err};defer st.Close();admins,err:=st.Admins();if err!=nil{return err};if len(admins)==0{return errors.New("未找到管理员")};r:=bufio.NewReader(os.Stdin);old:=admins[0].Username
-	user:=promptReader(r,"管理员用户名",old);fmt.Print("新密码（至少 12 位；直接回车表示只改用户名）: ");p1,_:=r.ReadString('\n');p1=strings.TrimSpace(p1);hash:=admins[0].PasswordHash
-	if p1!=""{if len(p1)<12{return errors.New("密码至少 12 位")};fmt.Print("重复新密码: ");p2,_:=r.ReadString('\n');p2=strings.TrimSpace(p2);if p1!=p2{return errors.New("两次密码不一致")};h,err:=bcrypt.GenerateFromPassword([]byte(p1),bcrypt.DefaultCost);if err!=nil{return err};hash=string(h)}
+	user:=promptReader(r,"管理员用户名",old);p1:=readSecret(r,"新密码（至少 12 位；直接回车表示只改用户名）: ");hash:=admins[0].PasswordHash
+	if p1!=""{if len(p1)<12{return errors.New("密码至少 12 位")};p2:=readSecret(r,"重复新密码: ");if p1!=p2{return errors.New("两次密码不一致")};h,err:=bcrypt.GenerateFromPassword([]byte(p1),bcrypt.DefaultCost);if err!=nil{return err};hash=string(h)}
 	if user==old&&p1==""{fmt.Println("没有修改。");return nil};return st.ApplySettings(nil,old,user,hash)
 }
 
+func updateXrayCLI() error { if err:=requireRoot();err!=nil{return err};return xrayUpdate([]string{"--binary", managerXrayBinary, "--config", managerXrayConfig, "--service", managerXrayUnit}) }
 func updateGeodataCLI() error {
 	if err:=requireRoot();err!=nil{return err};u:=&xray.Updater{BinaryPath:managerXrayBinary,ConfigPath:managerXrayConfig,Service:managerXrayUnit};ctx,c:=context.WithTimeout(context.Background(),3*time.Minute);defer c();info,err:=u.UpdateGeodata(ctx);if err!=nil{return err};fmt.Printf("GeoData: %+v\n",info);return nil
 }
+func privateReleaseToken() string {
+	if v:=strings.TrimSpace(os.Getenv("XPORT_GITHUB_TOKEN"));v!=""{return v}
+	b,err:=os.ReadFile(filepath.Join(managerDataDir,"xport.env"));if err!=nil{return ""}
+	for _,line:=range strings.Split(string(b),"\n"){line=strings.TrimSpace(line);if strings.HasPrefix(line,"XPORT_GITHUB_TOKEN="){return strings.Trim(strings.TrimSpace(strings.TrimPrefix(line,"XPORT_GITHUB_TOKEN=")),"\"'")}}
+	return ""
+}
 func updateXportCLI() error {
-	if err:=requireRoot();err!=nil{return err};exe,err:=os.Executable();if err!=nil{return err};u:=&selfupdate.Updater{CurrentVersion:buildinfo.Current,BinaryPath:exe,Repo:"Kerberos255/X-port",Token:os.Getenv("XPORT_GITHUB_TOKEN")};ctx,c:=context.WithTimeout(context.Background(),2*time.Minute);defer c();info,previous,err:=u.Stage(ctx);if err!=nil{return err};if previous==""{fmt.Printf("X-port 已是最新版本：%s\n",info.Current);return nil};if unitState(managerPanelUnit)=="active"{if err:=ops.ScheduleVerifiedBinaryRestart(managerPanelUnit,strings.TrimSuffix(previous,".previous"),previous,time.Second);err!=nil{_ = u.Restore(previous);return err};fmt.Printf("X-port 已更新到 %s，已安排服务验证重启。\n",info.Current);return nil};_ = os.Remove(previous);fmt.Printf("X-port 已更新到 %s。\n",info.Current);return nil
+	if err:=requireRoot();err!=nil{return err};if _,err:=os.Stat(managerBinary);err!=nil{return errors.New("未找到已安装的 /usr/local/bin/xport")};u:=&selfupdate.Updater{CurrentVersion:buildinfo.Current,BinaryPath:managerBinary,Repo:"Kerberos255/X-port",Token:privateReleaseToken()};ctx,c:=context.WithTimeout(context.Background(),2*time.Minute);defer c();info,previous,err:=u.Stage(ctx);if err!=nil{return err};if previous==""{fmt.Printf("X-port 已是最新版本：%s\n",info.Current);return nil};if unitState(managerPanelUnit)=="active"{if err:=ops.ScheduleVerifiedBinaryRestart(managerPanelUnit,strings.TrimSuffix(previous,".previous"),previous,time.Second);err!=nil{_ = u.Restore(previous);return err};fmt.Printf("X-port 已更新到 %s，已安排服务验证重启。\n",info.Current);return nil};_ = os.Remove(previous);fmt.Printf("X-port 已更新到 %s。\n",info.Current);return nil
 }
 
 func backupDirCLI()string{return filepath.Join(managerDataDir,"backups","manual")}
@@ -256,20 +275,21 @@ func guardedMigration() error {
 }
 
 func firewallKind()string{
-	if _,err:=exec.LookPath("ufw");err==nil{return "ufw"}
+	if _,err:=exec.LookPath("ufw");err==nil&&strings.Contains(strings.ToLower(outputCommand("ufw","status")),"status: active"){return "ufw"}
 	if _,err:=exec.LookPath("firewall-cmd");err==nil&&outputCommand("systemctl","is-active","firewalld.service")=="active"{return "firewalld"}
+	if _,err:=exec.LookPath("ufw");err==nil{return "ufw"}
 	if _,err:=exec.LookPath("nft");err==nil{return "nftables-readonly"}
 	if _,err:=exec.LookPath("iptables");err==nil{return "iptables-readonly"}
 	return "none"
 }
 func firewallMenu()error{
-	if err:=requireRoot();err!=nil{return err};r:=bufio.NewReader(os.Stdin);kind:=firewallKind();fmt.Println("检测到防火墙:",kind);fmt.Println("1. 查看规则\n2. 放行端口\n3. 撤销端口\n0. 返回");choice:=promptReader(r,"请选择","");if choice=="0"{return nil};if choice=="1"{return firewallList(kind)};if kind!="ufw"&&kind!="firewalld"{return errors.New("当前规则体系只提供只读查看；X-port 不猜测自定义 nftables/iptables 规则")};port,err:=strconv.Atoi(promptReader(r,"端口",""));if err!=nil||port<1||port>65535{return errors.New("无效端口")};proto:=strings.ToLower(promptReader(r,"协议 tcp / udp / both","both"));if proto!="tcp"&&proto!="udp"&&proto!="both"{return errors.New("协议只能是 tcp、udp 或 both")};if !confirmReader(r,fmt.Sprintf("确认%s %d/%s？",map[bool]string{true:"放行",false:"撤销"}[choice=="2"],port,proto)){return nil};return firewallChange(kind,choice=="2",port,proto)
+	if err:=requireRoot();err!=nil{return err};r:=bufio.NewReader(os.Stdin);kind:=firewallKind();fmt.Println("检测到防火墙:",kind);fmt.Println("1. 查看规则\n2. 放行端口\n3. 撤销端口\n0. 返回");choice:=promptReader(r,"请选择","");if choice=="0"{return nil};if choice=="1"{return firewallList(kind)};if choice!="2"&&choice!="3"{return errors.New("无效选项")};if kind!="ufw"&&kind!="firewalld"{return errors.New("当前规则体系只提供只读查看；X-port 不猜测自定义 nftables/iptables 规则")};port,err:=strconv.Atoi(promptReader(r,"端口",""));if err!=nil||port<1||port>65535{return errors.New("无效端口")};proto:=strings.ToLower(promptReader(r,"协议 tcp / udp / both","both"));if proto!="tcp"&&proto!="udp"&&proto!="both"{return errors.New("协议只能是 tcp、udp 或 both")};remove:=choice=="3";verb:="放行";if remove{verb="撤销"};if !confirmReader(r,fmt.Sprintf("确认%s %d/%s？",verb,port,proto)){return nil};return firewallChange(kind,remove,port,proto)
 }
 func firewallList(kind string)error{switch kind{case "ufw":return runCommand("ufw","status","numbered");case "firewalld":return runCommand("firewall-cmd","--list-all");case "nftables-readonly":return runCommand("nft","list","ruleset");case "iptables-readonly":return runCommand("iptables","-S");default:return errors.New("未检测到防火墙工具")}}
 func firewallChange(kind string,remove bool,port int,proto string)error{protos:=[]string{proto};if proto=="both"{protos=[]string{"tcp","udp"}};for _,p:=range protos{spec:=fmt.Sprintf("%d/%s",port,p);switch kind{case "ufw":args:=[]string{"allow",spec};if remove{args=[]string{"delete","allow",spec}};if err:=runCommand("ufw",args...);err!=nil{return err};case "firewalld":flag:="--add-port="+spec;if remove{flag="--remove-port="+spec};if err:=runCommand("firewall-cmd",flag);err!=nil{return err};if err:=runCommand("firewall-cmd","--permanent",flag);err!=nil{return err}}};return nil}
 
 func repairInstall()error{
-	if err:=requireRoot();err!=nil{return err};if _,err:=os.Stat("/usr/local/bin/xport");err!=nil{return errors.New("/usr/local/bin/xport 不存在；首次安装请在源码目录运行 scripts/install.sh")};if _,err:=os.Stat(managerXrayBinary);err!=nil{return errors.New("Xray binary 不存在；首次安装请在源码目录运行 scripts/install.sh")}
+	if err:=requireRoot();err!=nil{return err};if _,err:=os.Stat(managerBinary);err!=nil{return errors.New("/usr/local/bin/xport 不存在；首次安装请在源码目录运行 scripts/install.sh")};if _,err:=os.Stat(managerXrayBinary);err!=nil{return errors.New("Xray binary 不存在；首次安装请在源码目录运行 scripts/install.sh")}
 	panel:=`[Unit]
 Description=X-port Control Panel
 After=network-online.target
@@ -309,5 +329,5 @@ WantedBy=multi-user.target
 
 func uninstallXport()error{
 	if err:=requireRoot();err!=nil{return err};r:=bufio.NewReader(os.Stdin);fmt.Println("将停止并移除 X-port/Xray systemd unit、/usr/local/bin/xport 和 /usr/local/x-port。默认保留 /etc/x-port 数据和备份。")
-	if promptReader(r,"请输入 UNINSTALL 确认","")!="UNINSTALL"{fmt.Println("已取消。");return nil};_ = runCommand("systemctl","disable","--now",managerPanelUnit,managerXrayUnit);_ = os.Remove("/etc/systemd/system/xport.service");_ = os.Remove("/etc/systemd/system/xport-xray.service");_ = os.RemoveAll("/usr/local/x-port");_ = os.Remove("/usr/local/bin/xport");_ = os.RemoveAll("/usr/local/lib/xport");_ = runCommand("systemctl","daemon-reload");if confirmReader(r,"同时删除 /etc/x-port 的数据库、配置和备份？"){return os.RemoveAll(managerDataDir)};fmt.Println("/etc/x-port 已保留。");return nil
+	if promptReader(r,"请输入 UNINSTALL 确认","")!="UNINSTALL"{fmt.Println("已取消。");return nil};_ = runCommand("systemctl","disable","--now",managerPanelUnit,managerXrayUnit);_ = os.Remove("/etc/systemd/system/xport.service");_ = os.Remove("/etc/systemd/system/xport-xray.service");_ = os.RemoveAll("/usr/local/x-port");_ = os.Remove(managerBinary);_ = os.RemoveAll("/usr/local/lib/xport");_ = runCommand("systemctl","daemon-reload");if confirmReader(r,"同时删除 /etc/x-port 的数据库、配置和备份？"){return os.RemoveAll(managerDataDir)};fmt.Println("/etc/x-port 已保留。");return nil
 }
