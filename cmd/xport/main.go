@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -66,7 +67,8 @@ func migrateDB(args []string)error{
 	fs:=flag.NewFlagSet("migrate",flag.ContinueOnError);data:=fs.String("data","/etc/x-port","data directory");from:=fs.String("from","/etc/x-ui/x-ui.db","source x-ui database");sourceConfig:=fs.String("source-config","","source generated Xray config to preserve global sections");apply:=fs.Bool("apply",false,"replace X-port accounts and compatible panel settings");if err:=fs.Parse(args);err!=nil{return err}
 	result,err:=migrate.ReadXUI(*from);if err!=nil{return err};globalConfig:="";if strings.TrimSpace(*sourceConfig)!=""{globalConfig,err=migrate.ReadGlobalXrayConfig(*sourceConfig);if err!=nil{return err}}
 	adminNames:=make([]string,0,len(result.Admins));for _,a:=range result.Admins{adminNames=append(adminNames,a.Username)};enc:=json.NewEncoder(os.Stdout);enc.SetIndent("","  ");_ = enc.Encode(map[string]any{"source":*from,"compatible":len(result.Accounts),"adminUsernames":adminNames,"panelListen":result.PanelListen,"panelBasePath":result.PanelBasePath,"panelDomain":result.PanelDomain,"panelTLS":result.PanelCertFile!=""&&result.PanelKeyFile!="","globalXrayConfig":globalConfig!="","warnings":result.Warnings,"skipped":result.Skipped,"apply":*apply})
-	if !*apply{return nil};if len(result.Skipped)>0{return fmt.Errorf("refusing apply: %d source inbound(s) require attention",len(result.Skipped))};st,err:=openData(*data);if err!=nil{return err};defer st.Close();if err:=st.ReplaceAccounts(result.Accounts);err!=nil{return err};if len(result.Admins)>0{if err:=st.ReplaceAdmins(result.Admins);err!=nil{return err}}
+	if !*apply{return nil};if len(result.Skipped)>0{return fmt.Errorf("refusing apply: %d source inbound(s) require attention",len(result.Skipped))};if result.PanelCertFile!=""&&result.PanelKeyFile!=""{if _,err:=tls.LoadX509KeyPair(result.PanelCertFile,result.PanelKeyFile);err!=nil{return fmt.Errorf("refusing apply: migrated panel TLS files cannot be loaded: %w",err)}}
+	st,err:=openData(*data);if err!=nil{return err};defer st.Close();if err:=st.ReplaceAccounts(result.Accounts);err!=nil{return err};if len(result.Admins)>0{if err:=st.ReplaceAdmins(result.Admins);err!=nil{return err}}
 	settings:=map[string]string{};if result.PanelListen!=""{settings["panel_listen"]=result.PanelListen};if result.PanelBasePath!=""{settings["panel_base_path"]=normalizeBasePath(result.PanelBasePath)};if result.PanelCertFile!=""&&result.PanelKeyFile!=""{settings["panel_cert_file"]=result.PanelCertFile;settings["panel_key_file"]=result.PanelKeyFile};if result.PanelDomain!=""{settings["panel_domain"]=result.PanelDomain};if globalConfig!=""{settings["xray_global_config"]=globalConfig};for k,v:=range settings{if err:=st.SetSetting(k,v);err!=nil{return err}};return nil
 }
 
