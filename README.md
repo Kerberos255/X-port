@@ -20,7 +20,7 @@ X-port deliberately removes the reseller/membership/points model found in many x
   - tests the new binary against the current config
   - automatically restores the previous binary if restart fails
 - SQLite storage
-- X-Panel / 3x-ui read-only migration with dry-run and backup
+- X-Panel / 3x-ui read-only migration with dry-run, watchdog suppression and transactional rollback
 - Linux systemd deployment
 - Single Go binary with embedded Web UI; no Node/npm runtime on the server
 
@@ -59,9 +59,9 @@ Defaults:
 - Xray: `/usr/local/x-port/bin/xray`
 - panel: `127.0.0.1:8080`
 
-The installer asks for the admin password without echoing it. X-port stores only a bcrypt hash.
+The installer asks for the bootstrap admin password without echoing it. X-port stores only a bcrypt hash. During an X-Panel migration, compatible old panel credentials replace this bootstrap login.
 
-For remote access, keep the panel bound to localhost and put it behind an HTTPS reverse proxy.
+For remote access on a fresh install, keep the panel bound to localhost and put it behind an HTTPS reverse proxy. A migration deliberately preserves the old X-Panel listen address/port so the cutover does not unexpectedly change how the existing panel is reached.
 
 ## Migrate from X-Panel / 3x-ui
 
@@ -78,16 +78,21 @@ sudo ./scripts/migrate-xpanel.sh
 
 Migration workflow:
 
-1. Read old SQLite database in **read-only** mode and print a dry-run.
-2. Ask for confirmation.
-3. Stop the old service.
-4. Back up old database/config and current X-port state.
-5. Import only compatible one-client inbounds.
-6. Render and validate the Xray config.
-7. Start X-port Xray and panel.
-8. If any cutover step fails, restart the old panel automatically.
+1. Read the old SQLite database in **read-only** mode and print a dry-run.
+2. Detect compatible WebUI administrators and the old `webListen` / `webPort` settings. Password hashes are never printed.
+3. Ask for confirmation.
+4. Snapshot current X-port database/config and record the old X-Panel service/timer states.
+5. Stop and mask the old X-Panel related systemd services/timers so watchdogs cannot restart them during cutover.
+6. Abort safely if a non-systemd watchdog still revives an old `/usr/local/x-ui/` process.
+7. Import compatible one-client inbounds.
+8. Replace the bootstrap X-port WebUI administrators with compatible X-Panel usernames and bcrypt password hashes, preserving the same login passwords.
+9. Persist the old panel listen address and port in X-port settings.
+10. Render and validate the Xray config, then start X-port Xray and panel.
+11. If any cutover step fails, stop X-port, restore its previous database/config, restore the old unit states, restart the old panel when it was previously active, and verify rollback.
 
 Multi-client inbounds are never silently split. They are reported and block `--apply` until handled explicitly.
+
+If an old administrator password is not a recognizable bcrypt hash, that record is not imported automatically; the dry-run warns about it and the bootstrap X-port login is retained unless another valid old administrator exists.
 
 ## Account behavior
 
@@ -98,9 +103,11 @@ Cloning keeps the transport/REALITY configuration but allocates a new UUID, rese
 ## Security notes
 
 - Panel session uses HttpOnly + SameSite=Strict cookie.
-- Panel defaults to localhost-only HTTP.
+- Fresh installs default to localhost-only HTTP.
 - Source migration is read-only.
+- X-Panel bcrypt password hashes are reused directly; plaintext passwords are never needed or logged.
 - Xray mutations are validated before activation.
 - Failed Xray config/service activation restores the previous config.
+- Migration rollback restores the complete pre-cutover X-port database, including panel login/listen settings.
 - Xray binary update verifies the release asset SHA-256 digest and keeps a previous binary for rollback.
 - No telemetry, ads, licensing server or external QR service.
