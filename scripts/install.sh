@@ -40,13 +40,14 @@ After=network-online.target
 Wants=network-online.target
 [Service]
 Type=simple
+Environment=XRAY_LOCATION_ASSET=$PREFIX/bin
 ExecStart=$PREFIX/bin/xray run -config $DATA_DIR/xray/config.json
 Restart=on-failure
 RestartSec=3
 LimitNOFILE=1048576
 NoNewPrivileges=true
 PrivateTmp=true
-ProtectHome=true
+ProtectHome=read-only
 [Install]
 WantedBy=multi-user.target
 UNIT
@@ -63,7 +64,7 @@ RestartSec=3
 UMask=0027
 NoNewPrivileges=true
 PrivateTmp=true
-ProtectHome=true
+ProtectHome=read-only
 [Install]
 WantedBy=multi-user.target
 UNIT
