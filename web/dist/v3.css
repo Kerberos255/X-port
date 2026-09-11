@@ -12,12 +12,6 @@
 
 /* Account row: account -> current connections -> port -> protocol -> usage -> expiry -> enable -> actions. */
 .account-row{grid-template-columns:minmax(150px,1.25fr) 70px 76px minmax(108px,.85fr) minmax(125px,1fr) 88px 54px auto}
-.account-row>.account-name{grid-column:1}
-.account-row>.online-cell{grid-column:2}
-.account-row>.port-cell{grid-column:3}
-.account-row>.protocol-cell{grid-column:4}
-.account-row>.usage-cell{grid-column:5}
-.account-row>.hide-mid:not(.protocol-cell):not(.usage-cell){grid-column:6}
 .online-cell{display:flex;justify-content:center;align-items:center;min-width:0}
 .online-pill{display:inline-flex;align-items:center;gap:5px;padding:4px 7px;border:1px solid rgba(110,142,177,.13);border-radius:999px;color:#72839a;font-size:9px;white-space:nowrap;background:rgba(83,108,139,.045)}
 .online-pill i{width:6px;height:6px;border-radius:50%;background:#627187}
@@ -42,7 +36,7 @@
 .expert-section label.full{grid-column:1/-1}
 .expert-section input,.expert-section select,.expert-section textarea{width:100%;border:1px solid rgba(130,160,201,.14);background:rgba(4,8,14,.45);border-radius:8px;padding:10px 11px;color:inherit;outline:none;font-size:12px}
 .expert-section textarea{min-height:96px;resize:vertical;font:10.5px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace}
-.expert-section input:focus,.expert-section select,.expert-section textarea:focus{border-color:rgba(91,218,215,.4);box-shadow:0 0 0 3px rgba(91,218,215,.04)}
+.expert-section input:focus,.expert-section select:focus,.expert-section textarea:focus{border-color:rgba(91,218,215,.4);box-shadow:0 0 0 3px rgba(91,218,215,.04)}
 .expert-section input[readonly]{opacity:.78;cursor:copy}
 .expert-check{display:flex!important;align-items:center!important;grid-template-columns:auto 1fr!important;gap:8px!important;padding:5px 0}
 .expert-check input{width:auto!important;margin:0}
@@ -57,7 +51,7 @@ html[data-theme="light"] .expert-section input,html[data-theme="light"] .expert-
 html[data-theme="light"] .online-pill{background:rgba(232,239,247,.55);border-color:rgba(68,96,130,.12);color:#65768c}
 html[data-theme="light"] .online-pill.on{background:rgba(55,178,141,.07);color:#39856c}
 
-@media(max-width:900px) and (min-width:701px){.account-row{grid-template-columns:minmax(135px,1fr) 64px 72px minmax(100px,.8fr) 50px auto}.account-row>.account-name{grid-column:1}.account-row>.online-cell{grid-column:2}.account-row>.port-cell{grid-column:3}.account-row>.protocol-cell{grid-column:4}.enable-cell{grid-column:5}.row-actions{grid-column:6}.account-row>.usage-cell,.account-row>.hide-mid:not(.protocol-cell){display:none}}
+@media(max-width:900px) and (min-width:701px){.account-row{grid-template-columns:minmax(135px,1fr) 64px 72px minmax(100px,.8fr) 50px auto}.enable-cell{grid-column:5}.row-actions{grid-column:6}.account-row>.usage-cell,.account-row>.hide-mid:not(.protocol-cell){display:none}}
 @media(max-width:700px){
  .server-core{gap:13px}.uptime-ring{min-width:78px}.uptime-ring strong{font-size:29px}.uptime-ring span{font-size:11px}
  .account-row{grid-template-columns:minmax(0,1fr) auto auto!important}
