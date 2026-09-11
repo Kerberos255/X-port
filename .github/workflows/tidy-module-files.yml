@@ -1,0 +1,28 @@
+name: Generate Go module files
+
+on:
+  push:
+    branches:
+      - fix/install-bootstrap
+
+permissions:
+  contents: read
+
+jobs:
+  tidy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Generate tidy module files
+        run: go mod tidy
+      - name: Archive module files
+        run: tar -czf /tmp/xport-module-files.tar.gz go.mod go.sum
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xport-module-files
+          path: /tmp/xport-module-files.tar.gz
+          if-no-files-found: error
+          retention-days: 1
