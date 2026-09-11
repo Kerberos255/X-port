@@ -35,6 +35,7 @@ func (u *Updater) Rollback() (RollbackInfo, error) {
 			if out, err := run(10*time.Second, previousPath, "run", "-test", "-config", u.ConfigPath); err != nil {
 				return info, fmt.Errorf("previous Xray rejected current config: %v: %s", err, out)
 			}
+		}
 	}
 
 	currentTmp := u.BinaryPath + ".rollback-current"
