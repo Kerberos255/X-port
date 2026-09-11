@@ -2,27 +2,22 @@ package xray
 
 import (
 	"encoding/json"
-	"github.com/Kerberos255/X-port/internal/model"
 	"testing"
+
+	"github.com/Kerberos255/X-port/internal/model"
 )
 
+func testAccount(port int) model.Account { return model.Account{Name:"A",Enabled:true,Port:port,Protocol:"vless",SettingsJSON:`{"clients":[{"id":"x"}],"decryption":"none"}`,StreamSettingsJSON:`{}`,SniffingJSON:`{}`,Tag:"a"} }
+
 func TestBuildConfig(t *testing.T) {
-	a := []model.Account{{Name: "A", Enabled: true, Port: 21001, Protocol: "vless", SettingsJSON: `{"clients":[{"id":"x"}],"decryption":"none"}`, StreamSettingsJSON: `{}`, SniffingJSON: `{}`, Tag: "a"}}
-	b, err := BuildConfig(a, 10085)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var cfg map[string]any
-	if json.Unmarshal(b, &cfg) != nil {
-		t.Fatal("invalid json")
-	}
-	if len(cfg["inbounds"].([]any)) != 2 {
-		t.Fatal("expected account and API inbound")
-	}
+	b,err:=BuildConfig([]model.Account{testAccount(21001)},10085);if err!=nil{t.Fatal(err)};var cfg map[string]any;if json.Unmarshal(b,&cfg)!=nil{t.Fatal("invalid json")};if len(cfg["inbounds"].([]any))!=2{t.Fatal("expected account and API inbound")}
 }
-func TestBuildConfigRejectsPortConflict(t *testing.T) {
-	a := []model.Account{{Name: "A", Enabled: true, Port: 10085, Protocol: "vless", SettingsJSON: `{}`, StreamSettingsJSON: `{}`, SniffingJSON: `{}`, Tag: "a"}}
-	if _, err := BuildConfig(a, 10085); err == nil {
-		t.Fatal("expected conflict")
-	}
+func TestBuildConfigRejectsPortConflict(t *testing.T) { if _,err:=BuildConfig([]model.Account{testAccount(10085)},10085);err==nil{t.Fatal("expected conflict")} }
+func TestBuildConfigWithBasePreservesGlobals(t *testing.T) {
+	base:=`{"dns":{"servers":["1.1.1.1"]},"outbounds":[{"protocol":"freedom","tag":"my-direct"}],"routing":{"domainStrategy":"IPIfNonMatch","rules":[{"type":"field","domain":["example.com"],"outboundTag":"my-direct"},{"type":"field","inboundTag":["api"],"outboundTag":"api"}]},"inbounds":[{"port":9999,"protocol":"http","tag":"old"}],"api":{"tag":"old-api"},"stats":{"old":true}}`
+	b,err:=BuildConfigWithBase([]model.Account{testAccount(21001)},10085,base);if err!=nil{t.Fatal(err)};var cfg map[string]any;if err:=json.Unmarshal(b,&cfg);err!=nil{t.Fatal(err)}
+	if _,ok:=cfg["dns"];!ok{t.Fatal("dns lost")};outs:=cfg["outbounds"].([]any);if len(outs)!=1||outs[0].(map[string]any)["tag"]!="my-direct"{t.Fatalf("outbounds changed: %#v",outs)}
+	ins:=cfg["inbounds"].([]any);if len(ins)!=2{t.Fatalf("old inbounds leaked: %#v",ins)}
+	routing:=cfg["routing"].(map[string]any);if routing["domainStrategy"]!="IPIfNonMatch"{t.Fatal("routing option lost")};rules:=routing["rules"].([]any);if len(rules)!=2{t.Fatalf("expected one API rule plus custom rule: %#v",rules)}
+	api:=cfg["api"].(map[string]any);if api["tag"]!="api"{t.Fatal("api section not replaced")}
 }
