@@ -82,6 +82,14 @@ async function updateXport(){
  try{const d=await api('/api/xport/update',{method:'POST',body:'{}'}),info=d.update||d;toast(d.scheduled?`X-port ${info.latest} 已安装，正在验证重启`:'X-port 已是最新');if(d.scheduled)setTimeout(()=>location.reload(),4500);else await checkXportUpdate()}catch(e){toast(e.message,true);b.disabled=false;b.textContent='重试更新'}
 }
 
+function bindMetricRings(){
+ for(const id of ['cpu','memory','disk']){
+  const el=$(`#${id}`);if(!el)continue
+  const sync=()=>{const pct=Math.max(0,Math.min(100,Number.parseFloat(el.textContent)||0));el.style.setProperty('--metric-pct',`${pct}%`)}
+  sync();new MutationObserver(sync).observe(el,{childList:true,subtree:true,characterData:true})
+ }
+}
+
 function bindAdvancedControls(){
  $('#export-accounts')?.addEventListener('click',exportAccounts)
  $('#check-geodata')?.addEventListener('click',()=>checkGeodata(true))
@@ -91,6 +99,7 @@ function bindAdvancedControls(){
  $('#backup-file')?.addEventListener('change',e=>importBackupFile(e.target.files?.[0]))
  const xrayNav=$('#nav button[data-page="xray"]');xrayNav?.addEventListener('click',()=>void checkGeodata(false))
  const systemNav=$('#nav button[data-page="system"]');systemNav?.addEventListener('click',()=>{ensureSelfUpdateCard();void checkXportUpdate(false)})
+ bindMetricRings()
  ensureSelfUpdateCard()
 }
 
