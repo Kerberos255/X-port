@@ -1,0 +1,10 @@
+/* X-port v0.1.7: account-editor label and expert-control alignment. */
+.field-label-line{display:flex;align-items:baseline;gap:4px;min-width:0;line-height:1.35}
+.field-inline-note{font-size:9px;font-weight:500;color:#667990;white-space:nowrap}
+.proxy-protocol-row{display:flex!important;align-items:center!important;gap:12px!important;padding:7px 0!important}
+.proxy-protocol-copy{display:flex;flex:1 1 auto;min-width:0;flex-direction:column;gap:3px}
+.proxy-protocol-copy b{font-size:10px;font-weight:600;color:#8393aa;line-height:1.35}
+.proxy-protocol-copy .field-hint{display:block;margin:0;line-height:1.45}
+.proxy-protocol-row>input[type="checkbox"]{flex:0 0 auto!important;width:16px!important;height:16px!important;margin:0 0 0 auto!important;padding:0!important;order:2}
+html[data-theme="light"] .proxy-protocol-copy b{color:#5f7188}
+@media(max-width:700px){.field-label-line{gap:3px}.field-inline-note{font-size:8.5px}.proxy-protocol-row{gap:10px!important}}
