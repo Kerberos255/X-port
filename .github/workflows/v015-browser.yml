@@ -1,0 +1,36 @@
+name: v0.1.5 real bundled UI
+
+on:
+  push:
+    branches:
+      - fix/v0.1.5-inbound-ui
+    paths:
+      - .github/workflows/v015-browser.yml
+
+permissions:
+  contents: read
+
+jobs:
+  browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: fix/v0.1.5-inbound-ui
+      - name: Install browser runtime
+        run: |
+          npm init -y >/dev/null 2>&1
+          npm install --no-save playwright@1.55.0 >/dev/null
+          npx playwright install --with-deps chromium >/dev/null
+      - name: Run actual bundled frontend
+        run: |
+          python scripts/tmp_v015_mock.py & echo $! > /tmp/xport-v015-mock.pid
+          node scripts/tmp_v015_browser.js
+          kill $(cat /tmp/xport-v015-mock.pid) || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v015-real-ui-screenshots
+          path: |
+            edit-account-v015.png
+            new-xhttp-v015.png
+            system-v015.png
