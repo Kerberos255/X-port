@@ -182,3 +182,24 @@ function initV3(){
  xportOnlineTimer=setInterval(()=>{if(state.page==='accounts'&&!$('#app').classList.contains('hidden'))void loadOnlineConnectionsV3(true)},5000)
 }
 document.addEventListener('DOMContentLoaded',initV3)
+
+/* X-port v0.1.10: keep transport-specific advanced fields before security-specific fields. */
+function reorderExpertSectionsV10(html){
+ const template=document.createElement('template')
+ template.innerHTML=html
+ const body=template.content.querySelector('.expert-body')||template.content
+ const sections=[...body.querySelectorAll('.expert-section')]
+ const byTitle=title=>sections.find(section=>section.querySelector('.expert-section-title')?.textContent?.trim().startsWith(title))
+ const xhttp=body.querySelector('#expert-xhttp-mode')?.closest('.expert-section')||byTitle('XHTTP')
+ if(xhttp){
+  const reality=body.querySelector('#expert-reality-target')?.closest('.expert-section')||byTitle('REALITY')
+  const tls=body.querySelector('#expert-tls-alpn')?.closest('.expert-section')||byTitle('TLS')
+  const security=reality||tls
+  if(security)body.insertBefore(xhttp,security)
+ }
+ return template.innerHTML
+}
+const createAdvancedV3BeforeV10=createAdvancedV3
+createAdvancedV3=(...args)=>reorderExpertSectionsV10(createAdvancedV3BeforeV10(...args))
+const renderExpertV3BeforeV10=renderExpertV3
+renderExpertV3=(...args)=>reorderExpertSectionsV10(renderExpertV3BeforeV10(...args))

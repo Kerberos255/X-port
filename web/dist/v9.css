@@ -52,3 +52,10 @@ html[data-theme="light"] .server-fact b{color:#334a62}
  .uuid-control{grid-template-columns:minmax(0,1fr) 42px}
  .protocol-config-grid>label{min-width:0}
 }
+
+/* X-port v0.1.10: modal scrollbar breathing room and close-button clearance. */
+.modal-card{padding-right:36px;scrollbar-gutter:stable;scrollbar-width:thin;scrollbar-color:rgba(126,155,190,.34) transparent}
+.modal-card::-webkit-scrollbar{width:8px}
+.modal-card::-webkit-scrollbar-track{background:transparent}
+.modal-card::-webkit-scrollbar-thumb{background:rgba(126,155,190,.34);border:2px solid transparent;background-clip:padding-box;border-radius:999px}
+.modal-x{right:30px;z-index:2}
