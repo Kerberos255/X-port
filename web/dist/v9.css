@@ -11,3 +11,44 @@
  .protocol-transport-extra{grid-column:1;grid-template-columns:1fr}
  .protocol-column{gap:11px}
 }
+/* X-port v0.1.9: approved account and overview layout. */
+.proto-credential-fields.hidden-field{display:none!important}
+.uuid-field{display:grid!important;gap:6px!important;width:100%}
+.uuid-control{display:grid;grid-template-columns:minmax(0,1fr) 42px;gap:9px;min-width:0}
+.uuid-control input{min-width:0}
+.uuid-regen{width:42px;height:42px;padding:0;overflow:visible;border:1px solid rgba(130,160,201,.14);background:rgba(4,8,14,.45);border-radius:8px;color:#8ea2ba;display:grid;place-items:center;cursor:pointer;line-height:1}
+.uuid-regen svg{display:block;width:15px;height:15px}
+.uuid-regen:hover{border-color:rgba(91,218,215,.4);color:#d8f7f5}
+.uuid-regen:focus-visible{outline:2px solid rgba(93,224,219,.52);outline-offset:2px}
+.protocol-config-grid>label{display:grid;gap:6px;min-width:0}
+.protocol-config-grid>label input,.protocol-config-grid>label select{width:100%;min-width:0}
+
+.overview-grid{grid-template-columns:minmax(0,1.85fr) minmax(310px,.9fr);align-items:stretch}
+.server-panel{grid-column:1;grid-row:1}
+.health-panel{grid-column:2;grid-row:1}
+.traffic-panel{grid-column:1;grid-row:2}
+.services{grid-column:2;grid-row:2}
+.server-top-layout{display:grid;grid-template-columns:minmax(0,.95fr) minmax(280px,1.05fr);gap:28px;align-items:stretch;padding:18px 2px 20px}
+.server-top-layout>.server-core{padding:0}
+.server-details.server-facts{display:grid;grid-template-columns:1fr;align-content:center;gap:0;margin:0;padding:0 0 0 22px;border:0;border-left:1px solid var(--line)}
+.server-fact{display:grid;grid-template-columns:72px minmax(0,1fr);gap:12px;align-items:center;min-height:30px;border-bottom:1px solid rgba(132,166,211,.085)}
+.server-fact:last-child{border-bottom:0}
+.server-fact small{display:block;font-size:9.5px;color:#6f7f96;margin:0}
+.server-fact b{display:block;font-size:11.5px;font-weight:650;color:#c7d4e5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.health-panel .health-row:last-child{border-bottom:0}
+#online-note{display:none!important}
+
+html[data-theme="light"] .uuid-regen{background:#fff;color:#60748c;border-color:rgba(71,96,128,.18)}
+html[data-theme="light"] .server-fact{border-bottom-color:rgba(67,95,128,.11)}
+html[data-theme="light"] .server-fact b{color:#334a62}
+
+@media(max-width:900px){
+ .overview-grid{grid-template-columns:1fr}
+ .server-panel,.health-panel,.traffic-panel,.services{grid-column:1;grid-row:auto}
+ .server-top-layout{grid-template-columns:1fr;gap:16px}
+ .server-details.server-facts{border-left:0;border-top:1px solid var(--line);padding:14px 0 0}
+}
+@media(max-width:700px){
+ .uuid-control{grid-template-columns:minmax(0,1fr) 42px}
+ .protocol-config-grid>label{min-width:0}
+}
