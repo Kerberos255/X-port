@@ -65,31 +65,17 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.version.outputs.tag }}
-          VERSION: ${{ steps.version.outputs.version }}
         shell: bash
         run: |
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "Release $TAG already exists; refusing to overwrite it." >&2
             exit 1
           fi
-          cat > /tmp/release-notes.md <<EOF
-          X-port ${VERSION}
-
-          Stable X-port release.
-
-          - Linux amd64 and arm64 standalone binaries
-          - Xray-native account editor and safe account controls
-          - dark/light WebUI with server, Xray, backup and update management
-          - guarded Xray and X-port update flows with rollback protection
-          - migrated/unknown Xray fields preserved when editing supported settings
-
-          X-port self-update verifies GitHub's SHA-256 asset digest and the candidate binary version before replacement. The previous working X-port binary is retained as one rollback generation after a successful update.
-          EOF
           gh release create "$TAG" \
             dist/xport-linux-amd64 \
             dist/xport-linux-arm64 \
             dist/SHA256SUMS \
             --target "$GITHUB_SHA" \
             --title "X-port $TAG" \
-            --notes-file /tmp/release-notes.md \
+            --generate-notes \
             --latest
