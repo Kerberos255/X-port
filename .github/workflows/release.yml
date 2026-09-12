@@ -8,16 +8,18 @@ on:
 
 permissions:
   contents: write
+  id-token: write
+  attestations: write
 
 jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: '1.27.1'
           cache: false
@@ -32,6 +34,7 @@ jobs:
           git diff --exit-code -- go.mod go.sum
           go test ./...
           go vet ./...
+          go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
 
       - name: Read version
         id: version
@@ -52,6 +55,12 @@ jobs:
           test "$(./dist/xport-linux-amd64 version)" = "${{ steps.version.outputs.version }}"
           sha256sum dist/xport-linux-amd64 dist/xport-linux-arm64 > dist/SHA256SUMS
 
+      - name: Attest public release artifacts
+        if: ${{ github.event.repository.private == false }}
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: 'dist/*'
+
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -66,7 +75,7 @@ jobs:
           cat > /tmp/release-notes.md <<EOF
           X-port ${VERSION}
 
-          First stable X-port release.
+          Stable X-port release.
 
           - Linux amd64 and arm64 standalone binaries
           - Xray-native account editor and safe account controls

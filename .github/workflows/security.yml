@@ -1,0 +1,43 @@
+name: Security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  secret-history:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - name: Scan reachable Git history for secrets
+        run: go run github.com/zricethezav/gitleaks/v8@v8.30.1 git --redact --no-banner --exit-code 1
+
+  static-security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.27.1'
+          cache: false
+      - name: Reject executable browser string sinks
+        run: |
+          if grep -RInE 'eval\(|new Function|document\.write' web/dist --include='*.js'; then
+            echo 'Unsafe executable frontend sink found.' >&2
+            exit 1
+          fi
+      - name: Reject dynamic SQL construction in importer
+        run: |
+          if grep -RInE 'fmt\.Sprintf\([^\n]*SELECT|fmt\.Sprintf\([^\n]*INSERT|fmt\.Sprintf\([^\n]*UPDATE|fmt\.Sprintf\([^\n]*DELETE' internal --include='*.go'; then
+            echo 'Dynamic SQL construction found.' >&2
+            exit 1
+          fi
+      - name: Gosec report
+        continue-on-error: true
+        run: go run github.com/securego/gosec/v2/cmd/gosec@v2.29.0 -exclude-generated ./...

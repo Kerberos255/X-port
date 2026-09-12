@@ -828,7 +828,18 @@ RestartSec=3
 UMask=0027
 NoNewPrivileges=true
 PrivateTmp=true
+PrivateDevices=true
 ProtectHome=read-only
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+SystemCallArchitectures=native
+ProtectSystem=strict
+ReadWritePaths=/etc/x-port /usr/local/x-port /usr/local/bin
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 [Install]
 WantedBy=multi-user.target
 `
@@ -845,7 +856,17 @@ RestartSec=3
 LimitNOFILE=1048576
 NoNewPrivileges=true
 PrivateTmp=true
+PrivateDevices=true
 ProtectHome=read-only
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+SystemCallArchitectures=native
+ProtectSystem=full
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 [Install]
 WantedBy=multi-user.target
 `
