@@ -38,6 +38,13 @@ jobs:
             echo 'Dynamic SQL construction found.' >&2
             exit 1
           fi
-      - name: Gosec report
-        continue-on-error: true
-        run: go run github.com/securego/gosec/v2/cmd/gosec@v2.29.0 -exclude-generated ./...
+      - name: Gosec blocking profile
+        # These contextual rules are intentionally covered by app-specific validation/tests:
+        # G104 cleanup-close errors; G124 HTTP-local/Secure-cookie mode; G204 argv-only exec
+        # with validated service names; G301/G302/G306 executable/systemd/config modes;
+        # G304 privileged, bounded paths; G703 trusted daemon config path; G705 PNG QR output.
+        run: >-
+          go run github.com/securego/gosec/v2/cmd/gosec@v2.29.0
+          -exclude-generated
+          -exclude=G104,G124,G204,G301,G302,G304,G306,G703,G705
+          ./...
