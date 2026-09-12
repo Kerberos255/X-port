@@ -1,0 +1,59 @@
+name: Apply security hardening
+
+on:
+  push:
+    branches: [security/hardening]
+    paths:
+      - scripts/security-hardening-apply.py
+      - .github/workflows/security-hardening-apply.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.27.1'
+          cache: false
+      - name: Apply source hardening
+        run: |
+          set -euo pipefail
+          python3 scripts/security-hardening-apply.py
+          gofmt -w cmd internal
+          go get golang.org/x/crypto@v0.56.0 golang.org/x/sys@v0.47.0
+          go mod tidy
+      - name: Verify syntax and tests
+        run: |
+          set -euo pipefail
+          node --check web/dist/app.js
+          node --check web/dist/extra.js
+          node --check web/dist/v3.js
+          bash -n scripts/build-linux.sh scripts/install.sh scripts/migrate-xpanel.sh
+          go test ./...
+          go vet ./...
+          go test -race ./...
+          go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+      - name: Security analyzer report
+        run: |
+          set +e
+          go run github.com/securego/gosec/v2/cmd/gosec@latest -exclude-generated ./... 2>&1 | tee /tmp/gosec.txt
+          code=${PIPESTATUS[0]}
+          echo "gosec_exit=$code"
+          exit 0
+      - name: Commit generated hardening
+        run: |
+          set -euo pipefail
+          git status --short
+          git add -A
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'security: harden web auth, inputs, runtime, and supply chain'
+          git push origin HEAD:security/hardening
