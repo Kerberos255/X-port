@@ -296,11 +296,11 @@ func applyDefaults(in *Input) {
 		if in.Credential == "" {
 			in.Credential = newUUID()
 		}
-		if in.Flow == "" {
-			in.Flow = "xtls-rprx-vision"
-		}
 		if in.Security == "" {
 			in.Security = "reality"
+		}
+		if in.Flow == "" && (in.Network == "tcp" || in.Network == "raw") && (in.Security == "tls" || in.Security == "reality") {
+			in.Flow = "xtls-rprx-vision"
 		}
 	case "vmess":
 		if in.Credential == "" {
@@ -544,6 +544,12 @@ func applyTransport(stream map[string]any, in Input) {
 func extractProtocolView(v *View, settings map[string]any) bool {
 	switch v.Protocol {
 	case "vless", "vmess", "trojan":
+		if v.Protocol == "vless" {
+			decryption := strings.TrimSpace(stringValue(settings["decryption"]))
+			if decryption != "" && decryption != "none" {
+				return false
+			}
+		}
 		client, err := oneObject(settings, "clients")
 		if err != nil {
 			return false
@@ -917,6 +923,21 @@ func validateEditableInput(in Input) error {
 			}
 		default:
 			return fmt.Errorf("security %q is not supported by the built-in editor", in.Security)
+		}
+	}
+	if in.Security == "reality" {
+		switch in.Network {
+		case "tcp", "raw", "xhttp", "grpc":
+		default:
+			return fmt.Errorf("REALITY is not supported with %s transport", in.Network)
+		}
+	}
+	if in.Protocol == "vless" && in.Flow != "" {
+		if in.Flow != "xtls-rprx-vision" {
+			return fmt.Errorf("unsupported VLESS flow %q", in.Flow)
+		}
+		if (in.Network != "tcp" && in.Network != "raw") || (in.Security != "tls" && in.Security != "reality") {
+			return errors.New("xtls-rprx-vision requires RAW/TCP with TLS or REALITY in the built-in editor")
 		}
 	}
 	if in.Protocol == "vmess" && in.ClientSecurity != "" {
