@@ -8,7 +8,7 @@
   <a href="https://github.com/Kerberos255/X-port/releases/latest"><img src="https://img.shields.io/github/v/release/Kerberos255/X-port?label=release" alt="Release"></a>
   <a href="https://github.com/Kerberos255/X-port/actions/workflows/ci.yml"><img src="https://github.com/Kerberos255/X-port/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/Kerberos255/X-port/actions/workflows/security.yml"><img src="https://github.com/Kerberos255/X-port/actions/workflows/security.yml/badge.svg" alt="Security"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue.svg" alt="License: AGPL-3.0"></a>
 </p>
 
 Its account model is intentionally simple:
@@ -25,7 +25,7 @@ Do not use X-port for unlawful activities. Users assume all risks and consequenc
 
 X-port is designed for small personal deployments and is not intended for multi-tenant hosting or mission-critical infrastructure.
 
-This software is provided "as is", without warranty of any kind, as described in the MIT License.
+This software is provided "as is", without warranty of any kind, as described in the GNU Affero General Public License v3.0.
 
 ## Quick start
 
@@ -49,7 +49,7 @@ The bootstrap installer:
 To install a specific release, set `XPORT_VERSION`:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Kerberos255/X-port/main/install.sh | sudo XPORT_VERSION=v0.1.1 bash
+curl -fsSL https://raw.githubusercontent.com/Kerberos255/X-port/main/install.sh | sudo XPORT_VERSION=v0.1.2 bash
 ```
 
 The installer asks for an administrator password (minimum 12 characters) without echoing it. Only its bcrypt hash is stored. The panel listens on `127.0.0.1:8080` by default; for remote access, place it behind an HTTPS reverse proxy or intentionally change the listen address.
@@ -244,3 +244,10 @@ During an actual self-update, the old executable is kept as `.previous`. A trans
 X-port has dedicated editors for VLESS, VMess, Trojan, Shadowsocks, SOCKS and HTTP. A migrated inbound using another protocol can remain in the stored/raw configuration model, but the WebUI treats it as read-only rather than guessing how to rewrite unknown advanced JSON.
 
 Use migration dry-run output to review every warning or skipped inbound before applying a cutover.
+
+
+## License
+
+X-port is licensed under the **GNU Affero General Public License v3.0 (AGPL-3.0-only)**. If you modify X-port and make that modified version available to users over a network, the AGPL requires those users to be offered the corresponding source code.
+
+Releases published before `v0.1.2` remain available under the license terms that applied to those releases, including the earlier MIT-licensed versions.
