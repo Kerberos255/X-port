@@ -23,6 +23,7 @@ jobs:
           node --check web/dist/app.js
           node --check web/dist/extra.js
           node --check web/dist/v3.js
+          node --check web/dist/v4.js
       - name: Shell syntax and safety
         run: |
           bash -n install.sh scripts/build-linux.sh scripts/install.sh scripts/migrate-xpanel.sh

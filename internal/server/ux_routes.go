@@ -49,12 +49,16 @@ func (s *Server) accountOnlineConnections(w http.ResponseWriter, r *http.Request
 	for _, v := range views {
 		ports[v.Port] = struct{}{}
 	}
-	byPort := sysinfo.EstablishedTCPByLocalPort(ports)
-	byID := make(map[string]int, len(views))
+	activity := sysinfo.EstablishedTCPActivityByLocalPort(ports)
+	connections := make(map[string]int, len(views))
+	peers := make(map[string]int, len(views))
 	for _, v := range views {
-		byID[strconv.FormatInt(v.ID, 10)] = byPort[v.Port]
+		a := activity[v.Port]
+		id := strconv.FormatInt(v.ID, 10)
+		connections[id] = a.Connections
+		peers[id] = a.Peers
 	}
-	writeJSON(w, 200, map[string]any{"connections": byID})
+	writeJSON(w, 200, map[string]any{"connections": connections, "peers": peers})
 }
 
 func (s *Server) getAccountAdvanced(w http.ResponseWriter, r *http.Request) {
