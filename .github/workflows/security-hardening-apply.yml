@@ -29,9 +29,18 @@ jobs:
           set -euo pipefail
           python3 scripts/security-hardening-apply.py
           python3 scripts/security-hardening-post.py
-          gofmt -w cmd internal
+          gofmt -w \
+            internal/auth/limiter.go internal/auth/limiter_test.go \
+            internal/server/server.go internal/server/operations.go internal/server/security_test.go \
+            internal/accountcfg/account.go internal/accountcfg/security_test.go \
+            internal/service/expert.go \
+            internal/migrate/xray_config.go internal/migrate/xray_config_test.go \
+            internal/ops/system.go internal/system/info_linux.go
           go get golang.org/x/crypto@v0.56.0 golang.org/x/sys@v0.47.0
           go mod tidy
+          # The connected GitHub client will pin the permanent CI workflows;
+          # Actions' own token is intentionally not allowed to rewrite workflows.
+          git checkout -- .github/workflows/ci.yml .github/workflows/release.yml
       - name: Verify syntax and tests
         run: |
           set -euo pipefail
