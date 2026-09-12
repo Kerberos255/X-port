@@ -1,0 +1,57 @@
+name: Finalize security hardening
+
+on:
+  push:
+    branches: [security/hardening]
+    paths:
+      - scripts/security-hardening-finalize.py
+      - .github/workflows/security-hardening-finalize.yml
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.27.1'
+          cache: false
+      - name: Apply final deltas
+        run: |
+          set -euo pipefail
+          python3 scripts/security-hardening-finalize.py
+          bash -n scripts/install.sh scripts/migrate-xpanel.sh scripts/build-linux.sh
+      - name: Verify all tests and vulnerability calls
+        run: |
+          set -euo pipefail
+          node --check web/dist/app.js
+          node --check web/dist/extra.js
+          node --check web/dist/v3.js
+          go test ./...
+          go vet ./...
+          go test -race ./...
+          go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+      - name: Check SQL and frontend sinks
+        run: |
+          set -euo pipefail
+          if grep -n 'fmt.Sprintf.*SELECT' internal/migrate/xui.go; then
+            echo 'dynamic SQL construction remains' >&2
+            exit 1
+          fi
+          grep -RInE 'eval\(|new Function|document\.write' web/dist --include='*.js' && exit 1 || true
+      - name: Commit final deltas
+        run: |
+          set -euo pipefail
+          git status --short
+          git add internal/migrate/xui.go scripts/install.sh cmd/xport/manager.go
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'security: remove dynamic migration SQL and tighten sandbox'
+          git push origin HEAD:security/hardening
