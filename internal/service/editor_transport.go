@@ -161,16 +161,11 @@ func sanitizeEditableBaseForExplicitClears(a model.Account, in accountcfg.Input)
 		}
 	}
 
-	security := strings.ToLower(strings.TrimSpace(in.Security))
-	if security != "" {
-		if security != "tls" {
-			delete(stream, "tlsSettings")
-		}
-		if security != "reality" {
-			delete(stream, "realitySettings")
-		}
-	}
-
+	// Do not strip inactive TLS/REALITY blocks before accountcfg.Update has had a
+	// chance to carry shared fields such as SNI across a security transition.
+	// Xray ignores inactive security blocks; preserving them is safer than
+	// accidentally erasing migration-only fields which are not shown by the
+	// basic editor.
 	switch editorMethodValue(in.Network) {
 	case "websocket":
 		x := expertObject(stream, "wsSettings")
