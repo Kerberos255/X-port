@@ -5,8 +5,10 @@ package system
 import (
 	"bufio"
 	"context"
+	"net"
 	"os"
 	"os/exec"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -24,21 +26,102 @@ func Snapshot() Info {
 	mu, mt := readMemory()
 	du, dt := readDisk()
 	rx, tx := readNetwork()
-	return Info{
-		Hostname:      host,
-		OS:            "Linux",
-		UptimeSeconds: readUptime(),
-		CPUPercent:    cpuPercent(a, b),
-		Load1:         readLoad1(),
-		MemoryUsed:    mu,
-		MemoryTotal:   mt,
-		DiskUsed:      du,
-		DiskTotal:     dt,
-		NetworkRX:     rx,
-		NetworkTX:     tx,
-		XrayActive:    serviceActive("xport-xray.service"),
-		XrayVersion:   xrayVersion(),
+	uptime := readUptime()
+	bootTime := int64(0)
+	if uptime > 0 {
+		bootTime = time.Now().Add(-time.Duration(uptime) * time.Second).UnixMilli()
 	}
+	return Info{
+		Hostname:       host,
+		OS:             "Linux",
+		Distribution:   readDistribution(),
+		KernelVersion:  readKernelVersion(),
+		SystemType:     runtime.GOOS + " / " + runtime.GOARCH,
+		HostAddress:    readHostAddress(),
+		BootTime:       bootTime,
+		UptimeSeconds:  uptime,
+		CPUPercent:     cpuPercent(a, b),
+		Load1:          readLoad1(),
+		MemoryUsed:     mu,
+		MemoryTotal:    mt,
+		DiskUsed:       du,
+		DiskTotal:      dt,
+		NetworkRX:      rx,
+		NetworkTX:      tx,
+		XrayActive:     serviceActive("xport-xray.service"),
+		XrayVersion:    xrayVersion(),
+	}
+}
+
+func readDistribution() string {
+	f, err := os.Open("/etc/os-release")
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	values := map[string]string{}
+	s := bufio.NewScanner(f)
+	for s.Scan() {
+		line := strings.TrimSpace(s.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		value = strings.Trim(strings.TrimSpace(value), "\"")
+		values[key] = value
+	}
+	if v := values["PRETTY_NAME"]; v != "" {
+		return v
+	}
+	name := values["NAME"]
+	if ver := values["VERSION_ID"]; ver != "" {
+		if name != "" {
+			return name + " " + ver
+		}
+		return ver
+	}
+	return name
+}
+
+func readKernelVersion() string {
+	b, err := os.ReadFile("/proc/sys/kernel/osrelease")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
+}
+
+func readHostAddress() string {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return ""
+	}
+	var fallback string
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, addr := range addrs {
+			ip, _, err := net.ParseCIDR(addr.String())
+			if err != nil || ip == nil || ip.IsLoopback() || ip.IsLinkLocalUnicast() || !ip.IsGlobalUnicast() {
+				continue
+			}
+			if v4 := ip.To4(); v4 != nil {
+				return v4.String()
+			}
+			if fallback == "" {
+				fallback = ip.String()
+			}
+		}
+	}
+	return fallback
 }
 
 func readCPU() cpuTimes {
