@@ -1,0 +1,114 @@
+name: v0.1.4 real UI verify 2
+
+on:
+  push:
+    branches: [release/v0.1.4-ui-real]
+    paths: [.github/workflows/v014-ui-verify2.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: release/v0.1.4-ui-real
+          fetch-depth: 0
+      - name: Wire v0.1.4 assets and checks
+        shell: python
+        run: |
+          from pathlib import Path
+          p=Path('web/dist/index.html');s=p.read_text()
+          s=s.replace('<link rel="stylesheet" href="/v4.css">','<link rel="stylesheet" href="/v4.css"><link rel="stylesheet" href="/v5.css?v=0.1.4">')
+          s=s.replace('<script src="/v4.js" defer></script>','<script src="/v4.js" defer></script><script src="/v5.js?v=0.1.4" defer></script><script src="/v5-runtime.js?v=0.1.4" defer></script>')
+          p.write_text(s)
+          Path('internal/buildinfo/version.go').write_text('package buildinfo\n\nconst Current = "0.1.4"\n')
+          for fp in ['.github/workflows/ci.yml','.github/workflows/release.yml']:
+            p=Path(fp);s=p.read_text()
+            marker='node --check web/dist/v4.js'
+            if marker in s and 'node --check web/dist/v5.js' not in s:
+              s=s.replace(marker,marker+'\n          node --check web/dist/v5.js\n          node --check web/dist/v5-runtime.js')
+            p.write_text(s)
+      - name: Validate source
+        run: |
+          set -euo pipefail
+          node --check web/dist/app.js
+          node --check web/dist/extra.js
+          node --check web/dist/v3.js
+          node --check web/dist/v4.js
+          node --check web/dist/v5.js
+          node --check web/dist/v5-runtime.js
+          go test ./...
+          go vet ./...
+          grep -q 'v5.css?v=0.1.4' web/dist/index.html
+          grep -q 'v5.js?v=0.1.4' web/dist/index.html
+          ! grep -q '保存高级设置' web/dist/v5.js
+      - name: Install browser
+        run: |
+          npm init -y >/dev/null 2>&1
+          npm install --no-save playwright@1.55.0 >/dev/null
+          npx playwright install --with-deps chromium >/dev/null
+      - name: Run actual frontend with mock API
+        run: |
+          cat > /tmp/mock_server.py <<'PY'
+          import json,os
+          from http.server import ThreadingHTTPServer,SimpleHTTPRequestHandler
+          from pathlib import Path
+          ROOT=Path(os.environ['GITHUB_WORKSPACE'])/'web'/'dist'
+          A={"id":1,"name":"vless+XHTTP_test","enabled":True,"disabledReason":"","editable":True,"port":40836,"protocol":"vless","security":"reality","network":"xhttp","upBytes":21000000,"downBytes":32300000,"allTimeBytes":53500000,"quotaBytes":0,"expiryTime":0,"monthlyReset":True,"flow":"xtls-rprx-vision"}
+          E={"protocol":"vless","method":"","security":"reality","acceptProxyProtocol":False,"supportsFallbacks":False,"supportsHttpHeader":False,"supportsReality":False,"supportsTls":False,"supportsXhttp":True,"xhttpMode":"auto","xhttpXPaddingBytes":"100-1000","xhttpNoSseHeader":False,"xhttpScMaxBufferedPosts":30,"xhttpScMaxEachPostBytes":"1000000","xhttpScStreamUpServerSecs":"20-80","xhttpUplinkHttpMethod":""}
+          class H(SimpleHTTPRequestHandler):
+           def translate_path(self,path):
+            q=path.split('?',1)[0]
+            return str(ROOT/('index.html' if q=='/' else q.lstrip('/')))
+           def j(self,o):
+            b=json.dumps(o).encode();self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(b)));self.end_headers();self.wfile.write(b)
+           def do_GET(self):
+            p=self.path.split('?',1)[0]
+            if p=='/api/overview':return self.j({"system":{"hostname":"QiLin","os":"Linux","distribution":"Debian GNU/Linux 12 (bookworm)","kernelVersion":"6.1.0-39-amd64","systemType":"Linux / x86_64","hostAddress":"192.0.2.10","bootTime":1767920400000,"uptimeSeconds":8730360,"cpuPercent":4.6,"load1":0.12,"memoryUsed":620000000,"memoryTotal":1070000000,"diskUsed":10700000000,"diskTotal":20000000000,"networkRx":123456789,"networkTx":123000000,"xrayActive":True,"xrayVersion":"26.3.27"},"accounts":{"total":8,"enabled":8},"xportVersion":"0.1.4"})
+            if p=='/api/accounts':return self.j({"accounts":[A]})
+            if p=='/api/accounts/1':return self.j(A)
+            if p=='/api/accounts/online':return self.j({"peers":{"1":1},"connections":{"1":4}})
+            if p=='/api/accounts/1/expert':return self.j(E)
+            if p=='/api/xray/update':return self.j({"current":"26.3.27","latest":"26.3.27","available":False,"asset":""})
+            if p=='/api/xray/rollback':return self.j({"available":False})
+            if p=='/api/health':return self.j({"ok":True,"database":True})
+            if p=='/api/logs':return self.j({"content":"mock"})
+            return super().do_GET()
+           def do_POST(self):return self.j({"ok":True})
+           def do_PUT(self):return self.j({"ok":True})
+           def do_PATCH(self):return self.j({"ok":True})
+          ThreadingHTTPServer(('127.0.0.1',8877),H).serve_forever()
+          PY
+          python /tmp/mock_server.py & echo $! >/tmp/mock.pid
+          cat >/tmp/shot.js <<'JS'
+          const {chromium}=require('playwright');
+          (async()=>{const b=await chromium.launch({headless:true});const p=await b.newPage({viewport:{width:1440,height:1050}});await p.goto('http://127.0.0.1:8877/',{waitUntil:'networkidle'});await p.waitForTimeout(900);
+          const updateVisible=await p.locator('#page-overview .update-panel').isVisible().catch(()=>false);if(updateVisible)throw new Error('overview update card still visible');
+          await p.screenshot({path:'overview-real-v014.png',fullPage:true});
+          await p.click('button[data-page="accounts"]');await p.waitForTimeout(500);await p.click('#add-account');await p.waitForTimeout(350);
+          const footer=await p.locator('.account-editor-footer').boundingBox();const modal=await p.locator('.modal-card').boundingBox();if(!footer||!modal||footer.y<modal.y+modal.height*0.55)throw new Error('policy footer is not at bottom');
+          await p.screenshot({path:'account-new-real-v014.png',fullPage:true});await p.click('#modal-close');await p.click('.account-row button[data-act="edit"]');await p.waitForTimeout(450);await p.click('#account-advanced summary');await p.waitForTimeout(550);
+          if(await p.getByText('保存高级设置',{exact:true}).count())throw new Error('separate advanced save button remains');
+          if(await p.getByText('Xray 低频项',{exact:true}).count())throw new Error('advanced explanatory subtitle remains');
+          await p.screenshot({path:'account-edit-advanced-real-v014.png',fullPage:true});await b.close()})().catch(e=>{console.error(e);process.exit(1)})
+          JS
+          node /tmp/shot.js
+          kill $(cat /tmp/mock.pid) || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v014-real-ui-screenshots
+          path: |
+            overview-real-v014.png
+            account-new-real-v014.png
+            account-edit-advanced-real-v014.png
+      - name: Commit verified changes
+        run: |
+          rm -f package.json package-lock.json
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add web/dist/index.html internal/buildinfo/version.go .github/workflows/ci.yml .github/workflows/release.yml
+          git commit -m "release: wire verified v0.1.4 UI fixes"
+          git push origin HEAD:release/v0.1.4-ui-real
