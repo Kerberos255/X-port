@@ -35,6 +35,7 @@ jobs:
           node --check web/dist/v6.js
           node --check web/dist/v7.js
           node --check web/dist/v8.js
+          node --check web/dist/v9.js
           bash -n install.sh scripts/build-linux.sh scripts/install.sh scripts/migrate-xpanel.sh
           go mod tidy
           git diff --exit-code -- go.mod go.sum
