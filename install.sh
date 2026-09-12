@@ -24,7 +24,7 @@ if [[ -n "${XPORT_VERSION:-}" ]]; then
   TAG="${XPORT_VERSION}"
   [[ "$TAG" == v* ]] || TAG="v${TAG}"
 else
-  LATEST_URL="$(curl --proto '=https' --tlsv1.2 -fsSI --retry 3 --retry-all-errors \
+  LATEST_URL="$(curl --proto '=https' --tlsv1.2 -fsSI --retry 3 \
     -o /dev/null -w '%{redirect_url}' "${GITHUB}/releases/latest")"
   TAG="${LATEST_URL##*/}"
 fi
@@ -41,9 +41,9 @@ mkdir -p "$TMP/scripts"
 
 echo "Installing X-port ${TAG} for linux/${ARCH}..."
 
-curl --proto '=https' --tlsv1.2 -fL --retry 3 --retry-all-errors \
+curl --proto '=https' --tlsv1.2 -fL --retry 3 \
   -o "$TMP/$ASSET" "${GITHUB}/releases/download/${TAG}/${ASSET}"
-curl --proto '=https' --tlsv1.2 -fL --retry 3 --retry-all-errors \
+curl --proto '=https' --tlsv1.2 -fL --retry 3 \
   -o "$TMP/SHA256SUMS" "${GITHUB}/releases/download/${TAG}/SHA256SUMS"
 
 EXPECTED="$(awk -v asset="$ASSET" '
@@ -71,7 +71,7 @@ fi
 echo "Verified ${ASSET}: ${ACTUAL}"
 
 for helper in install.sh migrate-xpanel.sh; do
-  curl --proto '=https' --tlsv1.2 -fL --retry 3 --retry-all-errors \
+  curl --proto '=https' --tlsv1.2 -fL --retry 3 \
     -o "$TMP/scripts/$helper" "${RAW}/${TAG}/scripts/${helper}"
 done
 
