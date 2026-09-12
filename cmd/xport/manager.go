@@ -837,6 +837,9 @@ RestrictSUIDSGID=true
 RestrictRealtime=true
 LockPersonality=true
 SystemCallArchitectures=native
+ProtectSystem=strict
+ReadWritePaths=/etc/x-port /usr/local/x-port /usr/local/bin
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 [Install]
 WantedBy=multi-user.target
 `
@@ -862,6 +865,8 @@ RestrictSUIDSGID=true
 RestrictRealtime=true
 LockPersonality=true
 SystemCallArchitectures=native
+ProtectSystem=full
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 [Install]
 WantedBy=multi-user.target
 `

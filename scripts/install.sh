@@ -6,6 +6,7 @@ DATA_DIR="${XPORT_DATA_DIR:-/etc/x-port}"
 PREFIX="${XPORT_PREFIX:-/usr/local/x-port}"
 LIB_DIR="${XPORT_LIB_DIR:-/usr/local/lib/xport}"
 XPORT_BIN="${XPORT_BIN:-/usr/local/bin/xport}"
+XPORT_BIN_DIR="$(dirname "$XPORT_BIN")"
 LISTEN="${XPORT_LISTEN:-127.0.0.1:8080}"
 ADMIN_USER="${XPORT_ADMIN_USER:-admin}"
 ARCH="$(uname -m)"
@@ -58,6 +59,8 @@ RestrictSUIDSGID=true
 RestrictRealtime=true
 LockPersonality=true
 SystemCallArchitectures=native
+ProtectSystem=full
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 [Install]
 WantedBy=multi-user.target
 UNIT
@@ -84,6 +87,9 @@ RestrictSUIDSGID=true
 RestrictRealtime=true
 LockPersonality=true
 SystemCallArchitectures=native
+ProtectSystem=strict
+ReadWritePaths=$DATA_DIR $PREFIX $XPORT_BIN_DIR
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 [Install]
 WantedBy=multi-user.target
 UNIT
