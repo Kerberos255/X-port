@@ -1,0 +1,9 @@
+/* X-port v0.1.6: title/body/footer separation for account editor. */
+.modal-card:has(#account-form){overflow:hidden!important;display:flex;flex-direction:column}
+.modal-card:has(#account-form) #modal-body{display:flex;flex-direction:column;min-height:0;max-height:calc(90vh - 48px)}
+.account-editor-form{display:flex!important;flex-direction:column;min-height:0;max-height:calc(90vh - 48px);width:100%}
+.account-editor-scroll{min-height:0;overflow-y:auto;overflow-x:hidden;padding-right:4px;scrollbar-gutter:stable}
+.account-editor-grid{padding-bottom:2px}
+.account-editor-footer{flex:0 0 auto!important;width:100%!important;max-width:100%!important;position:static!important;left:auto!important;right:auto!important;bottom:auto!important;margin:16px 0 0!important;padding:16px 0 0!important;border-top:1px solid var(--line)!important;background:#0d131f!important;box-shadow:none!important;align-self:stretch!important}
+html[data-theme="light"] .account-editor-footer{background:#f8fafc!important;box-shadow:none!important}
+@media(max-width:700px){.modal-card:has(#account-form) #modal-body,.account-editor-form{max-height:calc(92vh - 36px)}.account-editor-scroll{padding-right:2px}.account-editor-footer{margin-top:14px!important;padding-top:14px!important}}
