@@ -1,0 +1,13 @@
+/* X-port v0.1.8: stable protocol/transport editor geometry. */
+.protocol-config-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px 14px;min-width:0;width:100%}
+.protocol-column{display:grid;align-content:start;gap:12px;min-width:0}
+.protocol-column>label,.protocol-transport-extra>label,.protocol-auth-only-grid>label{display:grid;gap:6px;min-width:0}
+.protocol-column input,.protocol-column select,.protocol-transport-extra input,.protocol-transport-extra select,.protocol-auth-only-grid input,.protocol-auth-only-grid select{width:100%;min-width:0}
+.protocol-transport-extra{grid-column:1/-1;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px 14px;min-width:0}
+.protocol-auth-only-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px 14px;min-width:0;width:100%}
+.vless-flow.hidden-field{display:none!important}
+@media(max-width:700px){
+ .protocol-config-grid,.protocol-auth-only-grid{grid-template-columns:1fr}
+ .protocol-transport-extra{grid-column:1;grid-template-columns:1fr}
+ .protocol-column{gap:11px}
+}
