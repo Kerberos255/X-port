@@ -1,12 +1,12 @@
 # X-port
 
-X-port is a small, single-node Xray control panel for a personal Linux proxy server.
+X-port is a small, single-node Xray control panel for personal Linux proxy servers.
 
 Its account model is intentionally simple:
 
 > **1 account = 1 inbound = 1 dedicated port = 1 credential set**
 
-The UI talks about accounts rather than exposing Xray's inbound/client hierarchy. X-port v0.1.0 is the first stable release and is designed for small personal deployments rather than multi-tenant hosting.
+The UI presents accounts directly rather than exposing Xray's inbound/client hierarchy. X-port is intended for small personal deployments rather than multi-tenant hosting.
 
 ## What it provides
 
@@ -22,14 +22,14 @@ The UI talks about accounts rather than exposing Xray's inbound/client hierarchy
 - Optional **per-account monthly reset**. After entering a new month, the first runtime check resets current upload/download exactly once, so it still works if the server was offline on the first day. Lifetime traffic is preserved.
 - Accounts disabled automatically because of quota are re-enabled after their monthly reset; manually disabled or expired accounts are not.
 - Xray service logs from journald and controlled service restart.
-- Local compressed backups, download/delete, backup import and transactional restore.
+- Local compressed backups with download/delete, import and transactional restore.
 - Panel settings for listen address, Base Path, TLS certificate/key paths, admin credentials, Xray API port, automatic account-port range and default REALITY target.
 - Stable-channel Xray core update with GitHub SHA-256 verification, config validation and rollback.
 - Separate `geoip.dat` / `geosite.dat` update with pairwise rollback.
 - X-port self-update from stable GitHub Releases with candidate version + SHA-256 verification and a systemd restart watchdog that restores the previous binary if the new service cannot stay active.
 - Responsive dark/light WebUI with a mobile bottom navigation layout.
 
-X-port **does not modify firewall rules from the WebUI**. Open/close account ports yourself with the firewall tooling you already use. The terminal manager provides guarded helpers for common firewall setups.
+X-port **does not modify firewall rules from the WebUI**. Open or close account ports yourself with the firewall tooling you already use. The terminal manager provides guarded helpers for common firewall setups.
 
 ## Runtime layout
 
@@ -101,7 +101,7 @@ The installer asks for an admin password without echoing it. Only its bcrypt has
 
 If an existing compatible x-ui / 3x-ui installation is detected, the installer deliberately does **not** start the new Xray service on the old ports. Use the guarded migration flow instead.
 
-## Legacy x-ui / 3x-ui migration
+## Migration from x-ui / 3x-ui
 
 The migration is designed as a guarded cutover, not a blind database copy. After installation, open the terminal manager:
 
@@ -109,7 +109,7 @@ The migration is designed as a guarded cutover, not a blind database copy. After
 sudo xport
 ```
 
-Choose the legacy x-ui / 3x-ui migration item. The guarded flow:
+Choose the x-ui / 3x-ui migration item. The guarded flow:
 
 1. Reads the old SQLite database and reports compatible/skipped inbounds before changing anything.
 2. Requires the X-port account model: supported migrated inbounds must represent one account on one port. Multi-client inbounds are skipped and block apply until reviewed.
@@ -125,9 +125,7 @@ Choose the legacy x-ui / 3x-ui migration item. The guarded flow:
 12. On an error or interruption, restores the pre-migration X-port snapshot and the old systemd unit enable/active states.
 13. Leaves the legacy panel files on disk and writes a snapshot-specific `rollback.sh` under the X-port backup directory.
 
-The old related systemd units remain suppressed after a successful migration so their watchdogs cannot revive the old panel unexpectedly.
-
-**Production preflight still matters:** before migrating a real server, inspect its actual watchdog/process manager/cron setup. The generic process guard catches a respawn that is already running, but a custom non-systemd watchdog with a long wake-up interval should be identified explicitly before cutover.
+The old related systemd units remain suppressed after a successful migration so their watchdogs cannot revive the old panel unexpectedly. Before cutover, inspect the server's actual watchdog, process-manager and cron setup; a custom non-systemd watchdog with a long wake-up interval should be identified explicitly.
 
 ## Traffic accounting
 
@@ -168,13 +166,13 @@ xport-linux-arm64
 
 The GitHub release asset must provide a SHA-256 digest and the candidate binary's `xport version` output must match the release tag.
 
-For a **public repository**, no GitHub token is required to check or download stable Releases. Private forks can optionally provide `XPORT_GITHUB_TOKEN` through the root-only `/etc/x-port/xport.env` file. The token is never saved to SQLite or returned by the WebUI/API.
+For a **public repository**, no GitHub token is required to check or download stable Releases. Private copies or forks can optionally provide `XPORT_GITHUB_TOKEN` through the root-only `/etc/x-port/xport.env` file. The token is never saved to SQLite or returned by the WebUI/API.
 
 During an actual self-update, the old executable is kept as `.previous`. A transient systemd unit restarts X-port outside the panel's own cgroup, waits for the new service to remain active, and restores/restarts the previous binary if verification fails.
 
 ## Security notes
 
-- Sessions use random HttpOnly, SameSite=Strict cookies; Secure is set for direct TLS or HTTPS reverse-proxy requests.
+- Sessions use random HttpOnly, SameSite=Strict cookies; Secure is set for direct TLS or HTTPS requests received through a trusted reverse proxy.
 - State-changing authenticated API calls reject cross-origin browser requests.
 - Login failures are rate-limited by both `IP + username` and IP-wide buckets in memory.
 - Account list responses omit credentials/private keys; sensitive material is returned only by authenticated single-account edit/share operations.
@@ -184,8 +182,8 @@ During an actual self-update, the old executable is kept as `.previous`. A trans
 - systemd services use `NoNewPrivileges`, `PrivateTmp` and read-only home visibility. Read-only visibility is intentional so migrated certificate paths can still be used.
 - Firewall management remains explicit and local; X-port does not silently rewrite custom rulesets.
 
-## Current compatibility boundary
+## Compatibility
 
 X-port has dedicated editors for VLESS, VMess, Trojan, Shadowsocks, SOCKS and HTTP. A migrated inbound using another protocol can remain in the stored/raw configuration model, but the WebUI treats it as read-only rather than guessing how to rewrite unknown advanced JSON.
 
-Before a real migration, use the dry-run, inspect every warning/skipped inbound and verify the exact old watchdog mechanism on that server.
+Use migration dry-run output to review every warning or skipped inbound before applying a cutover.
