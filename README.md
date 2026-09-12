@@ -1,6 +1,15 @@
 # X-port
 
-X-port is a small, single-node Xray control panel for personal Linux proxy servers.
+<p align="center">
+  <strong>A small, single-node Xray control panel for personal Linux proxy servers.</strong>
+</p>
+
+<p align="center">
+  <a href="https://github.com/Kerberos255/X-port/releases/latest"><img src="https://img.shields.io/github/v/release/Kerberos255/X-port?label=release" alt="Release"></a>
+  <a href="https://github.com/Kerberos255/X-port/actions/workflows/ci.yml"><img src="https://github.com/Kerberos255/X-port/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/Kerberos255/X-port/actions/workflows/security.yml"><img src="https://github.com/Kerberos255/X-port/actions/workflows/security.yml/badge.svg" alt="Security"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
+</p>
 
 Its account model is intentionally simple:
 
@@ -17,6 +26,53 @@ Do not use X-port for unlawful activities. Users assume all risks and consequenc
 X-port is designed for small personal deployments and is not intended for multi-tenant hosting or mission-critical infrastructure.
 
 This software is provided "as is", without warranty of any kind, as described in the MIT License.
+
+## Quick start
+
+X-port currently supports **systemd Linux** on **amd64** and **arm64**.
+
+Install the latest stable release:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Kerberos255/X-port/main/install.sh | sudo bash
+```
+
+The bootstrap installer:
+
+1. detects the server architecture;
+2. resolves the latest stable GitHub Release;
+3. downloads the matching X-port binary and `SHA256SUMS`;
+4. verifies the binary's SHA-256 checksum before executing it;
+5. downloads the installer and migration helper from the **same release tag**;
+6. runs the normal X-port installation flow.
+
+To install a specific release, set `XPORT_VERSION`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Kerberos255/X-port/main/install.sh | sudo XPORT_VERSION=v0.1.1 bash
+```
+
+The installer asks for an administrator password (minimum 12 characters) without echoing it. Only its bcrypt hash is stored. The panel listens on `127.0.0.1:8080` by default; for remote access, place it behind an HTTPS reverse proxy or intentionally change the listen address.
+
+After installation, open the terminal manager with:
+
+```bash
+sudo xport
+```
+
+See [X-port terminal manager](docs/terminal-manager.md) for service, update, backup, firewall and migration commands.
+
+## Why X-port?
+
+X-port deliberately keeps a narrower scope than large multi-user proxy platforms:
+
+- **Predictable account model** — one account maps to one Xray inbound, one port and one credential set.
+- **Small runtime footprint** — the panel is a single Go binary with its WebUI embedded; Node.js/npm is not required on the server.
+- **Conservative exposure by default** — a fresh installation binds the panel to localhost rather than publishing the admin UI to the Internet automatically.
+- **Guarded migration** — x-ui / 3x-ui migration uses dry-run checks, snapshots, Xray config validation and rollback instead of blindly copying a database.
+- **Transactional recovery** — backup restore creates a pre-restore snapshot and rolls back the running state when apply/restart fails.
+- **Verified updates** — Xray and X-port update flows verify release integrity and validate candidates before replacement, with rollback protection.
+- **Explicit firewall ownership** — the WebUI never silently rewrites firewall rules; common firewall helpers stay in the terminal manager.
 
 ## What it provides
 
@@ -75,7 +131,7 @@ Default paths installed by `scripts/install.sh`:
 /etc/systemd/system/xport-xray.service
 ```
 
-## Build
+## Build from source
 
 Requirements for development:
 
@@ -84,6 +140,7 @@ Requirements for development:
 
 ```bash
 ./scripts/build-linux.sh
+sudo ./scripts/install.sh
 ```
 
 Useful checks:
@@ -91,23 +148,13 @@ Useful checks:
 ```bash
 node --check web/dist/app.js
 node --check web/dist/extra.js
-bash -n scripts/build-linux.sh scripts/install.sh scripts/migrate-*.sh
+node --check web/dist/v3.js
+bash -n install.sh scripts/build-linux.sh scripts/install.sh scripts/migrate-*.sh
 go mod tidy
 go test ./...
 go vet ./...
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o /tmp/xport ./cmd/xport
 ```
-
-## Fresh install
-
-Run as root on a systemd Linux host:
-
-```bash
-./scripts/build-linux.sh
-sudo ./scripts/install.sh
-```
-
-The installer asks for an admin password without echoing it. Only its bcrypt hash is stored. The initial panel listen address defaults to `127.0.0.1:8080` unless `XPORT_LISTEN` is set.
 
 If an existing compatible x-ui / 3x-ui installation is detected, the installer deliberately does **not** start the new Xray service on the old ports. Use the guarded migration flow instead.
 
