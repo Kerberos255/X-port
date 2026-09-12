@@ -11,6 +11,7 @@ import (
 func (s *Server) registerUXRoutes(mux *http.ServeMux) {
 	mux.Handle("PATCH /api/accounts/{id}/enabled", s.require(http.HandlerFunc(s.setAccountEnabled)))
 	mux.Handle("GET /api/accounts/online", s.require(http.HandlerFunc(s.accountOnlineConnections)))
+	mux.Handle("GET /api/accounts/port-suggestion", s.require(http.HandlerFunc(s.suggestAccountPort)))
 	mux.Handle("GET /api/accounts/{id}/advanced", s.require(http.HandlerFunc(s.getAccountAdvanced)))
 	mux.Handle("PUT /api/accounts/{id}/advanced", s.require(http.HandlerFunc(s.updateAccountAdvanced)))
 	mux.Handle("GET /api/accounts/{id}/expert", s.require(http.HandlerFunc(s.getAccountExpert)))
