@@ -1,0 +1,149 @@
+name: v0.1.4 real UI verification
+
+on:
+  push:
+    branches: [release/v0.1.4-ui-real]
+    paths: [.github/workflows/v014-ui-fix.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  fix-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: release/v0.1.4-ui-real
+          fetch-depth: 0
+      - name: Apply fixes to real sources
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+
+          p=Path('web/dist/v3.js');s=p.read_text()
+          s=s.replace("function reqLabelV3(text){return `${text}<span class=\"required-mark\">*</span>`}","function reqLabelV3(text){return `<span class=\"field-label\">${text}<span class=\"required-mark\">*</span></span>`}")
+          s=re.sub(r"function commonAccountFieldsV3\(a\)\{.*?\n\}",'''function commonAccountFieldsV3(a){
+           const expiry=a.expiryTime?new Date(Number(a.expiryTime)-new Date().getTimezoneOffset()*60000).toISOString().slice(0,16):'',qgb=a.quotaBytes?(Number(a.quotaBytes)/1073741824).toFixed(2):''
+           return `<label>${reqLabelV3('账号')}<input name="name" value="${esc(a.name||'')}" required maxlength="80"></label><label>${reqLabelV3('端口')}<input name="port" type="number" min="1" max="65535" value="${a.port||''}" required placeholder="1 - 65535"></label><label>流量上限 / GB<input name="quota" type="number" min="0" step="0.1" value="${qgb}" placeholder="0 = 不限"></label><label>到期时间<input name="expiry" type="datetime-local" value="${expiry}"></label>`
+          }''',s,count=1,flags=re.S)
+          s=s.replace("function expertSectionV3(title,sub,body){return `<div class=\"expert-section\"><div class=\"expert-section-title\">${title}<small>${sub||''}</small></div>${body}</div>`}","function expertSectionV3(title,sub,body){return `<div class=\"expert-section\"><div class=\"expert-section-title\">${title}</div>${body}</div>`}")
+          s=s.replace("html+=`<p class=\"muted tiny expert-note\">未展示的迁移字段不会被清空；保存只修改本页明确列出的高级项。</p><div class=\"expert-actions\"><button id=\"save-expert\" type=\"button\" class=\"btn ghost\">保存高级设置</button></div>`","")
+          s=re.sub(r"async function loadExpertV3\(id,details\)\{.*?\n\}",'''async function loadExpertV3(id,details){
+           const c=$('#expert-content');if(!c)return
+           c.textContent='正在读取高级配置…'
+           try{const d=await api(`/api/accounts/${id}/expert`);details._expertData=d;c.innerHTML=renderExpertV3(d)}catch(e){c.innerHTML=`<p class="error tiny">${esc(e.message)}</p>`}
+          }''',s,count=1,flags=re.S)
+          s=re.sub(r"function accountFormHTMLV3\(a=\{\}\)\{.*?\n\}",'''function accountFormHTMLV3(a={}){
+           const p=String(a.protocol||'vless').toLowerCase(),editing=Boolean(a.id)
+           if(editing&&!a.editable)return `<div class="modal-title"><span>IMPORTED ACCOUNT</span><h2>${esc(a.name)}</h2></div><div class="readonly-note"><p>该账号使用 ${esc(p.toUpperCase())}，X-port 会继续原样运行它。</p><p class="muted tiny">当前没有专用编辑器；原始 Xray 配置保持不变。</p></div>`
+           const enabled=editing?Boolean(a.enabled):true
+           const policy=(name,label,checked)=>`<label class="editor-policy"><input name="${name}" type="checkbox" ${checked?'checked':''}><span class="editor-policy-track"><i></i></span><span>${label}</span></label>`
+           return `<div class="modal-title"><span>${editing?'EDIT ACCOUNT':'NEW ACCOUNT'}</span><h2>${editing?'编辑账号':'新增账号'}</h2></div><form id="account-form" class="form-grid"><label class="protocol-first full">${reqLabelV3('协议')}<select name="protocol" id="protocol-select" ${editing?'disabled':''}>${protocols.map(x=>option(x,x.toUpperCase(),p)).join('')}</select>${editing?'<small class="field-hint">创建后不可修改</small>':''}</label>${commonAccountFieldsV3(a)}<div class="full proto-fields" id="proto-fields"></div><details id="account-advanced" class="advanced account-advanced full"><summary><span>高级</span></summary><div id="expert-content" class="advanced-loading muted tiny">${editing?'展开后读取高级配置。':'按需展开。'}</div></details><div class="account-editor-footer full"><div class="editor-policies">${policy('enabled','启用账号',enabled)}${policy('monthlyReset','每月 1 日自动清零',Boolean(a.monthlyReset))}</div><div class="editor-actions"><button type="button" class="btn ghost" id="cancel-form">取消</button><button type="submit" class="btn primary">${editing?'保存并应用':'创建并应用'}</button></div></div></form>`
+          }''',s,count=1,flags=re.S)
+          old="const b=f.querySelector('button[type=submit]');b.disabled=true;b.textContent='应用中…';const before=new Set(state.accounts.map(x=>Number(x.id)))"
+          assert old in s
+          s=s.replace(old,"const expertData=(full.id&&details?.dataset.loaded==='1'&&details._expertData)?expertBodyFromFormV3(details._expertData):null;const b=f.querySelector('button[type=submit]');b.disabled=true;b.textContent='应用中…';const before=new Set(state.accounts.map(x=>Number(x.id)))",1)
+          old2="await mutationWithRecoveryV3(()=>full.id?api(`/api/accounts/${full.id}`,{method:'PUT',body:JSON.stringify(body)}):api('/api/accounts',{method:'POST',body:JSON.stringify(body)}),async()=>{if(full.id){const cur=await api(`/api/accounts/${full.id}`);return cur.name===body.name&&Number(cur.port)===body.port&&String(cur.protocol).toLowerCase()===String(body.protocol).toLowerCase()}const d=await api('/api/accounts');return (d.accounts||[]).some(x=>!before.has(Number(x.id))&&x.name===body.name&&Number(x.port)===body.port)})\n   closeModal();"
+          assert old2 in s
+          s=s.replace(old2,"await mutationWithRecoveryV3(()=>full.id?api(`/api/accounts/${full.id}`,{method:'PUT',body:JSON.stringify(body)}):api('/api/accounts',{method:'POST',body:JSON.stringify(body)}),async()=>{if(full.id){const cur=await api(`/api/accounts/${full.id}`);return cur.name===body.name&&Number(cur.port)===body.port&&String(cur.protocol).toLowerCase()===String(body.protocol).toLowerCase()}const d=await api('/api/accounts');return (d.accounts||[]).some(x=>!before.has(Number(x.id))&&x.name===body.name&&Number(x.port)===body.port)})\n   if(expertData)await mutationWithRecoveryV3(()=>api(`/api/accounts/${full.id}/expert`,{method:'PUT',body:JSON.stringify(expertData)}),async()=>Boolean(await api(`/api/accounts/${full.id}/expert`)))\n   closeModal();",1)
+          p.write_text(s)
+
+          p=Path('web/dist/index.html');s=p.read_text();start=s.index('<section id="page-overview"');end=s.index('<section id="page-accounts"')
+          overview='''<section id="page-overview" class="page active"><header class="page-head"><div><span class="eyebrow">CONTROL CENTER</span><h1>服务器概览</h1><p>服务器状态、核心服务与运行健康度</p></div><button id="refresh-overview" class="btn ghost">↻ 刷新</button></header><div class="overview-grid">
+          <article class="panel server-panel"><div class="panel-head"><div><span class="kicker">SERVER</span><h2 id="hostname">—</h2></div><span class="status ok"><i></i>运行中</span></div><div class="server-core"><div class="uptime-ring"><div><strong id="uptime-days">0</strong><span>DAYS</span></div></div><div><span class="muted">稳定运行</span><h3 id="uptime-text">—</h3><small id="server-os">Linux · — 个独立监听端口</small></div></div><div id="server-details" class="server-details"><div class="server-detail"><small>发行版本</small><b id="server-distribution">—</b></div><div class="server-detail"><small>内核版本</small><b id="server-kernel">—</b></div><div class="server-detail"><small>系统类型</small><b id="server-type">—</b></div><div class="server-detail"><small>主机地址</small><b id="server-address">—</b></div><div class="server-detail wide"><small>启动时间</small><b id="server-boot">—</b></div></div><div class="metrics"><div><span class="metric-icon">CPU</span><p>处理器</p><b id="cpu">—</b><small id="load">load —</small></div><div><span class="metric-icon">RAM</span><p>内存</p><b id="memory">—</b><small id="memory-detail">—</small></div><div><span class="metric-icon">SSD</span><p>磁盘</p><b id="disk">—</b><small id="disk-detail">—</small></div><div><span class="metric-icon">NET</span><p>监听</p><b id="listeners">—</b><small>独立账号端口</small></div></div></article>
+          <article class="panel services"><div class="panel-head"><div><span class="kicker">SERVICES</span><h2>核心服务</h2></div><span class="muted tiny">SYSTEMD</span></div><div class="service-row"><span class="service-icon">XR</span><div><b>Xray-core</b><small id="xray-desc">代理核心</small></div><code id="xray-version">—</code><span id="xray-status" class="status"><i></i>检测中</span></div><div class="service-row"><span class="service-icon">XP</span><div><b>X-port</b><small>管理面板 · API 正常</small></div><code id="xport-version">—</code><span class="status ok"><i></i>运行中</span></div></article>
+          <article class="panel traffic-panel"><div class="panel-head"><div><span class="kicker">TRAFFIC</span><h2>实时网络</h2></div><span class="mini-dot"></span></div><div class="traffic-number"><b id="traffic-total">0 B/s</b><span>实时吞吐</span></div><div class="wave"><svg viewBox="0 0 300 80" preserveAspectRatio="none"><path d="M0 59 C25 57 27 29 52 37 C78 45 81 65 111 45 C139 25 142 17 166 27 C194 39 195 57 218 38 C247 14 261 28 300 13"/></svg></div><div class="traffic-split"><span>↑ <b id="tx-rate">0 B/s</b></span><span>↓ <b id="rx-rate">0 B/s</b></span></div></article>
+          <article class="panel health-panel"><div class="panel-head"><div><span class="kicker">HEALTH</span><h2>健康检查</h2></div><span>✓</span></div><div class="health-row"><span>SQLite</span><b class="ok-text">● 正常</b></div><div class="health-row"><span>Xray 服务</span><b id="health-xray">● 检测中</b></div><div class="health-row"><span>账号监听</span><b id="health-listeners">—</b></div><div class="health-row"><span>配置模型</span><b class="ok-text">● 独立端口</b></div></article></div></section>
+          '''
+          s=s[:start]+overview+s[end:];s=s.replace('href="/v4.css"','href="/v4.css?v=0.1.4"').replace('src="/v4.js"','src="/v4.js?v=0.1.4"');p.write_text(s)
+
+          p=Path('web/dist/app.js');s=p.read_text();s=s.replace(" $('#check-update').onclick=()=>checkUpdate(true);$('#do-update').onclick=updateXray;$('#xray-page-update').onclick=async()=>{await checkUpdate(true);if(state.update?.available)await updateXray()}"," $('#xray-page-update').onclick=async()=>{await checkUpdate(true);if(state.update?.available)await updateXray()}")
+          marker="$('#server-os').textContent=`${sys.os||'Linux'} · ${d.accounts?.enabled||0} 个独立监听端口`;";assert marker in s
+          s=s.replace(marker,marker+"$('#server-distribution').textContent=sys.distribution||sys.os||'—';$('#server-kernel').textContent=sys.kernelVersion||'—';$('#server-type').textContent=sys.systemType||sys.os||'—';$('#server-address').textContent=sys.hostAddress||'—';$('#server-boot').textContent=sys.bootTime?new Date(Number(sys.bootTime)).toLocaleString():'—';",1);p.write_text(s)
+
+          p=Path('web/dist/extra.js');s=p.read_text();s=s.replace(" const latest=$('#update-latest'),note=$('#update-note'),btn=$('#do-update');latest.textContent='检查中';btn.disabled=true;renderXrayUpdateState(null)"," const latest=$('#update-latest'),note=$('#update-note'),btn=$('#do-update');if(latest)latest.textContent='检查中';if(btn)btn.disabled=true;renderXrayUpdateState(null)")
+          s=s.replace("  $('#update-current').textContent=d.current?`v${String(d.current).replace(/^v/,'')}`:'未安装';latest.textContent=d.latest?`v${String(d.latest).replace(/^v/,'')}`:'—';note.textContent=d.available?`发现${d.prerelease?'预发布':''}新版本 · ${d.asset}`:'当前已是最新版本';btn.disabled=!d.available;btn.textContent=d.available?'更新 Xray':'已是最新';renderXrayUpdateState(d);if(manual)toast(d.available?'发现可用更新':'Xray 已是最新')","  const cur=$('#update-current');if(cur)cur.textContent=d.current?`v${String(d.current).replace(/^v/,'')}`:'未安装';if(latest)latest.textContent=d.latest?`v${String(d.latest).replace(/^v/,'')}`:'—';if(note)note.textContent=d.available?`发现${d.prerelease?'预发布':''}新版本 · ${d.asset}`:'当前已是最新版本';if(btn){btn.disabled=!d.available;btn.textContent=d.available?'更新 Xray':'已是最新'};renderXrayUpdateState(d);if(manual)toast(d.available?'发现可用更新':'Xray 已是最新')")
+          s=s.replace(" }catch(e){latest.textContent='检查失败';note.textContent=e.message;renderXrayUpdateState(null,e.message);if(manual)toast(e.message,true)}"," }catch(e){if(latest)latest.textContent='检查失败';if(note)note.textContent=e.message;renderXrayUpdateState(null,e.message);if(manual)toast(e.message,true)}");p.write_text(s)
+
+          p=Path('web/dist/v4.js');s=p.read_text();cut=s.find('/* v0.1.3 overview composition.');
+          if cut!=-1:s=s[:cut]+"\ndocument.addEventListener('DOMContentLoaded',()=>{\n ensureThemeControlV4()\n polishAccountCopyV4()\n})\n"
+          p.write_text(s)
+
+          p=Path('web/dist/v4.css');s=p.read_text();
+          for line in [".account-toggle::after{content:'关';position:absolute;right:7px;top:50%;transform:translateY(-50%);font-size:9px;font-weight:800;color:#9eabba;line-height:1}\n",".account-toggle.on::after{content:'开';left:8px;right:auto;color:#effffc}\n","html[data-theme=\"light\"] .account-toggle::after{color:#6e7b89}\n","html[data-theme=\"light\"] .account-toggle.on::after{color:#fff}\n"]:s=s.replace(line,'')
+          s+='''.field-label{display:inline-flex;align-items:baseline;gap:3px;width:max-content}.required-mark{display:inline;color:#ff9a75;font-size:inherit;line-height:1}.account-editor-footer{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;gap:18px;margin-top:18px;padding-top:18px;border-top:1px solid var(--line)}.editor-policies{display:flex;align-items:center;gap:18px;flex-wrap:wrap}.editor-policy{display:inline-flex!important;align-items:center;gap:8px!important;font-size:11px!important;cursor:pointer}.editor-policy>input{position:absolute;opacity:0;pointer-events:none}.editor-policy-track{position:relative;width:42px;height:24px;border-radius:999px;background:#2d3a4d;border:1px solid rgba(126,154,190,.28);transition:.18s;flex:0 0 auto}.editor-policy-track i{position:absolute;width:16px;height:16px;left:3px;top:3px;border-radius:50%;background:#e8f0f8;transition:.18s}.editor-policy>input:checked+.editor-policy-track{background:#1ba892;border-color:#4ed5c0}.editor-policy>input:checked+.editor-policy-track i{left:21px;background:#fff}.editor-actions{display:flex;gap:9px;margin-left:auto}.editor-actions .btn{min-width:86px}.editor-actions .btn.primary{min-width:116px}.account-toggle{overflow:hidden;display:flex;align-items:center}.account-toggle-state{position:absolute;top:50%;transform:translateY(-50%);font-size:9px;font-weight:800;line-height:1;pointer-events:none;right:7px;color:#9eabba}.account-toggle.on .account-toggle-state{left:8px;right:auto;color:#effffc}.server-details{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;padding:0 0 16px;border-bottom:1px solid var(--line);margin-bottom:2px}.server-detail{min-width:0;padding:9px 10px;border:1px solid rgba(128,157,197,.08);border-radius:9px;background:rgba(0,0,0,.08)}.server-detail small{display:block;font-size:9px;color:#687991;margin-bottom:3px}.server-detail b{display:block;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.server-detail.wide{grid-column:span 2}@media(max-width:700px){.account-editor-footer{align-items:stretch;flex-direction:column}.editor-policies{gap:12px}.editor-actions{width:100%;justify-content:flex-end}.server-details{grid-template-columns:1fr 1fr}.server-detail.wide{grid-column:1/-1}}\n''';p.write_text(s)
+
+          p=Path('internal/server/server.go');s=p.read_text();needle='\t\t\tmux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {\n\t\t\t\tif strings.HasPrefix(r.URL.Path, "/api/") {';assert needle in s;s=s.replace(needle,'\t\t\tmux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {\n\t\t\t\tw.Header().Set("Cache-Control", "no-cache")\n\t\t\t\tif strings.HasPrefix(r.URL.Path, "/api/") {',1);p.write_text(s)
+          Path('internal/buildinfo/version.go').write_text('package buildinfo\n\nconst Current = "0.1.4"\n')
+      - name: Validate source
+        run: |
+          node --check web/dist/app.js
+          node --check web/dist/extra.js
+          node --check web/dist/v3.js
+          node --check web/dist/v4.js
+          go test ./...
+          go vet ./...
+          ! grep -q 'class="panel update-panel"' web/dist/index.html
+          ! grep -q '保存高级设置' web/dist/v3.js
+          ! grep -q '未展示的迁移字段不会被清空' web/dist/v3.js
+          grep -q 'account-editor-footer' web/dist/v3.js
+          grep -q 'field-label' web/dist/v3.js
+      - name: Install browser
+        run: |
+          npm init -y >/dev/null 2>&1
+          npm install --no-save playwright@1.55.0 >/dev/null
+          npx playwright install --with-deps chromium >/dev/null
+      - name: Run real frontend with mock API
+        run: |
+          cat > /tmp/mock_server.py <<'PY'
+          import json,os
+          from http.server import ThreadingHTTPServer,SimpleHTTPRequestHandler
+          from pathlib import Path
+          ROOT=Path(os.environ['GITHUB_WORKSPACE'])/'web'/'dist'
+          A={"id":1,"name":"vless+XHTTP_test","enabled":True,"editable":True,"port":40836,"protocol":"vless","security":"reality","network":"xhttp","upBytes":21000000,"downBytes":32300000,"allTimeBytes":53500000,"quotaBytes":0,"expiryTime":0,"monthlyReset":True,"flow":"xtls-rprx-vision"}
+          E={"protocol":"vless","method":"","security":"reality","acceptProxyProtocol":False,"supportsFallbacks":False,"supportsHttpHeader":False,"supportsReality":False,"supportsTls":False,"supportsXhttp":True,"xhttpMode":"auto","xhttpXPaddingBytes":"100-1000","xhttpNoSseHeader":False,"xhttpScMaxBufferedPosts":30,"xhttpScMaxEachPostBytes":"1000000","xhttpScStreamUpServerSecs":"20-80","xhttpUplinkHttpMethod":""}
+          class H(SimpleHTTPRequestHandler):
+           def translate_path(self,path):
+            q=path.split('?',1)[0];return str(ROOT/('index.html' if q=='/' else q.lstrip('/')))
+           def j(self,o):
+            b=json.dumps(o).encode();self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(b)));self.end_headers();self.wfile.write(b)
+           def do_GET(self):
+            p=self.path.split('?',1)[0]
+            if p=='/api/overview':return self.j({"system":{"hostname":"QiLin","os":"Linux","distribution":"Debian GNU/Linux 12 (bookworm)","kernelVersion":"6.1.0-39-amd64","systemType":"Linux / x86_64","hostAddress":"192.0.2.10","bootTime":1767920400000,"uptimeSeconds":8730360,"cpuPercent":4.6,"load1":0.12,"memoryUsed":620000000,"memoryTotal":1070000000,"diskUsed":10700000000,"diskTotal":20000000000,"networkRx":123456789,"networkTx":123000000,"xrayActive":True,"xrayVersion":"26.3.27"},"accounts":{"total":8,"enabled":8},"xportVersion":"0.1.4"})
+            if p=='/api/accounts':return self.j({"accounts":[A]})
+            if p=='/api/accounts/1':return self.j(A)
+            if p=='/api/accounts/online':return self.j({"peers":{"1":1},"connections":{"1":4}})
+            if p=='/api/accounts/1/expert':return self.j(E)
+            if p=='/api/xray/update':return self.j({"current":"26.3.27","latest":"26.3.27","available":False,"asset":""})
+            if p=='/api/xray/rollback':return self.j({"available":False})
+            if p=='/api/health':return self.j({"ok":True,"database":True})
+            if p=='/api/logs':return self.j({"content":"mock"})
+            return super().do_GET()
+           def do_POST(self):return self.j({"ok":True})
+           def do_PUT(self):return self.j({"ok":True})
+           def do_PATCH(self):return self.j({"ok":True})
+          ThreadingHTTPServer(('127.0.0.1',8877),H).serve_forever()
+          PY
+          python /tmp/mock_server.py & echo $! >/tmp/mock.pid
+          cat >/tmp/shot.js <<'JS'
+          const {chromium}=require('playwright');(async()=>{const b=await chromium.launch({headless:true});const p=await b.newPage({viewport:{width:1440,height:1000}});await p.goto('http://127.0.0.1:8877/',{waitUntil:'networkidle'});await p.waitForTimeout(700);await p.screenshot({path:'overview-real.png',fullPage:true});await p.click('button[data-page="accounts"]');await p.waitForTimeout(400);await p.click('#add-account');await p.waitForTimeout(300);await p.screenshot({path:'account-new-real.png',fullPage:true});await p.click('#modal-close');await p.click('.account-row button[data-act="edit"]');await p.waitForTimeout(400);await p.click('#account-advanced summary');await p.waitForTimeout(500);await p.screenshot({path:'account-edit-advanced-real.png',fullPage:true});await b.close()})().catch(e=>{console.error(e);process.exit(1)})
+          JS
+          node /tmp/shot.js
+          kill $(cat /tmp/mock.pid) || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v014-real-ui-screenshots
+          path: |
+            overview-real.png
+            account-new-real.png
+            account-edit-advanced-real.png
+      - name: Commit fixes
+        run: |
+          rm -f package.json package-lock.json
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add web/dist internal/server/server.go internal/buildinfo/version.go
+          git commit -m "release: fix real UI layout and unified account save"
+          git push origin HEAD:release/v0.1.4-ui-real
