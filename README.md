@@ -5,6 +5,10 @@
 </p>
 
 <p align="center">
+  <strong>English</strong> · <a href="README.zh-CN.md">简体中文</a>
+</p>
+
+<p align="center">
   <a href="https://github.com/Kerberos255/X-port/releases/latest"><img src="https://img.shields.io/github/v/release/Kerberos255/X-port?label=release" alt="Release"></a>
   <a href="https://github.com/Kerberos255/X-port/actions/workflows/ci.yml"><img src="https://github.com/Kerberos255/X-port/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/Kerberos255/X-port/actions/workflows/security.yml"><img src="https://github.com/Kerberos255/X-port/actions/workflows/security.yml/badge.svg" alt="Security"></a>
