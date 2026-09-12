@@ -1,4 +1,5 @@
 /* X-port v0.1.9 preview: stable protocol/transport field matrix. */
+let xportRealityDefaultsV9={sni:'',dest:''}
 function editorNetworkV9(value){
  const v=String(value||'').trim().toLowerCase()
  if(v===''||v==='tcp'||v==='raw')return'tcp'
@@ -60,12 +61,24 @@ function resetExistingAdvancedAfterTransportChangeV9(details,full){
  const c=$('#expert-content')
  if(c){c.className='advanced-loading muted tiny';c.textContent=''}
 }
+function syntheticExpertForEditorV9(p,n,security,full={}){
+ const d=syntheticExpertV6(p,n,security)
+ if(security==='reality'){
+  const sni=String(full.serverName||xportRealityDefaultsV9.sni||'').trim()
+  const dest=String(full.dest||xportRealityDefaultsV9.dest||'').trim()
+  d.realityTarget=dest
+  d.realityServerNames=sni?[sni]:[]
+  d.realityPrivateKey=full.privateKey||''
+  d.realityShortIds=full.shortId?[full.shortId]:[]
+ }
+ return d
+}
 function bindDirectProtocolAdvancedV9(p,details,full){
  if(full.id||!details)return
  details.addEventListener('toggle',()=>{
   if(!details.open)return
   details.dataset.loaded='1'
-  details._expertData=syntheticExpertV6(p,'','none')
+  details._expertData=syntheticExpertForEditorV9(p,'','none',full)
   const c=$('#expert-content');if(c)c.innerHTML=renderExpertV3(details._expertData)
  })
 }
@@ -100,7 +113,7 @@ refreshProtocolFieldsV3=function(full){
   if(transportChanged&&!initial)resetExistingAdvancedAfterTransportChangeV9(details,full)
   if(!full.id&&details?.open){
    details.dataset.loaded='1'
-   details._expertData=syntheticExpertV6(p,n,security)
+   details._expertData=syntheticExpertForEditorV9(p,n,security,full)
    const c=$('#expert-content');if(c)c.innerHTML=renderExpertV3(details._expertData)
   }
   initial=false
@@ -111,7 +124,7 @@ refreshProtocolFieldsV3=function(full){
  if(!full.id&&details)details.addEventListener('toggle',()=>{
   if(details.open){
    const n=editorNetworkV9(net.value),security=String(sec.value||'none').toLowerCase()
-   details.dataset.loaded='1';details._expertData=syntheticExpertV6(p,n,security)
+   details.dataset.loaded='1';details._expertData=syntheticExpertForEditorV9(p,n,security,full)
    const c=$('#expert-content');if(c)c.innerHTML=renderExpertV3(details._expertData)
   }
  })
@@ -143,3 +156,18 @@ renderExpertV3=function(d){
  html=html.replace('id="expert-reality-shortids"','id="expert-reality-shortids" placeholder="留空，创建时自动生成"')
  return html
 }
+
+/* New-account REALITY uses the same panel defaults the backend already applies,
+   so Advanced shows what creation will actually use instead of looking blank. */
+const openAccountModalV9Base=openAccountModalV3
+openAccountModalV3=async function(a=null){
+ if(!a){
+  try{
+   const settings=await api('/api/settings')
+   xportRealityDefaultsV9={sni:String(settings.defaultRealitySni||''),dest:String(settings.defaultRealityDest||'')}
+   a={serverName:xportRealityDefaultsV9.sni,dest:xportRealityDefaultsV9.dest}
+  }catch{}
+ }
+ return openAccountModalV9Base(a)
+}
+openAccountModal=openAccountModalV3
