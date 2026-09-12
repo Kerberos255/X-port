@@ -77,6 +77,7 @@ type View struct {
 }
 
 func New(in Input, fallbackPort int) (model.Account, error) {
+	normalizeEditableInput(&in)
 	in.Name = strings.TrimSpace(in.Name)
 	if in.Name == "" {
 		return model.Account{}, errors.New("name is required")
@@ -92,6 +93,9 @@ func New(in Input, fallbackPort int) (model.Account, error) {
 		in.Protocol = "vless"
 	}
 	applyDefaults(&in)
+	if err := validateEditableInput(in); err != nil {
+		return model.Account{}, err
+	}
 	settings, stream, err := buildProtocol(in)
 	if err != nil {
 		return model.Account{}, err
@@ -112,6 +116,7 @@ func New(in Input, fallbackPort int) (model.Account, error) {
 }
 
 func Update(a model.Account, in Input) (model.Account, error) {
+	normalizeEditableInput(&in)
 	in.Name = strings.TrimSpace(in.Name)
 	if in.Name == "" {
 		return model.Account{}, errors.New("name is required")
@@ -131,6 +136,10 @@ func Update(a model.Account, in Input) (model.Account, error) {
 	oldPort := a.Port
 	oldView, _ := ToView(a)
 	mergeMissing(&in, oldView)
+	normalizeEditableInput(&in)
+	if err := validateEditableInput(in); err != nil {
+		return model.Account{}, err
+	}
 	settings, stream, err := updateProtocolJSON(a, in)
 	if err != nil {
 		return model.Account{}, err
@@ -157,6 +166,9 @@ func Clone(a model.Account, name string, port int) (model.Account, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		name = a.Name + " copy"
+	}
+	if len(name) > 80 {
+		return model.Account{}, errors.New("name is too long")
 	}
 	clone := a
 	clone.ID = 0
@@ -693,22 +705,54 @@ func commonShareQuery(v View) (url.Values, error) {
 }
 
 func mergeMissing(in *Input, old View) {
-	if in.Credential == "" { in.Credential = old.Credential }
-	if in.Username == "" { in.Username = old.Username }
-	if in.Password == "" { in.Password = old.Password }
-	if in.ServerPassword == "" { in.ServerPassword = old.ServerPassword }
-	if in.ClientSecurity == "" { in.ClientSecurity = old.ClientSecurity }
-	if in.Method == "" { in.Method = old.Method }
-	if in.Flow == "" { in.Flow = old.Flow }
-	if in.Network == "" { in.Network = old.Network }
-	if in.Security == "" { in.Security = old.Security }
-	if in.ServerName == "" { in.ServerName = old.ServerName }
-	if in.Dest == "" { in.Dest = old.Dest }
-	if in.PrivateKey == "" { in.PrivateKey = old.PrivateKey }
-	if in.ShortID == "" { in.ShortID = old.ShortID }
-	if in.Host == "" { in.Host = old.Host }
-	if in.Path == "" { in.Path = old.Path }
-	if in.ServiceName == "" { in.ServiceName = old.ServiceName }
+	if in.Credential == "" {
+		in.Credential = old.Credential
+	}
+	if in.Username == "" {
+		in.Username = old.Username
+	}
+	if in.Password == "" {
+		in.Password = old.Password
+	}
+	if in.ServerPassword == "" {
+		in.ServerPassword = old.ServerPassword
+	}
+	if in.ClientSecurity == "" {
+		in.ClientSecurity = old.ClientSecurity
+	}
+	if in.Method == "" {
+		in.Method = old.Method
+	}
+	if in.Flow == "" {
+		in.Flow = old.Flow
+	}
+	if in.Network == "" {
+		in.Network = old.Network
+	}
+	if in.Security == "" {
+		in.Security = old.Security
+	}
+	if in.ServerName == "" {
+		in.ServerName = old.ServerName
+	}
+	if in.Dest == "" {
+		in.Dest = old.Dest
+	}
+	if in.PrivateKey == "" {
+		in.PrivateKey = old.PrivateKey
+	}
+	if in.ShortID == "" {
+		in.ShortID = old.ShortID
+	}
+	if in.Host == "" {
+		in.Host = old.Host
+	}
+	if in.Path == "" {
+		in.Path = old.Path
+	}
+	if in.ServiceName == "" {
+		in.ServiceName = old.ServiceName
+	}
 }
 
 func oneObject(m map[string]any, key string) (map[string]any, error) {
@@ -806,6 +850,83 @@ func securityForVMess(s string) string {
 		return "tls"
 	}
 	return ""
+}
+
+func normalizeEditableInput(in *Input) {
+	in.Name = strings.TrimSpace(in.Name)
+	in.Protocol = strings.ToLower(strings.TrimSpace(in.Protocol))
+	in.Network = strings.ToLower(strings.TrimSpace(in.Network))
+	in.Security = strings.ToLower(strings.TrimSpace(in.Security))
+	in.Method = strings.ToLower(strings.TrimSpace(in.Method))
+	in.Credential = strings.TrimSpace(in.Credential)
+	in.Username = strings.TrimSpace(in.Username)
+	in.ServerName = strings.TrimSpace(in.ServerName)
+	in.Dest = strings.TrimSpace(in.Dest)
+	in.PrivateKey = strings.TrimSpace(in.PrivateKey)
+	in.ShortID = strings.TrimSpace(in.ShortID)
+	in.Host = strings.TrimSpace(in.Host)
+	in.Path = strings.TrimSpace(in.Path)
+	in.ServiceName = strings.TrimSpace(in.ServiceName)
+}
+
+func validateEditableInput(in Input) error {
+	checks := []struct {
+		name, value string
+		max         int
+	}{
+		{"name", in.Name, 80}, {"protocol", in.Protocol, 32}, {"credential", in.Credential, 256},
+		{"username", in.Username, 256}, {"password", in.Password, 4096}, {"server password", in.ServerPassword, 4096},
+		{"client security", in.ClientSecurity, 64}, {"method", in.Method, 128}, {"flow", in.Flow, 128},
+		{"network", in.Network, 32}, {"security", in.Security, 32}, {"server name", in.ServerName, 512},
+		{"target", in.Dest, 1024}, {"private key", in.PrivateKey, 256}, {"short id", in.ShortID, 128},
+		{"host", in.Host, 512}, {"path", in.Path, 2048}, {"service name", in.ServiceName, 512},
+	}
+	for _, c := range checks {
+		if len(c.value) > c.max {
+			return fmt.Errorf("%s is too long", c.name)
+		}
+		if strings.ContainsRune(c.value, '\x00') || strings.ContainsAny(c.value, "\r\n") {
+			return fmt.Errorf("%s contains invalid control characters", c.name)
+		}
+	}
+	if in.Name == "" {
+		return errors.New("name is required")
+	}
+	if in.QuotaBytes < 0 {
+		return errors.New("quotaBytes must not be negative")
+	}
+	if in.ExpiryTime < 0 {
+		return errors.New("expiryTime must not be negative")
+	}
+	switch in.Protocol {
+	case "vless", "vmess", "trojan", "shadowsocks", "socks", "http":
+	default:
+		return fmt.Errorf("protocol %q is not supported by the built-in editor", in.Protocol)
+	}
+	if in.Protocol != "socks" && in.Protocol != "http" {
+		switch in.Network {
+		case "tcp", "raw", "ws", "websocket", "grpc", "httpupgrade", "xhttp":
+		default:
+			return fmt.Errorf("network %q is not supported by the built-in editor", in.Network)
+		}
+		switch in.Security {
+		case "none", "tls":
+		case "reality":
+			if in.Protocol != "vless" && in.Protocol != "trojan" {
+				return errors.New("REALITY is supported only for VLESS and Trojan")
+			}
+		default:
+			return fmt.Errorf("security %q is not supported by the built-in editor", in.Security)
+		}
+	}
+	if in.Protocol == "vmess" && in.ClientSecurity != "" {
+		switch strings.ToLower(in.ClientSecurity) {
+		case "auto", "aes-128-gcm", "chacha20-poly1305", "none", "zero":
+		default:
+			return fmt.Errorf("VMess client security %q is not supported", in.ClientSecurity)
+		}
+	}
+	return nil
 }
 
 func validPort(port int) error {
