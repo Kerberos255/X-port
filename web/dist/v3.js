@@ -93,7 +93,7 @@ function commaListV3(a){return Array.isArray(a)?a.join(', '):''}
 function expertSectionV3(title,sub,body){return `<div class="expert-section"><div class="expert-section-title">${title}<small>${sub||''}</small></div>${body}</div>`}
 function renderExpertV3(d){
  let html=''
- let common=`<label class="expert-check full"><input id="expert-proxy" type="checkbox" ${d.acceptProxyProtocol?'checked':''}>接收 PROXY Protocol</label>`
+ let common=`<label class="expert-check full"><input id="expert-proxy" type="checkbox" ${d.acceptProxyProtocol?'checked':''}>接收 PROXY Protocol<small class="field-hint">仅在可信 L4 反向代理后开启；不要直接暴露给不受信任客户端。</small></label>`
  if(d.supportsFallbacks)common+=`<label class="full">Fallbacks JSON<textarea id="expert-fallbacks" spellcheck="false">${esc(d.fallbacksJson||'[]')}</textarea><small class="field-hint">Xray 当前要求 RAW/TCP + TLS；通常还需 ALPN http/1.1。</small></label>`
  if(d.supportsHttpHeader)common+=`<label class="full">HTTP 伪装 Header JSON<textarea id="expert-http-header" spellcheck="false" placeholder='{"type":"http","request":{},"response":{}}'>${esc(d.httpHeaderJson||'')}</textarea></label>`
  html+=expertSectionV3('通用','Xray 低频项',common)

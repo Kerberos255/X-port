@@ -67,6 +67,9 @@ func (s *Accounts) Expert(id int64) (ExpertConfig, error) {
 }
 
 func (s *Accounts) UpdateExpert(id int64, in ExpertConfig) (ExpertConfig, error) {
+	if err := validateExpertConfig(in); err != nil {
+		return ExpertConfig{}, err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -175,22 +178,44 @@ func (s *Accounts) UpdateExpert(id int64, in ExpertConfig) (ExpertConfig, error)
 		r["xver"] = in.RealityXver
 		setExpertString(r, "minClientVer", in.RealityMinClientVer)
 		setExpertString(r, "maxClientVer", in.RealityMaxClientVer)
-		if in.RealityMaxTimeDiff > 0 { r["maxTimeDiff"] = in.RealityMaxTimeDiff } else { delete(r, "maxTimeDiff") }
-		if in.RealityShow { r["show"] = true } else { delete(r, "show") }
+		if in.RealityMaxTimeDiff > 0 {
+			r["maxTimeDiff"] = in.RealityMaxTimeDiff
+		} else {
+			delete(r, "maxTimeDiff")
+		}
+		if in.RealityShow {
+			r["show"] = true
+		} else {
+			delete(r, "show")
+		}
 		setExpertString(r, "mldsa65Seed", in.RealityMLDSA65Seed)
 		stream["realitySettings"] = r
 	}
 
 	if security == "tls" {
 		tls := expertObject(stream, "tlsSettings")
-		if len(in.TLSALPN) > 0 { tls["alpn"] = cleanStrings(in.TLSALPN) } else { delete(tls, "alpn") }
+		if len(in.TLSALPN) > 0 {
+			tls["alpn"] = cleanStrings(in.TLSALPN)
+		} else {
+			delete(tls, "alpn")
+		}
 		setExpertString(tls, "minVersion", in.TLSMinVersion)
 		setExpertString(tls, "maxVersion", in.TLSMaxVersion)
 		setExpertString(tls, "cipherSuites", in.TLSCipherSuites)
-		if in.TLSRejectUnknownSNI { tls["rejectUnknownSni"] = true } else { delete(tls, "rejectUnknownSni") }
+		if in.TLSRejectUnknownSNI {
+			tls["rejectUnknownSni"] = true
+		} else {
+			delete(tls, "rejectUnknownSni")
+		}
 		certs, err := parseExpertArray(in.TLSCertificatesJSON, "TLS certificates")
-		if err != nil { return ExpertConfig{}, err }
-		if len(certs) > 0 { tls["certificates"] = certs } else { delete(tls, "certificates") }
+		if err != nil {
+			return ExpertConfig{}, err
+		}
+		if len(certs) > 0 {
+			tls["certificates"] = certs
+		} else {
+			delete(tls, "certificates")
+		}
 		stream["tlsSettings"] = tls
 	}
 
@@ -205,8 +230,16 @@ func (s *Accounts) UpdateExpert(id int64, in ExpertConfig) (ExpertConfig, error)
 		}
 		setExpertString(x, "mode", mode)
 		setExpertString(x, "xPaddingBytes", in.XHTTPXPaddingBytes)
-		if in.XHTTPNoSSEHeader { x["noSSEHeader"] = true } else { delete(x, "noSSEHeader") }
-		if in.XHTTPScMaxBufferedPosts > 0 { x["scMaxBufferedPosts"] = in.XHTTPScMaxBufferedPosts } else { delete(x, "scMaxBufferedPosts") }
+		if in.XHTTPNoSSEHeader {
+			x["noSSEHeader"] = true
+		} else {
+			delete(x, "noSSEHeader")
+		}
+		if in.XHTTPScMaxBufferedPosts > 0 {
+			x["scMaxBufferedPosts"] = in.XHTTPScMaxBufferedPosts
+		} else {
+			delete(x, "scMaxBufferedPosts")
+		}
 		setExpertString(x, "scMaxEachPostBytes", in.XHTTPScMaxEachPostBytes)
 		setExpertString(x, "scStreamUpServerSecs", in.XHTTPScStreamUpServerSecs)
 		setExpertString(x, "uplinkHTTPMethod", strings.ToUpper(strings.TrimSpace(in.XHTTPUplinkHTTPMethod)))
@@ -214,9 +247,13 @@ func (s *Accounts) UpdateExpert(id int64, in ExpertConfig) (ExpertConfig, error)
 	}
 
 	settingsJSON, err := json.Marshal(settings)
-	if err != nil { return ExpertConfig{}, err }
+	if err != nil {
+		return ExpertConfig{}, err
+	}
 	streamJSON, err := json.Marshal(stream)
-	if err != nil { return ExpertConfig{}, err }
+	if err != nil {
+		return ExpertConfig{}, err
+	}
 	a.SettingsJSON = string(settingsJSON)
 	a.StreamSettingsJSON = string(streamJSON)
 	a.UpdatedAt = time.Now().UnixMilli()
@@ -224,17 +261,23 @@ func (s *Accounts) UpdateExpert(id int64, in ExpertConfig) (ExpertConfig, error)
 		return ExpertConfig{}, err
 	}
 	saved, err := s.raw(id)
-	if err != nil { return ExpertConfig{}, err }
+	if err != nil {
+		return ExpertConfig{}, err
+	}
 	return expertView(saved)
 }
 
 func expertView(a model.Account) (ExpertConfig, error) {
 	settings, stream, err := expertMaps(a)
-	if err != nil { return ExpertConfig{}, err }
+	if err != nil {
+		return ExpertConfig{}, err
+	}
 	protocol := strings.ToLower(strings.TrimSpace(a.Protocol))
 	method := expertMethod(stream, protocol)
 	security := strings.ToLower(strings.TrimSpace(expertString(stream["security"])))
-	if security == "" { security = "none" }
+	if security == "" {
+		security = "none"
+	}
 	out := ExpertConfig{Protocol: protocol, Method: method, Security: security}
 	out.SupportsFallbacks = (protocol == "vless" || protocol == "trojan") && method == "raw" && security == "tls"
 	out.SupportsHTTPHeader = method == "raw"
@@ -244,7 +287,9 @@ func expertView(a model.Account) (ExpertConfig, error) {
 
 	if v, ok := settings["fallbacks"]; ok {
 		out.FallbacksJSON = indentJSON(v, "[]")
-	} else { out.FallbacksJSON = "[]" }
+	} else {
+		out.FallbacksJSON = "[]"
+	}
 
 	if sockopt, ok := stream["sockopt"].(map[string]any); ok {
 		out.AcceptProxyProtocol = expertBool(sockopt["acceptProxyProtocol"])
@@ -259,7 +304,9 @@ func expertView(a model.Account) (ExpertConfig, error) {
 	}
 	if method == "raw" {
 		raw := expertObject(stream, expertRawKey(stream))
-		if header, ok := raw["header"]; ok { out.HTTPHeaderJSON = indentJSON(header, "") }
+		if header, ok := raw["header"]; ok {
+			out.HTTPHeaderJSON = indentJSON(header, "")
+		}
 	}
 
 	if out.SupportsReality {
@@ -283,14 +330,18 @@ func expertView(a model.Account) (ExpertConfig, error) {
 		out.TLSMaxVersion = expertString(tls["maxVersion"])
 		out.TLSCipherSuites = expertString(tls["cipherSuites"])
 		out.TLSRejectUnknownSNI = expertBool(tls["rejectUnknownSni"])
-		if certs, ok := tls["certificates"]; ok { out.TLSCertificatesJSON = indentJSON(certs, "[]") } else { out.TLSCertificatesJSON = "[]" }
+		if certs, ok := tls["certificates"]; ok {
+			out.TLSCertificatesJSON = indentJSON(certs, "[]")
+		} else {
+			out.TLSCertificatesJSON = "[]"
+		}
 	}
 	if out.SupportsXHTTP {
 		x := expertObject(stream, expertXHTTPKey(stream))
 		out.XHTTPMode = expertString(x["mode"])
 		out.XHTTPXPaddingBytes = expertScalarString(x["xPaddingBytes"])
 		out.XHTTPNoSSEHeader = expertBool(x["noSSEHeader"])
-		out.XHTTPScMaxBufferedPosts = int64(expertUint(x["scMaxBufferedPosts"]))
+		out.XHTTPScMaxBufferedPosts = expertInt64(x["scMaxBufferedPosts"])
 		out.XHTTPScMaxEachPostBytes = expertScalarString(x["scMaxEachPostBytes"])
 		out.XHTTPScStreamUpServerSecs = expertScalarString(x["scStreamUpServerSecs"])
 		out.XHTTPUplinkHTTPMethod = expertString(x["uplinkHTTPMethod"])
@@ -312,33 +363,227 @@ func expertMaps(a model.Account) (map[string]any, map[string]any, error) {
 
 func expertMethod(stream map[string]any, protocol string) string {
 	m := strings.ToLower(strings.TrimSpace(expertFirstString(stream["method"], stream["network"])))
-	if m == "" && protocol != "socks" && protocol != "http" { m = "raw" }
-	switch m { case "tcp": return "raw"; case "ws": return "websocket"; case "splithttp": return "xhttp"; case "mkcp": return "kcp" }
+	if m == "" && protocol != "socks" && protocol != "http" {
+		m = "raw"
+	}
+	switch m {
+	case "tcp":
+		return "raw"
+	case "ws":
+		return "websocket"
+	case "splithttp":
+		return "xhttp"
+	case "mkcp":
+		return "kcp"
+	}
 	return m
 }
 
 func expertActiveTransportKeys(method string, stream map[string]any) []string {
 	switch method {
-	case "raw": return []string{expertRawKey(stream)}
-	case "xhttp": return []string{expertXHTTPKey(stream)}
-	case "websocket": return []string{"wsSettings"}
-	case "httpupgrade": return []string{"httpupgradeSettings"}
-	case "grpc": return []string{"grpcSettings"}
-	default: return nil
+	case "raw":
+		return []string{expertRawKey(stream)}
+	case "xhttp":
+		return []string{expertXHTTPKey(stream)}
+	case "websocket":
+		return []string{"wsSettings"}
+	case "httpupgrade":
+		return []string{"httpupgradeSettings"}
+	case "grpc":
+		return []string{"grpcSettings"}
+	default:
+		return nil
 	}
 }
-func expertRawKey(stream map[string]any) string { if _, ok := stream["rawSettings"]; ok { return "rawSettings" }; if _, ok := stream["tcpSettings"]; ok { return "tcpSettings" }; return "rawSettings" }
-func expertXHTTPKey(stream map[string]any) string { if _, ok := stream["xhttpSettings"]; ok { return "xhttpSettings" }; if _, ok := stream["splithttpSettings"]; ok { return "splithttpSettings" }; return "xhttpSettings" }
-func expertObject(m map[string]any, key string) map[string]any { if v, ok := m[key].(map[string]any); ok && v != nil { return v }; return map[string]any{} }
+func expertRawKey(stream map[string]any) string {
+	if _, ok := stream["rawSettings"]; ok {
+		return "rawSettings"
+	}
+	if _, ok := stream["tcpSettings"]; ok {
+		return "tcpSettings"
+	}
+	return "rawSettings"
+}
+func expertXHTTPKey(stream map[string]any) string {
+	if _, ok := stream["xhttpSettings"]; ok {
+		return "xhttpSettings"
+	}
+	if _, ok := stream["splithttpSettings"]; ok {
+		return "splithttpSettings"
+	}
+	return "xhttpSettings"
+}
+func expertObject(m map[string]any, key string) map[string]any {
+	if v, ok := m[key].(map[string]any); ok && v != nil {
+		return v
+	}
+	return map[string]any{}
+}
 func expertString(v any) string { s, _ := v.(string); return s }
-func expertFirstString(vs ...any) string { for _, v := range vs { if s := expertString(v); s != "" { return s } }; return "" }
+func expertFirstString(vs ...any) string {
+	for _, v := range vs {
+		if s := expertString(v); s != "" {
+			return s
+		}
+	}
+	return ""
+}
 func expertBool(v any) bool { b, _ := v.(bool); return b }
-func expertUint(v any) uint64 { switch n := v.(type) { case float64: if n > 0 { return uint64(n) }; case json.Number: u, _ := n.Int64(); if u > 0 { return uint64(u) } }; return 0 }
-func expertScalarString(v any) string { if v == nil { return "" }; if s, ok := v.(string); ok { return s }; b, _ := json.Marshal(v); return strings.TrimSpace(string(b)) }
-func expertStringSlice(v any) []string { a, ok := v.([]any); if !ok { if s, ok := v.([]string); ok { return cleanStrings(s) }; return nil }; out := make([]string,0,len(a)); for _, x := range a { if s, ok := x.(string); ok && strings.TrimSpace(s)!="" { out=append(out,strings.TrimSpace(s)) } }; return out }
-func cleanStrings(in []string) []string { out:=make([]string,0,len(in)); for _,s:=range in { s=strings.TrimSpace(s); if s!="" { out=append(out,s) } }; return out }
-func setExpertString(m map[string]any, key, value string) { value=strings.TrimSpace(value); if value=="" { delete(m,key) } else { m[key]=value } }
-func indentJSON(v any, fallback string) string { b, err := json.MarshalIndent(v,"","  "); if err != nil { return fallback }; return string(b) }
-func parseExpertArray(raw, label string) ([]any,error) { raw=strings.TrimSpace(raw); if raw==""||raw=="null"||raw=="[]" { return nil,nil }; var v []any; if err:=json.Unmarshal([]byte(raw),&v);err!=nil{return nil,fmt.Errorf("%s must be a JSON array: %w",label,err)}; return v,nil }
-func parseExpertObject(raw, label string)(map[string]any,bool,error){raw=strings.TrimSpace(raw);if raw==""||raw=="null"||raw=="{}"{return nil,false,nil};var v map[string]any;if err:=json.Unmarshal([]byte(raw),&v);err!=nil{return nil,false,fmt.Errorf("%s must be a JSON object: %w",label,err)};return v,len(v)>0,nil}
-func deriveRealityPublicKey(privateKey string)(string,error){privateKey=strings.TrimSpace(privateKey);if privateKey==""{return "",nil};raw,err:=base64.RawURLEncoding.DecodeString(privateKey);if err!=nil||len(raw)!=32{return "",errors.New("invalid REALITY private key")};pk,err:=ecdh.X25519().NewPrivateKey(raw);if err!=nil{return "",errors.New("invalid REALITY private key")};return base64.RawURLEncoding.EncodeToString(pk.PublicKey().Bytes()),nil}
+func expertUint(v any) uint64 {
+	switch n := v.(type) {
+	case float64:
+		if n > 0 && n <= float64(^uint64(0)) {
+			return uint64(n)
+		}
+	case json.Number:
+		u, _ := n.Int64()
+		if u > 0 {
+			return uint64(u)
+		}
+	}
+	return 0
+}
+func expertInt64(v any) int64 {
+	u := expertUint(v)
+	if u > uint64(1<<63-1) {
+		return int64(1<<63 - 1)
+	}
+	return int64(u)
+}
+func expertScalarString(v any) string {
+	if v == nil {
+		return ""
+	}
+	if s, ok := v.(string); ok {
+		return s
+	}
+	b, _ := json.Marshal(v)
+	return strings.TrimSpace(string(b))
+}
+func expertStringSlice(v any) []string {
+	a, ok := v.([]any)
+	if !ok {
+		if s, ok := v.([]string); ok {
+			return cleanStrings(s)
+		}
+		return nil
+	}
+	out := make([]string, 0, len(a))
+	for _, x := range a {
+		if s, ok := x.(string); ok && strings.TrimSpace(s) != "" {
+			out = append(out, strings.TrimSpace(s))
+		}
+	}
+	return out
+}
+func cleanStrings(in []string) []string {
+	out := make([]string, 0, len(in))
+	for _, s := range in {
+		s = strings.TrimSpace(s)
+		if s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+func setExpertString(m map[string]any, key, value string) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		delete(m, key)
+	} else {
+		m[key] = value
+	}
+}
+func indentJSON(v any, fallback string) string {
+	b, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return fallback
+	}
+	return string(b)
+}
+func parseExpertArray(raw, label string) ([]any, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || raw == "null" || raw == "[]" {
+		return nil, nil
+	}
+	var v []any
+	if err := json.Unmarshal([]byte(raw), &v); err != nil {
+		return nil, fmt.Errorf("%s must be a JSON array: %w", label, err)
+	}
+	return v, nil
+}
+func parseExpertObject(raw, label string) (map[string]any, bool, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || raw == "null" || raw == "{}" {
+		return nil, false, nil
+	}
+	var v map[string]any
+	if err := json.Unmarshal([]byte(raw), &v); err != nil {
+		return nil, false, fmt.Errorf("%s must be a JSON object: %w", label, err)
+	}
+	return v, len(v) > 0, nil
+}
+func deriveRealityPublicKey(privateKey string) (string, error) {
+	privateKey = strings.TrimSpace(privateKey)
+	if privateKey == "" {
+		return "", nil
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(privateKey)
+	if err != nil || len(raw) != 32 {
+		return "", errors.New("invalid REALITY private key")
+	}
+	pk, err := ecdh.X25519().NewPrivateKey(raw)
+	if err != nil {
+		return "", errors.New("invalid REALITY private key")
+	}
+	return base64.RawURLEncoding.EncodeToString(pk.PublicKey().Bytes()), nil
+}
+
+func validateExpertConfig(in ExpertConfig) error {
+	if len(in.FallbacksJSON) > 128<<10 {
+		return errors.New("fallbacks JSON is too large")
+	}
+	if len(in.HTTPHeaderJSON) > 64<<10 {
+		return errors.New("HTTP camouflage header JSON is too large")
+	}
+	if len(in.TLSCertificatesJSON) > 256<<10 {
+		return errors.New("TLS certificates JSON is too large")
+	}
+	if len(in.RealityServerNames) > 64 || len(in.RealityShortIDs) > 64 || len(in.TLSALPN) > 64 {
+		return errors.New("expert list contains too many entries")
+	}
+	checks := []struct {
+		name, value string
+		max         int
+	}{
+		{"REALITY target", in.RealityTarget, 1024}, {"REALITY private key", in.RealityPrivateKey, 256},
+		{"REALITY min client version", in.RealityMinClientVer, 128}, {"REALITY max client version", in.RealityMaxClientVer, 128},
+		{"REALITY ML-DSA seed", in.RealityMLDSA65Seed, 4096}, {"TLS min version", in.TLSMinVersion, 64},
+		{"TLS max version", in.TLSMaxVersion, 64}, {"TLS cipher suites", in.TLSCipherSuites, 4096},
+		{"XHTTP mode", in.XHTTPMode, 64}, {"XHTTP padding", in.XHTTPXPaddingBytes, 256},
+		{"XHTTP each-post bytes", in.XHTTPScMaxEachPostBytes, 256}, {"XHTTP stream-up seconds", in.XHTTPScStreamUpServerSecs, 256},
+		{"XHTTP uplink method", in.XHTTPUplinkHTTPMethod, 32},
+	}
+	for _, c := range checks {
+		if len(c.value) > c.max {
+			return fmt.Errorf("%s is too long", c.name)
+		}
+		if strings.ContainsRune(c.value, '\x00') || strings.ContainsAny(c.value, "\r\n") {
+			return fmt.Errorf("%s contains invalid control characters", c.name)
+		}
+	}
+	for _, list := range [][]string{in.RealityServerNames, in.RealityShortIDs, in.TLSALPN} {
+		for _, v := range list {
+			if len(v) > 1024 || strings.ContainsRune(v, '\x00') || strings.ContainsAny(v, "\r\n") {
+				return errors.New("expert list entry is invalid")
+			}
+		}
+	}
+	if in.RealityXver > 2 {
+		return errors.New("REALITY xver must be between 0 and 2")
+	}
+	if in.XHTTPScMaxBufferedPosts < 0 {
+		return errors.New("XHTTP scMaxBufferedPosts must not be negative")
+	}
+	return nil
+}

@@ -136,8 +136,12 @@ func readDisk() (uint64, uint64) {
 	if unix.Statfs("/", &st) != nil {
 		return 0, 0
 	}
-	total := st.Blocks * uint64(st.Bsize)
-	free := st.Bavail * uint64(st.Bsize)
+	if st.Bsize <= 0 {
+		return 0, 0
+	}
+	blockSize := uint64(st.Bsize)
+	total := st.Blocks * blockSize
+	free := st.Bavail * blockSize
 	if free > total {
 		free = total
 	}
