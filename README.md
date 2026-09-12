@@ -6,7 +6,17 @@ Its account model is intentionally simple:
 
 > **1 account = 1 inbound = 1 dedicated port = 1 credential set**
 
-The UI presents accounts directly rather than exposing Xray's inbound/client hierarchy. X-port is intended for small personal deployments rather than multi-tenant hosting.
+The UI presents accounts directly rather than exposing Xray's inbound/client hierarchy.
+
+## Disclaimer
+
+X-port is intended for lawful personal use and technical learning. Users are responsible for complying with all applicable local laws and regulations.
+
+Do not use X-port for unlawful activities. Users assume all risks and consequences arising from its use.
+
+X-port is designed for small personal deployments and is not intended for multi-tenant hosting or mission-critical infrastructure.
+
+This software is provided "as is", without warranty of any kind, as described in the MIT License.
 
 ## What it provides
 
