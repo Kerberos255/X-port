@@ -113,7 +113,7 @@ func (s *Store) ensureAccountColumn(name, ddl string) error {
 }
 
 func (s *Store) Accounts() ([]model.Account, error) {
-	return scanAccounts(s.db.Query(`SELECT id,name,enabled,disabled_reason,listen,port,protocol,settings_json,stream_settings_json,sniffing_json,tag,up_bytes,down_bytes,quota_bytes,all_time_bytes,expiry_time,monthly_reset,last_monthly_reset,created_at,updated_at FROM accounts ORDER BY port`))
+	return scanAccounts(s.db.Query(`SELECT id,name,enabled,disabled_reason,listen,port,protocol,settings_json,stream_settings_json,sniffing_json,tag,up_bytes,down_bytes,quota_bytes,all_time_bytes,expiry_time,monthly_reset,last_monthly_reset,created_at,updated_at FROM accounts ORDER BY id ASC`))
 }
 
 func scanAccounts(rows *sql.Rows, err error) ([]model.Account, error) {

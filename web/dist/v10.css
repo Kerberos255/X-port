@@ -1,0 +1,10 @@
+/* X-port v0.1.11: give the account editor scrollbar and close button separate rails. */
+.modal-card:has(#account-form){padding-right:58px!important;scrollbar-gutter:auto!important;scrollbar-width:auto;scrollbar-color:auto}
+.modal-card:has(#account-form) .modal-x{right:8px;z-index:5}
+.modal-card:has(#account-form) .account-editor-scroll{padding-right:18px;scrollbar-gutter:stable;scrollbar-width:thin;scrollbar-color:rgba(126,155,190,.34) transparent}
+.modal-card:has(#account-form) .account-editor-scroll::-webkit-scrollbar{width:8px}
+.modal-card:has(#account-form) .account-editor-scroll::-webkit-scrollbar-track{background:transparent}
+.modal-card:has(#account-form) .account-editor-scroll::-webkit-scrollbar-thumb{background:rgba(126,155,190,.34);border:2px solid transparent;background-clip:padding-box;border-radius:999px}
+.xhttp-default-hint::placeholder{color:#73859d;opacity:1}
+html[data-theme="light"] .xhttp-default-hint::placeholder{color:#7b8da3}
+@media(max-width:700px){.modal-card:has(#account-form){padding-right:50px!important}.modal-card:has(#account-form) .account-editor-scroll{padding-right:12px}}
