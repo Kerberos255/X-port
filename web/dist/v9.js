@@ -61,11 +61,20 @@ function resetExistingAdvancedAfterTransportChangeV9(details,full){
  const c=$('#expert-content')
  if(c){c.className='advanced-loading muted tiny';c.textContent=''}
 }
+function bindDirectProtocolAdvancedV9(p,details,full){
+ if(full.id||!details)return
+ details.addEventListener('toggle',()=>{
+  if(!details.open)return
+  details.dataset.loaded='1'
+  details._expertData=syntheticExpertV6(p,'','none')
+  const c=$('#expert-content');if(c)c.innerHTML=renderExpertV3(details._expertData)
+ })
+}
 refreshProtocolFieldsV3=function(full){
  const p=$('#protocol-select')?.value||full.protocol||'vless',box=$('#proto-fields');if(!box)return
  box.innerHTML=protocolFieldsV9(p,full)
  const net=$('#network-select'),sec=$('#security-select'),details=$('#account-advanced')
- if(!net||!sec)return
+ if(!net||!sec){bindDirectProtocolAdvancedV9(p,details,full);return}
  let preferredSecurity=String(sec.value||'none').toLowerCase()
  const flow=box.querySelector('.vless-flow'),flowSelect=flow?.querySelector('select[name="flow"]')
  let initial=true
