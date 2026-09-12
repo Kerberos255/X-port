@@ -15,8 +15,17 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
-      - name: Scan reachable Git history for secrets
-        run: go run github.com/zricethezav/gitleaks/v8@v8.30.1 git --redact --no-banner --exit-code 1
+      - name: Scan relevant Git history for secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            RANGE="${{ github.event.pull_request.base.sha }}..HEAD"
+          else
+            RANGE="HEAD"
+          fi
+          go run github.com/zricethezav/gitleaks/v8@v8.30.1 git \
+            --redact --no-banner --exit-code 1 --log-opts="$RANGE"
 
   static-security:
     runs-on: ubuntu-latest

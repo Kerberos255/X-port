@@ -222,6 +222,11 @@ func (s *Accounts) UpdateExpert(id int64, in ExpertConfig) (ExpertConfig, error)
 	if method == "xhttp" {
 		key := expertXHTTPKey(stream)
 		x := expertObject(stream, key)
+		target := x
+		usesExtra := false
+		if extra, ok := x["extra"].(map[string]any); ok && extra != nil {
+			target, usesExtra = extra, true
+		}
 		mode := strings.TrimSpace(in.XHTTPMode)
 		switch mode {
 		case "", "auto", "packet-up", "stream-up", "stream-one":
@@ -229,20 +234,23 @@ func (s *Accounts) UpdateExpert(id int64, in ExpertConfig) (ExpertConfig, error)
 			return ExpertConfig{}, fmt.Errorf("unsupported XHTTP mode %q", mode)
 		}
 		setExpertString(x, "mode", mode)
-		setExpertString(x, "xPaddingBytes", in.XHTTPXPaddingBytes)
+		setExpertString(target, "xPaddingBytes", in.XHTTPXPaddingBytes)
 		if in.XHTTPNoSSEHeader {
-			x["noSSEHeader"] = true
+			target["noSSEHeader"] = true
 		} else {
-			delete(x, "noSSEHeader")
+			delete(target, "noSSEHeader")
 		}
 		if in.XHTTPScMaxBufferedPosts > 0 {
-			x["scMaxBufferedPosts"] = in.XHTTPScMaxBufferedPosts
+			target["scMaxBufferedPosts"] = in.XHTTPScMaxBufferedPosts
 		} else {
-			delete(x, "scMaxBufferedPosts")
+			delete(target, "scMaxBufferedPosts")
 		}
-		setExpertString(x, "scMaxEachPostBytes", in.XHTTPScMaxEachPostBytes)
-		setExpertString(x, "scStreamUpServerSecs", in.XHTTPScStreamUpServerSecs)
-		setExpertString(x, "uplinkHTTPMethod", strings.ToUpper(strings.TrimSpace(in.XHTTPUplinkHTTPMethod)))
+		setExpertString(target, "scMaxEachPostBytes", in.XHTTPScMaxEachPostBytes)
+		setExpertString(target, "scStreamUpServerSecs", in.XHTTPScStreamUpServerSecs)
+		setExpertString(target, "uplinkHTTPMethod", strings.ToUpper(strings.TrimSpace(in.XHTTPUplinkHTTPMethod)))
+		if usesExtra {
+			x["extra"] = target
+		}
 		stream[key] = x
 	}
 
@@ -338,13 +346,17 @@ func expertView(a model.Account) (ExpertConfig, error) {
 	}
 	if out.SupportsXHTTP {
 		x := expertObject(stream, expertXHTTPKey(stream))
+		target := x
+		if extra, ok := x["extra"].(map[string]any); ok && extra != nil {
+			target = extra
+		}
 		out.XHTTPMode = expertString(x["mode"])
-		out.XHTTPXPaddingBytes = expertScalarString(x["xPaddingBytes"])
-		out.XHTTPNoSSEHeader = expertBool(x["noSSEHeader"])
-		out.XHTTPScMaxBufferedPosts = expertInt64(x["scMaxBufferedPosts"])
-		out.XHTTPScMaxEachPostBytes = expertScalarString(x["scMaxEachPostBytes"])
-		out.XHTTPScStreamUpServerSecs = expertScalarString(x["scStreamUpServerSecs"])
-		out.XHTTPUplinkHTTPMethod = expertString(x["uplinkHTTPMethod"])
+		out.XHTTPXPaddingBytes = expertScalarString(target["xPaddingBytes"])
+		out.XHTTPNoSSEHeader = expertBool(target["noSSEHeader"])
+		out.XHTTPScMaxBufferedPosts = expertInt64(target["scMaxBufferedPosts"])
+		out.XHTTPScMaxEachPostBytes = expertScalarString(target["scMaxEachPostBytes"])
+		out.XHTTPScStreamUpServerSecs = expertScalarString(target["scStreamUpServerSecs"])
+		out.XHTTPUplinkHTTPMethod = expertString(target["uplinkHTTPMethod"])
 	}
 	return out, nil
 }
