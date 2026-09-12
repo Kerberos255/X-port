@@ -25,8 +25,8 @@ jobs:
           node --check web/dist/v3.js
       - name: Shell syntax and safety
         run: |
-          bash -n scripts/build-linux.sh scripts/install.sh scripts/migrate-xpanel.sh
-          shellcheck -S error scripts/*.sh
+          bash -n install.sh scripts/build-linux.sh scripts/install.sh scripts/migrate-xpanel.sh
+          shellcheck -S error install.sh scripts/*.sh
       - name: Go module consistency
         run: |
           go mod tidy

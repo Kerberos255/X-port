@@ -29,7 +29,7 @@ jobs:
           node --check web/dist/app.js
           node --check web/dist/extra.js
           node --check web/dist/v3.js
-          bash -n scripts/build-linux.sh scripts/install.sh scripts/migrate-xpanel.sh
+          bash -n install.sh scripts/build-linux.sh scripts/install.sh scripts/migrate-xpanel.sh
           go mod tidy
           git diff --exit-code -- go.mod go.sum
           go test ./...
