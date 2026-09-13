@@ -66,6 +66,7 @@ func (s *Accounts) Create(in accountcfg.Input) (accountcfg.View, error) {
 	if err != nil {
 		return accountcfg.View{}, err
 	}
+	a.ID = nextAvailableAccountID(old)
 	initializeMonthlyCycle(&a, false)
 	next := append(copyAccounts(old), a)
 	if err := s.applyAndPersist(old, next); err != nil {
@@ -166,6 +167,7 @@ func (s *Accounts) Clone(id int64, name string, port int) (accountcfg.View, erro
 	if err != nil {
 		return accountcfg.View{}, err
 	}
+	a.ID = nextAvailableAccountID(old)
 	initializeMonthlyCycle(&a, true)
 	next := append(copyAccounts(old), a)
 	if err := s.applyAndPersist(old, next); err != nil {
@@ -239,6 +241,20 @@ func indexID(a []model.Account, id int64) int {
 		}
 	}
 	return -1
+}
+
+func nextAvailableAccountID(a []model.Account) int64 {
+	used := make(map[int64]struct{}, len(a))
+	for _, v := range a {
+		if v.ID > 0 {
+			used[v.ID] = struct{}{}
+		}
+	}
+	for id := int64(1); ; id++ {
+		if _, exists := used[id]; !exists {
+			return id
+		}
+	}
 }
 
 func uniquePort(a []model.Account, port int, exceptID int64) error {
