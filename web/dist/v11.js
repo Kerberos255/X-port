@@ -183,18 +183,14 @@ initV11()
  }
  async function openCloneModalRandomPortV11(id){
   const a=state.accounts.find(x=>x.id===id)
-  openModal(`<div class="modal-title"><span>CLONE ACCOUNT</span><h2>克隆 ${esc(a?.name||'账号')}</h2></div><form id="clone-form" class="form-grid"><label>新账号名<input name="name" value="${esc((a?.name||'account')+' copy')}" required></label><label>新端口<input id="clone-port" name="port" type="number" min="1" max="65535" placeholder="正在随机分配…"></label><p id="clone-port-note" class="muted tiny full">正在从设定端口范围内随机选择一个空闲端口…</p><p class="muted tiny full">协议与传输参数会复制；UUID/密码自动重新生成，本期与累计流量清零。</p><div class="form-actions full"><button type="button" class="btn ghost" id="clone-cancel">取消</button><button class="btn primary" type="submit">克隆并应用</button></div></form>`)
+  openModal(`<div class="modal-title"><span>CLONE ACCOUNT</span><h2>克隆 ${esc(a?.name||'账号')}</h2></div><form id="clone-form" class="form-grid"><label>新账号名<input name="name" value="${esc((a?.name||'account')+' copy')}" required></label><label>新端口<input id="clone-port" name="port" type="number" min="1" max="65535" placeholder="正在随机分配…"></label><div class="form-actions full"><button type="button" class="btn ghost" id="clone-cancel">取消</button><button class="btn primary" type="submit">克隆并应用</button></div></form>`)
   $('#clone-cancel').onclick=closeModal
-  const portInput=$('#clone-port'),portNote=$('#clone-port-note')
+  const portInput=$('#clone-port')
   try{
    const d=await api('/api/accounts/port-suggestion')
    if(!$('#clone-form'))return
    portInput.value=d.port||''
-   portNote.textContent=`已自动从 ${d.min}-${d.max} 随机选择空闲端口；也可以手动修改。`
-  }catch(err){
-   if($('#clone-form'))portNote.textContent='自动分配失败，可手动填写；留空提交时后端仍会尝试自动分配。'
-   toastEmphasisV11(err.message,true)
-  }
+  }catch(err){toastEmphasisV11(err.message,true)}
   $('#clone-form').onsubmit=async e=>{
    e.preventDefault()
    const form=e.currentTarget,f=new FormData(form),button=form.querySelector('button[type=submit]')
