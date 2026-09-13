@@ -16,6 +16,8 @@ func (s *Server) registerUXRoutes(mux *http.ServeMux) {
 	mux.Handle("PUT /api/accounts/{id}/advanced", s.require(http.HandlerFunc(s.updateAccountAdvanced)))
 	mux.Handle("GET /api/accounts/{id}/expert", s.require(http.HandlerFunc(s.getAccountExpert)))
 	mux.Handle("PUT /api/accounts/{id}/expert", s.require(http.HandlerFunc(s.updateAccountExpert)))
+	mux.Handle("GET /api/xray/config", s.require(http.HandlerFunc(s.getXrayGlobalConfig)))
+	mux.Handle("PUT /api/xray/config", s.require(http.HandlerFunc(s.updateXrayGlobalConfig)))
 	mux.Handle("GET /api/xray/rollback", s.require(http.HandlerFunc(s.checkXrayRollback)))
 	mux.Handle("POST /api/xray/rollback", s.require(http.HandlerFunc(s.rollbackXray)))
 }
