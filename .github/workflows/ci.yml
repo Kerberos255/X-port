@@ -32,6 +32,12 @@ jobs:
           node --check web/dist/v9.js
           node --check web/dist/v10.js
           node --check web/dist/v11.js
+          : > /tmp/xport-web-classic.js
+          for file in web/dist/app.js web/dist/extra.js web/dist/v3.js web/dist/v4.js web/dist/v5.js web/dist/v5-runtime.js web/dist/v6.js web/dist/v7.js web/dist/v8.js web/dist/v9.js web/dist/v10.js web/dist/v11.js; do
+            printf '\n;\n' >> /tmp/xport-web-classic.js
+            cat "$file" >> /tmp/xport-web-classic.js
+          done
+          node --check /tmp/xport-web-classic.js
       - name: Shell syntax and safety
         run: |
           bash -n install.sh scripts/build-linux.sh scripts/install.sh scripts/migrate-xpanel.sh
