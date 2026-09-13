@@ -2,6 +2,9 @@ package xray
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -63,5 +66,62 @@ func TestMergeEditableGlobalConfigRequiresJSONObject(t *testing.T) {
 		if _, _, err := MergeEditableGlobalConfig(`{}`, raw); err == nil {
 			t.Fatalf("expected object rejection for %s", raw)
 		}
+	}
+}
+
+func TestApplyWithBaseCommitsRuntimeBaseAfterValidation(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("temporary executable script test")
+	}
+	dir := t.TempDir()
+	binary := filepath.Join(dir, "xray")
+	if err := os.WriteFile(binary, []byte("#!/bin/sh\nexit 0\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(dir, "config.json")
+	m := &Manager{BinaryPath: binary, ConfigPath: configPath, APIPort: 10085, BaseConfigJSON: `{"dns":{"servers":["old"]}}`}
+	candidate := `{"dns":{"servers":["1.1.1.1"]}}`
+	if err := m.ApplyWithBase(nil, candidate); err != nil {
+		t.Fatal(err)
+	}
+	if m.BaseConfigJSON != candidate {
+		t.Fatalf("runtime base not committed: %s", m.BaseConfigJSON)
+	}
+	b, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), "1.1.1.1") {
+		t.Fatalf("candidate base not rendered: %s", b)
+	}
+}
+
+func TestApplyWithBaseRestoresRuntimeBaseWhenValidationFails(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("temporary executable script test")
+	}
+	dir := t.TempDir()
+	binary := filepath.Join(dir, "xray")
+	if err := os.WriteFile(binary, []byte("#!/bin/sh\nexit 1\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(dir, "config.json")
+	if err := os.WriteFile(configPath, []byte("previous"), 0640); err != nil {
+		t.Fatal(err)
+	}
+	previous := `{"dns":{"servers":["old"]}}`
+	m := &Manager{BinaryPath: binary, ConfigPath: configPath, APIPort: 10085, BaseConfigJSON: previous}
+	if err := m.ApplyWithBase(nil, `{"dns":{"servers":["bad"]}}`); err == nil {
+		t.Fatal("expected validation failure")
+	}
+	if m.BaseConfigJSON != previous {
+		t.Fatalf("runtime base changed after failed validation: %s", m.BaseConfigJSON)
+	}
+	b, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(b) != "previous" {
+		t.Fatalf("config file changed before validation succeeded: %q", b)
 	}
 }
