@@ -22,5 +22,5 @@ function applyXHTTPDefaultHintsV11(html){
  return template.innerHTML
 }
 
-const renderExpertV3BeforeV11=renderExpertV3
-renderExpertV3=(...args)=>applyXHTTPDefaultHintsV11(renderExpertV3BeforeV11(...args))
+const renderExpertV3BeforeXHTTPHintsV10=renderExpertV3
+renderExpertV3=(...args)=>applyXHTTPDefaultHintsV11(renderExpertV3BeforeXHTTPHintsV10(...args))
