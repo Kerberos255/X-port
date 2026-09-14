@@ -3,7 +3,6 @@ package service
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
@@ -43,14 +42,9 @@ func (s *Accounts) UpdateAdvanced(id int64, in AdvancedConfig) (AdvancedConfig, 
 	}
 	next := copyAccounts(old)
 	a := &next[idx]
-
-	settings := map[string]any{}
-	if err := json.Unmarshal([]byte(defaultAdvancedJSON(a.SettingsJSON)), &settings); err != nil {
-		return AdvancedConfig{}, fmt.Errorf("invalid account settings JSON: %w", err)
-	}
-	stream := map[string]any{}
-	if err := json.Unmarshal([]byte(defaultAdvancedJSON(a.StreamSettingsJSON)), &stream); err != nil {
-		return AdvancedConfig{}, fmt.Errorf("invalid stream settings JSON: %w", err)
+	settings, stream, err := expertMaps(*a)
+	if err != nil {
+		return AdvancedConfig{}, err
 	}
 
 	protocol := strings.ToLower(strings.TrimSpace(a.Protocol))
@@ -180,9 +174,7 @@ func advancedView(a model.Account) (AdvancedConfig, error) {
 
 	fallbacksJSON := "[]"
 	if v, ok := settings["fallbacks"]; ok {
-		if b, err := json.MarshalIndent(v, "", "  "); err == nil {
-			fallbacksJSON = string(b)
-		}
+		fallbacksJSON = indentJSON(v, "[]")
 	}
 	acceptProxy := false
 	if sockopt, ok := stream["sockopt"].(map[string]any); ok {
@@ -202,9 +194,7 @@ func advancedView(a model.Account) (AdvancedConfig, error) {
 		for _, key := range []string{"rawSettings", "tcpSettings"} {
 			if obj, ok := stream[key].(map[string]any); ok {
 				if header, ok := obj["header"]; ok {
-					if b, err := json.MarshalIndent(header, "", "  "); err == nil {
-						headerJSON = string(b)
-					}
+					headerJSON = indentJSON(header, "")
 					break
 				}
 			}
