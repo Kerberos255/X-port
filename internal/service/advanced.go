@@ -9,6 +9,8 @@ import (
 	"github.com/Kerberos255/X-port/internal/model"
 )
 
+var advancedProxyTransportKeys = []string{"tcpSettings", "rawSettings", "wsSettings", "grpcSettings", "httpupgradeSettings", "xhttpSettings"}
+
 type AdvancedConfig struct {
 	Protocol            string `json:"protocol"`
 	Network             string `json:"network"`
@@ -79,7 +81,7 @@ func (s *Accounts) UpdateAdvanced(id int64, in AdvancedConfig) (AdvancedConfig, 
 	// Normalize PROXY protocol to streamSettings.sockopt, which is supported by
 	// current Xray transports. Remove transport-local copies to avoid conflicting
 	// values inherited from older panel schemas.
-	for _, key := range []string{"tcpSettings", "rawSettings", "wsSettings", "grpcSettings", "httpupgradeSettings", "xhttpSettings"} {
+	for _, key := range advancedProxyTransportKeys {
 		if obj, ok := stream[key].(map[string]any); ok {
 			delete(obj, "acceptProxyProtocol")
 		}
@@ -181,7 +183,7 @@ func advancedView(a model.Account) (AdvancedConfig, error) {
 		acceptProxy = expertBool(sockopt["acceptProxyProtocol"])
 	}
 	if !acceptProxy {
-		for _, key := range []string{"tcpSettings", "rawSettings", "wsSettings", "grpcSettings", "httpupgradeSettings", "xhttpSettings"} {
+		for _, key := range advancedProxyTransportKeys {
 			if obj, ok := stream[key].(map[string]any); ok && expertBool(obj["acceptProxyProtocol"]) {
 				acceptProxy = true
 				break
