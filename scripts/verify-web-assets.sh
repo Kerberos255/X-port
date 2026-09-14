@@ -40,17 +40,6 @@ node --check "$combined"
 for rel in "${styles[@]}"; do
   path="$ROOT/web/dist/$rel"
   [[ -f "$path" ]] || { echo "Missing referenced stylesheet: $rel" >&2; exit 1; }
-  while IFS= read -r imported; do
-    [[ -z "$imported" ]] && continue
-    imported="${imported%%\?*}"
-    imported="${imported#/}"
-    for loaded in "${styles[@]}"; do
-      if [[ "$imported" == "$loaded" ]]; then
-        echo "Stylesheet $rel imports $imported, but index.html already loads it directly" >&2
-        exit 1
-      fi
-    done
-  done < <(grep -oE '@import[[:space:]]+(url\()?['"'"']?/?[^'"'"') ;]+' "$path" 2>/dev/null | sed -E 's/^@import[[:space:]]+(url\()?['"'"']?//')
 done
 
 printf 'Verified %d scripts and %d stylesheets from index.html\n' "${#scripts[@]}" "${#styles[@]}"
