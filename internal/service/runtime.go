@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Kerberos255/X-port/internal/accountcfg"
+	"github.com/Kerberos255/X-port/internal/defaults"
 	"github.com/Kerberos255/X-port/internal/model"
 	"github.com/Kerberos255/X-port/internal/store"
 	"github.com/Kerberos255/X-port/internal/xray"
@@ -107,5 +108,5 @@ func (s *Accounts) prepareInput(in *accountcfg.Input, accounts []model.Account) 
 	}
 	return nil
 }
-func (s *Accounts) portDefaults()(int,int,int){minPort:=settingInt(s.store,"port_min",20000);maxPort:=settingInt(s.store,"port_max",60000);apiPort:=settingInt(s.store,"xray_api_port",10085);if minPort<1||minPort>65535{minPort=20000};if maxPort<minPort||maxPort>65535{maxPort=60000};return minPort,maxPort,apiPort}
+func (s *Accounts) portDefaults()(int,int,int){minPort:=settingInt(s.store,"port_min",defaults.PortMin);maxPort:=settingInt(s.store,"port_max",defaults.PortMax);apiPort:=settingInt(s.store,"xray_api_port",defaults.XrayAPIPort);if minPort<1||minPort>65535{minPort=defaults.PortMin};if maxPort<minPort||maxPort>65535{maxPort=defaults.PortMax};return minPort,maxPort,apiPort}
 func settingInt(st *store.Store,key string,fallback int)int{v,ok,err:=st.Setting(key);if err!=nil||!ok{return fallback};n,err:=strconv.Atoi(strings.TrimSpace(v));if err!=nil{return fallback};return n}
