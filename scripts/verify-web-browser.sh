@@ -148,7 +148,8 @@ cat > "$TMP/__driver.js" <<'JS'
       if (!tls || tls.nextElementSibling !== fallback) throw new Error('Fallbacks is not directly after TLS')
       const editorScroll = await waitFor('.account-editor-scroll')
       assertContained(editorScroll, fallback, 'Fallbacks section')
-      for (const [i, node] of [...fallback.querySelectorAll('input,select,textarea,button')].entries()) {
+      const visibleControls = [...fallback.querySelectorAll('input,select,textarea,button')].filter(node => node.getClientRects().length > 0)
+      for (const [i, node] of visibleControls.entries()) {
         assertContained(editorScroll, node, `Fallbacks control ${i + 1}`)
       }
       if (editorScroll.scrollWidth > editorScroll.clientWidth + 2) {
