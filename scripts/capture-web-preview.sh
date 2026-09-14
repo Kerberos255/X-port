@@ -91,11 +91,26 @@ cat > "$TMP/__preview.js" <<'JS'
     }
     throw new Error(`timeout waiting for ${selector}`)
   }
+  async function waitForValue(selector, expected, timeout=4000) {
+    const node = await waitFor(selector, timeout)
+    const end = Date.now() + timeout
+    while (Date.now() < end) {
+      if (String(node.value) === String(expected)) return node
+      await sleep(25)
+    }
+    throw new Error(`timeout waiting for ${selector}=${expected}`)
+  }
   window.addEventListener('load', async () => {
     try {
       await waitFor('#app:not(.hidden)')
       const preview = new URLSearchParams(location.search).get('preview') || 'overview'
-      if (preview === 'account') {
+      if (preview === 'clone') {
+        document.querySelector('#nav [data-page="accounts"]').click()
+        const clone = await waitFor('.account-row button[data-act="clone"]')
+        clone.click()
+        await waitFor('#clone-form')
+        await waitForValue('#clone-port', 23741)
+      } else if (preview === 'account') {
         document.querySelector('#nav [data-page="accounts"]').click()
         const edit = await waitFor('.account-row button[data-act="edit"]')
         edit.click()
@@ -138,6 +153,7 @@ capture() {
 }
 
 capture overview overview
+capture clone-account clone
 capture account-advanced account
 capture xray-global xray
 printf 'GitHub runner UI screenshots:\n'
