@@ -113,6 +113,13 @@ cat > "$TMP/__driver.js" <<'JS'
     }
     throw new Error(`timeout waiting for ${selector} to contain ${part}`)
   }
+  function assertContained(container, node, label) {
+    const outer = container.getBoundingClientRect()
+    const inner = node.getBoundingClientRect()
+    if (inner.left < outer.left - 2 || inner.right > outer.right + 2) {
+      throw new Error(`${label} overflows horizontally: ${Math.round(inner.left)}..${Math.round(inner.right)} outside ${Math.round(outer.left)}..${Math.round(outer.right)}`)
+    }
+  }
   window.addEventListener('load', async () => {
     try {
       await waitFor('#app:not(.hidden)')
@@ -139,6 +146,14 @@ cat > "$TMP/__driver.js" <<'JS'
       const sections = [...document.querySelectorAll('.expert-section')]
       const tls = sections.find(s => String(s.querySelector('.expert-section-title')?.textContent || '').trim().startsWith('TLS'))
       if (!tls || tls.nextElementSibling !== fallback) throw new Error('Fallbacks is not directly after TLS')
+      const editorScroll = await waitFor('.account-editor-scroll')
+      assertContained(editorScroll, fallback, 'Fallbacks section')
+      for (const [i, node] of [...fallback.querySelectorAll('input,select,textarea,button')].entries()) {
+        assertContained(editorScroll, node, `Fallbacks control ${i + 1}`)
+      }
+      if (editorScroll.scrollWidth > editorScroll.clientWidth + 2) {
+        throw new Error(`account editor scroll width overflow: ${editorScroll.scrollWidth}>${editorScroll.clientWidth}`)
+      }
       document.querySelector('#modal-close').click()
 
       document.querySelector('#nav [data-page="xray"]').click()
@@ -147,7 +162,7 @@ cat > "$TMP/__driver.js" <<'JS'
       const globalConfig = JSON.parse(globalEditor.value)
       if (!globalConfig.routing || !Array.isArray(globalConfig.outbounds)) throw new Error('global Xray config editor did not load expected sections')
 
-      mark('pass', `clonePort=${portInput.value};legacyHits=0;fallbackDest=${dest};globalXray=ok`)
+      mark('pass', `clonePort=${portInput.value};legacyHits=0;fallbackDest=${dest};layout=contained;globalXray=ok`)
     } catch (err) {
       mark('fail', String(err && err.message || err))
     }
