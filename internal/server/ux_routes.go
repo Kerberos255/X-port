@@ -64,6 +64,15 @@ func (s *Server) accountOnlineConnections(w http.ResponseWriter, r *http.Request
 	writeJSON(w, 200, map[string]any{"connections": connections, "peers": peers})
 }
 
+func (s *Server) suggestAccountPort(w http.ResponseWriter, r *http.Request) {
+	port, minPort, maxPort, err := s.accounts.SuggestPort()
+	if err != nil {
+		writeError(w, 409, err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]int{"port": port, "min": minPort, "max": maxPort})
+}
+
 func (s *Server) getAccountAdvanced(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r)
 	if err != nil {
