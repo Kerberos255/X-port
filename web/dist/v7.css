@@ -7,3 +7,14 @@
 .account-editor-footer{flex:0 0 auto!important;width:100%!important;max-width:100%!important;position:static!important;left:auto!important;right:auto!important;bottom:auto!important;margin:16px 0 0!important;padding:16px 0 0!important;border-top:1px solid var(--line)!important;background:#0d131f!important;box-shadow:none!important;align-self:stretch!important}
 html[data-theme="light"] .account-editor-footer{background:#f8fafc!important;box-shadow:none!important}
 @media(max-width:700px){.modal-card:has(#account-form) #modal-body,.account-editor-form{max-height:calc(92vh - 36px)}.account-editor-scroll{padding-right:2px}.account-editor-footer{margin-top:14px!important;padding-top:14px!important}}
+
+/* Folded from the former v8 style layer; original cascade position preserved. */
+.field-label-line{display:flex;align-items:baseline;gap:4px;min-width:0;line-height:1.35}
+.field-inline-note{font-size:9px;font-weight:500;color:#667990;white-space:nowrap}
+.proxy-protocol-row{display:flex!important;align-items:center!important;gap:12px!important;padding:7px 0!important}
+.proxy-protocol-copy{display:flex;flex:1 1 auto;min-width:0;flex-direction:column;gap:3px}
+.proxy-protocol-copy b{font-size:10px;font-weight:600;color:#8393aa;line-height:1.35}
+.proxy-protocol-copy .field-hint{display:block;margin:0;line-height:1.45}
+.proxy-protocol-row>input[type="checkbox"]{flex:0 0 auto!important;width:16px!important;height:16px!important;margin:0 0 0 auto!important;padding:0!important;order:2}
+html[data-theme="light"] .proxy-protocol-copy b{color:#5f7188}
+@media(max-width:700px){.field-label-line{gap:3px}.field-inline-note{font-size:8.5px}.proxy-protocol-row{gap:10px!important}}
