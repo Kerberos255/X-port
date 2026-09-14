@@ -21,13 +21,14 @@ done
 cp -a "$DIST/." "$TMP/"
 python3 - "$TMP/index.html" <<'PY'
 from pathlib import Path
+import re
 import sys
 p = Path(sys.argv[1])
 s = p.read_text(encoding='utf-8')
-needle = '<script src="/app.js?v=0.1.16" defer></script>'
-if needle not in s:
+pattern = r'(<script src="/app\.js(?:\?[^\"]*)?" defer></script>)'
+if not re.search(pattern, s):
     raise SystemExit('app.js script marker not found')
-s = s.replace(needle, '<script src="/__mock.js"></script>' + needle, 1)
+s = re.sub(pattern, r'<script src="/__mock.js"></script>\1', s, count=1)
 s = s.replace('</body>', '<script src="/__driver.js" defer></script></body>', 1)
 p.write_text(s, encoding='utf-8')
 PY
@@ -83,22 +84,30 @@ cat > "$TMP/__driver.js" <<'JS'
     }
     throw new Error(`timeout waiting for ${selector}`)
   }
+  async function waitForValue(selector, want, timeout=3000) {
+    const end = Date.now() + timeout
+    while (Date.now() < end) {
+      const node = document.querySelector(selector)
+      if (node && String(node.value || '') === want) return node
+      await sleep(25)
+    }
+    const got = document.querySelector(selector)?.value || ''
+    throw new Error(`timeout waiting for ${selector}=${want}; got=${got}`)
+  }
   window.addEventListener('load', async () => {
     try {
       await waitFor('#app:not(.hidden)')
-      const accountsNav = document.querySelector('#nav [data-page="accounts"]')
-      accountsNav.click()
+      document.querySelector('#nav [data-page="accounts"]').click()
       const clone = await waitFor('.account-row button[data-act="clone"]')
       // If capture interception fails, the legacy row onclick will call this replacement.
       globalThis.openCloneModal = () => { globalThis.__legacyCloneHits++ }
       clone.click()
       const form = await waitFor('#clone-form')
-      const port = form.querySelector('#clone-port')?.value || ''
+      const portInput = await waitForValue('#clone-port', '23741')
       const text = form.textContent || ''
-      if (port !== '23741') throw new Error(`clone port=${port}`)
       if (text.includes('协议与传输参数会复制')) throw new Error('legacy clone explanation is visible')
       if (Number(globalThis.__legacyCloneHits || 0) !== 0) throw new Error(`legacy clone handler hits=${globalThis.__legacyCloneHits}`)
-      mark('pass', `port=${port};legacyHits=0`)
+      mark('pass', `port=${portInput.value};legacyHits=0`)
     } catch (err) {
       mark('fail', String(err && err.message || err))
     }
