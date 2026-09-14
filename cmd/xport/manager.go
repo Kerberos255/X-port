@@ -34,25 +34,25 @@ const (
 	managerBinary     = "/usr/local/bin/xport"
 )
 
-// Keep the low-level CLI in main.go stable for scripts while exposing the
-// human-facing manager from the same binary. go test always passes -test.*
-// arguments, so this pre-main dispatcher is inactive during tests.
-func init() {
-	if len(os.Args) == 1 {
+// dispatchManager handles the human-facing manager commands before the
+// low-level script-oriented CLI in main.go. It does not exit the process so
+// command dispatch remains explicit and testable from main().
+func dispatchManager(args []string) (bool, int) {
+	if len(args) == 0 {
 		if err := runManagerMenu(); err != nil {
 			fmt.Fprintln(os.Stderr, "xport:", err)
-			os.Exit(1)
+			return true, 1
 		}
-		os.Exit(0)
+		return true, 0
 	}
-	if len(os.Args) < 2 || !isManagerCommand(os.Args[1]) {
-		return
+	if !isManagerCommand(args[0]) {
+		return false, 0
 	}
-	if err := runManagerCommand(os.Args[1], os.Args[2:]); err != nil {
+	if err := runManagerCommand(args[0], args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, "xport:", err)
-		os.Exit(1)
+		return true, 1
 	}
-	os.Exit(0)
+	return true, 0
 }
 
 func isManagerCommand(cmd string) bool {

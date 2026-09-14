@@ -32,6 +32,9 @@ import (
 const version = buildinfo.Current
 
 func main() {
+	if handled, code := dispatchManager(os.Args[1:]); handled {
+		os.Exit(code)
+	}
 	if len(os.Args)<2{usage();os.Exit(2)}
 	var err error
 	switch os.Args[1]{case "serve":err=serve(os.Args[2:]);case "init":err=initDB(os.Args[2:]);case "migrate":err=migrateDB(os.Args[2:]);case "render":err=render(os.Args[2:]);case "xray-check":err=xrayCheck(os.Args[2:]);case "xray-update":err=xrayUpdate(os.Args[2:]);case "version":fmt.Println(version);return;default:usage();os.Exit(2)}
