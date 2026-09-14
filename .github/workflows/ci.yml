@@ -22,9 +22,19 @@ jobs:
         run: bash scripts/verify-web-assets.sh
       - name: Frontend browser regression
         run: bash scripts/verify-web-browser.sh
+      - name: Frontend UI screenshots
+        run: bash scripts/capture-web-preview.sh "$RUNNER_TEMP/xport-ui-preview"
+      - name: Upload UI screenshots
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: xport-ui-preview
+          path: ${{ runner.temp }}/xport-ui-preview/*.png
+          if-no-files-found: warn
+          retention-days: 7
       - name: Shell syntax and safety
         run: |
-          bash -n install.sh scripts/build-linux.sh scripts/install.sh scripts/migrate-xpanel.sh scripts/verify-web-assets.sh scripts/verify-web-browser.sh
+          bash -n install.sh scripts/build-linux.sh scripts/install.sh scripts/migrate-xpanel.sh scripts/verify-web-assets.sh scripts/verify-web-browser.sh scripts/capture-web-preview.sh
           shellcheck -S error install.sh scripts/*.sh
       - name: Go module consistency
         run: |
