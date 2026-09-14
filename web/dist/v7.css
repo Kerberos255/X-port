@@ -1,3 +1,17 @@
+/* Folded from the former v6 style layer; original cascade position preserved. */
+.modal-card{overflow-x:hidden}
+/* Keep the account action row in normal document flow. The previous sticky
+   footer could visually cover expanded Advanced/XHTTP/REALITY fields and made
+   the controls look like they were floating inside the Advanced card. */
+.account-editor-footer{width:100%!important;max-width:100%!important;position:static!important;left:auto!important;right:auto!important;bottom:auto!important;margin:20px 0 0!important;padding:16px 0 0!important;border-top:1px solid var(--line)!important;background:transparent!important;box-shadow:none!important;align-self:stretch!important}
+html[data-theme="light"] .account-editor-footer{background:transparent!important;box-shadow:none!important}
+#account-form{min-width:0}.account-advanced{min-width:0}.editor-policies,.editor-actions{min-width:0}
+.settings-form>label{align-self:start}.settings-form>label input,.settings-form>label select{min-height:42px}.settings-form .listen-hint{display:none!important}
+.admin-reauth{grid-column:1/-1!important}.admin-reauth input{border-color:rgba(233,191,112,.34)!important}
+.vless-flow.hidden-field{display:none!important}
+.account-port-note{display:block;margin-top:3px;font-size:8px;color:#667990}
+@media(max-width:700px){.account-editor-footer{margin:18px 0 0!important;padding:15px 0 calc(2px + env(safe-area-inset-bottom))!important}.editor-actions{margin-left:0}}
+
 /* X-port v0.1.6: title/body/footer separation for account editor. */
 .modal-card:has(#account-form){overflow:hidden!important;display:flex;flex-direction:column}
 .modal-card:has(#account-form) #modal-body{display:flex;flex-direction:column;min-height:0;max-height:calc(90vh - 48px)}
