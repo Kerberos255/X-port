@@ -54,11 +54,11 @@ func (s *Accounts) UpdateAdvanced(id int64, in AdvancedConfig) (AdvancedConfig, 
 	}
 
 	protocol := strings.ToLower(strings.TrimSpace(a.Protocol))
-	network := strings.ToLower(strings.TrimSpace(advancedString(stream["network"])))
+	network := strings.ToLower(strings.TrimSpace(expertString(stream["network"])))
 	if network == "" && protocol != "socks" && protocol != "http" {
 		network = "tcp"
 	}
-	security := strings.ToLower(strings.TrimSpace(advancedString(stream["security"])))
+	security := strings.ToLower(strings.TrimSpace(expertString(stream["security"])))
 	if security == "" {
 		security = "none"
 	}
@@ -169,11 +169,11 @@ func advancedView(a model.Account) (AdvancedConfig, error) {
 		return AdvancedConfig{}, err
 	}
 	protocol := strings.ToLower(strings.TrimSpace(a.Protocol))
-	network := strings.ToLower(strings.TrimSpace(advancedString(stream["network"])))
+	network := strings.ToLower(strings.TrimSpace(expertString(stream["network"])))
 	if network == "" && protocol != "socks" && protocol != "http" {
 		network = "tcp"
 	}
-	security := strings.ToLower(strings.TrimSpace(advancedString(stream["security"])))
+	security := strings.ToLower(strings.TrimSpace(expertString(stream["security"])))
 	if security == "" {
 		security = "none"
 	}
@@ -186,11 +186,11 @@ func advancedView(a model.Account) (AdvancedConfig, error) {
 	}
 	acceptProxy := false
 	if sockopt, ok := stream["sockopt"].(map[string]any); ok {
-		acceptProxy = advancedBool(sockopt["acceptProxyProtocol"])
+		acceptProxy = expertBool(sockopt["acceptProxyProtocol"])
 	}
 	if !acceptProxy {
 		for _, key := range []string{"tcpSettings", "rawSettings", "wsSettings", "grpcSettings", "httpupgradeSettings", "xhttpSettings"} {
-			if obj, ok := stream[key].(map[string]any); ok && advancedBool(obj["acceptProxyProtocol"]) {
+			if obj, ok := stream[key].(map[string]any); ok && expertBool(obj["acceptProxyProtocol"]) {
 				acceptProxy = true
 				break
 			}
@@ -221,30 +221,15 @@ func advancedView(a model.Account) (AdvancedConfig, error) {
 }
 
 func parseFallbacks(raw string) ([]any, error) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" || raw == "null" || raw == "[]" {
-		return nil, nil
-	}
-	var v []any
-	if err := json.Unmarshal([]byte(raw), &v); err != nil {
-		return nil, fmt.Errorf("fallbacks must be a JSON array: %w", err)
-	}
-	return v, nil
+	return parseExpertArray(raw, "fallbacks")
 }
 
 func parseHTTPHeader(raw string) (map[string]any, bool, error) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" || raw == "null" || raw == "{}" {
-		return nil, false, nil
+	v, ok, err := parseExpertObject(raw, "HTTP camouflage header")
+	if err != nil || !ok {
+		return v, ok, err
 	}
-	var v map[string]any
-	if err := json.Unmarshal([]byte(raw), &v); err != nil {
-		return nil, false, fmt.Errorf("HTTP camouflage header must be a JSON object: %w", err)
-	}
-	if len(v) == 0 {
-		return nil, false, nil
-	}
-	typ := strings.ToLower(strings.TrimSpace(advancedString(v["type"])))
+	typ := strings.ToLower(strings.TrimSpace(expertString(v["type"])))
 	if typ != "none" && typ != "http" {
 		return nil, false, errors.New("HTTP camouflage header type must be none or http")
 	}
@@ -256,16 +241,4 @@ func defaultAdvancedJSON(v string) string {
 		return `{}`
 	}
 	return v
-}
-
-func advancedString(v any) string {
-	if s, ok := v.(string); ok {
-		return s
-	}
-	return ""
-}
-
-func advancedBool(v any) bool {
-	b, _ := v.(bool)
-	return b
 }
