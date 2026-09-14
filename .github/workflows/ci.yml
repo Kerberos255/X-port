@@ -20,9 +20,11 @@ jobs:
           cache: false
       - name: Frontend assets
         run: bash scripts/verify-web-assets.sh
+      - name: Frontend browser regression
+        run: bash scripts/verify-web-browser.sh
       - name: Shell syntax and safety
         run: |
-          bash -n install.sh scripts/build-linux.sh scripts/install.sh scripts/migrate-xpanel.sh scripts/verify-web-assets.sh
+          bash -n install.sh scripts/build-linux.sh scripts/install.sh scripts/migrate-xpanel.sh scripts/verify-web-assets.sh scripts/verify-web-browser.sh
           shellcheck -S error install.sh scripts/*.sh
       - name: Go module consistency
         run: |
