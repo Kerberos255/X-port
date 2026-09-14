@@ -95,7 +95,11 @@ func (s *Accounts) RestoreSnapshot(snapshot store.Snapshot) error {
 
 func (s *Accounts) prepareInput(in *accountcfg.Input, accounts []model.Account) error {
 	if in.Protocol==""{in.Protocol="vless"}
-	if in.Port==0{minPort,maxPort,apiPort:=s.portDefaults();in.Port=nextFreePort(accounts,minPort,maxPort,apiPort);if in.Port==0{return fmt.Errorf("no automatic port available in %d-%d",minPort,maxPort)}}
+	if in.Port==0{
+		port,_,_,err:=s.automaticPort(accounts)
+		if err!=nil{return err}
+		in.Port=port
+	}
 	protocol:=strings.ToLower(strings.TrimSpace(in.Protocol))
 	if (protocol=="vless"||protocol=="trojan")&&(in.Security==""||in.Security=="reality"){
 		if strings.TrimSpace(in.ServerName)==""{if v,ok,_:=s.store.Setting("default_reality_sni");ok{in.ServerName=strings.TrimSpace(v)}}
