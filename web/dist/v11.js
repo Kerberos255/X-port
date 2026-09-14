@@ -1,3 +1,30 @@
+/* X-port v0.1.11: surface XHTTP runtime defaults without persisting them. */
+function applyXHTTPDefaultHintsV11(html){
+ const template=document.createElement('template')
+ template.innerHTML=html
+ const hints=[
+  ['#expert-xhttp-padding','100-1000（默认）'],
+  ['#expert-xhttp-postbytes','1000000（默认）'],
+  ['#expert-xhttp-buffered','30（默认）'],
+  ['#expert-xhttp-streamsecs','20-80（默认）'],
+  ['#expert-xhttp-method','POST（默认）'],
+ ]
+ for(const [selector,placeholder] of hints){
+  const input=template.content.querySelector(selector)
+  if(!input)continue
+  const current=String(input.getAttribute('value')||'').trim()
+  if(current===''||(selector==='#expert-xhttp-buffered'&&current==='0')){
+   input.setAttribute('value','')
+   input.setAttribute('placeholder',placeholder)
+   input.classList.add('xhttp-default-hint')
+  }
+ }
+ return template.innerHTML
+}
+
+const renderExpertV3BeforeXHTTPHintsV10=renderExpertV3
+renderExpertV3=(...args)=>applyXHTTPDefaultHintsV11(renderExpertV3BeforeXHTTPHintsV10(...args))
+
 /* X-port next: structured fallbacks + editable global Xray sections. */
 const fallbackKnownKeysV11=new Set(['name','alpn','path','dest','xver'])
 
@@ -204,3 +231,36 @@ initV11()
  toast=toastEmphasisV11
  openCloneModal=openCloneModalRandomPortV11
 })()
+
+/* Reliable clone-account interception. */
+async function openCloneModalV12(id){
+ const a=state.accounts.find(x=>x.id===id)
+ openModal(`<div class="modal-title"><span>CLONE ACCOUNT</span><h2>克隆 ${esc(a?.name||'账号')}</h2></div><form id="clone-form" class="form-grid"><label>新账号名<input name="name" value="${esc((a?.name||'account')+' copy')}" required></label><label>新端口<input id="clone-port" name="port" type="number" min="1" max="65535" placeholder="正在随机分配…"></label><div class="form-actions full"><button type="button" class="btn ghost" id="clone-cancel">取消</button><button class="btn primary" type="submit">克隆并应用</button></div></form>`)
+ $('#clone-cancel').onclick=closeModal
+ const portInput=$('#clone-port')
+ try{
+  const d=await api('/api/accounts/port-suggestion')
+  if(!$('#clone-form'))return
+  portInput.value=d.port||''
+ }catch(err){toast(err.message,true)}
+ $('#clone-form').onsubmit=async e=>{
+  e.preventDefault()
+  const form=e.currentTarget,f=new FormData(form),button=form.querySelector('button[type=submit]')
+  button.disabled=true;button.textContent='克隆中…'
+  try{
+   await api(`/api/accounts/${id}/clone`,{method:'POST',body:JSON.stringify({name:f.get('name'),port:Number(f.get('port')||0)})})
+   closeModal();await loadAccounts();await loadOverview();toast('账号已克隆')
+  }catch(err){toast(err.message,true);button.disabled=false;button.textContent='克隆并应用'}
+ }
+}
+
+document.addEventListener('click',e=>{
+ const button=e.target.closest?.('button[data-act="clone"]')
+ if(!button||button.disabled)return
+ const row=button.closest('.account-row')
+ if(!row)return
+ e.preventDefault()
+ e.stopPropagation()
+ e.stopImmediatePropagation()
+ void openCloneModalV12(Number(row.dataset.id))
+},true)

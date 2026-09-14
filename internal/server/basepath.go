@@ -3,6 +3,8 @@ package server
 import (
 	"net/http"
 	"strings"
+
+	"github.com/Kerberos255/X-port/internal/panelpath"
 )
 
 // MountBasePath keeps an imported X-Panel/3x-ui WebBasePath working as an
@@ -10,7 +12,7 @@ import (
 // dependency-free UI. The base path is a compatibility route, not a security
 // boundary; authentication still protects every API operation.
 func MountBasePath(next http.Handler, basePath string) http.Handler {
-	basePath = normalizeMountedBasePath(basePath)
+	basePath = panelpath.Normalize(basePath)
 	if basePath == "/" {
 		return next
 	}
@@ -33,12 +35,4 @@ func MountBasePath(next http.Handler, basePath string) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
-}
-
-func normalizeMountedBasePath(v string) string {
-	v = strings.TrimSpace(v)
-	if v == "" || v == "/" {
-		return "/"
-	}
-	return "/" + strings.Trim(v, "/") + "/"
 }

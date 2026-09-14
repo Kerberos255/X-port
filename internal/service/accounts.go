@@ -152,10 +152,9 @@ func (s *Accounts) Clone(id int64, name string, port int) (accountcfg.View, erro
 		return accountcfg.View{}, errors.New("account not found")
 	}
 	if port == 0 {
-		minPort, maxPort, apiPort := s.portDefaults()
-		port = nextFreePort(old, minPort, maxPort, apiPort)
-		if port == 0 {
-			return accountcfg.View{}, fmt.Errorf("no automatic port available in %d-%d", minPort, maxPort)
+		port, _, _, err = s.automaticPort(old)
+		if err != nil {
+			return accountcfg.View{}, err
 		}
 	} else if err := ensurePortFree(port); err != nil {
 		return accountcfg.View{}, err

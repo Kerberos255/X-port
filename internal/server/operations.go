@@ -16,6 +16,7 @@ import (
 
 	"github.com/Kerberos255/X-port/internal/backup"
 	"github.com/Kerberos255/X-port/internal/ops"
+	"github.com/Kerberos255/X-port/internal/panelpath"
 	"github.com/Kerberos255/X-port/internal/xray"
 )
 
@@ -225,7 +226,7 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	cert := settingString(s.store, "panel_cert_file", "")
 	key := settingString(s.store, "panel_key_file", "")
-	writeJSON(w, 200, settingsView{PanelListen: settingString(s.store, "panel_listen", "127.0.0.1:8080"), PanelBasePath: normalizePanelBasePathSetting(settingString(s.store, "panel_base_path", "/")), PanelCertFile: cert, PanelKeyFile: key, PanelDomain: settingString(s.store, "panel_domain", ""), PanelTLS: cert != "" && key != "", XrayAPIPort: settingIntServer(s.store, "xray_api_port", 10085), PortMin: settingIntServer(s.store, "port_min", 20000), PortMax: settingIntServer(s.store, "port_max", 60000), DefaultRealitySNI: settingString(s.store, "default_reality_sni", ""), DefaultRealityDest: settingString(s.store, "default_reality_dest", ""), AdminUsername: username})
+	writeJSON(w, 200, settingsView{PanelListen: settingString(s.store, "panel_listen", "127.0.0.1:8080"), PanelBasePath: panelpath.Normalize(settingString(s.store, "panel_base_path", "/")), PanelCertFile: cert, PanelKeyFile: key, PanelDomain: settingString(s.store, "panel_domain", ""), PanelTLS: cert != "" && key != "", XrayAPIPort: settingIntServer(s.store, "xray_api_port", 10085), PortMin: settingIntServer(s.store, "port_min", 20000), PortMax: settingIntServer(s.store, "port_max", 60000), DefaultRealitySNI: settingString(s.store, "default_reality_sni", ""), DefaultRealityDest: settingString(s.store, "default_reality_dest", ""), AdminUsername: username})
 }
 
 func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) {
@@ -240,7 +241,7 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	in.AdminUsername = strings.TrimSpace(in.AdminUsername)
 	in.PanelListen = strings.TrimSpace(in.PanelListen)
-	in.PanelBasePath = normalizePanelBasePathSetting(in.PanelBasePath)
+	in.PanelBasePath = panelpath.Normalize(in.PanelBasePath)
 	in.PanelCertFile = strings.TrimSpace(in.PanelCertFile)
 	in.PanelKeyFile = strings.TrimSpace(in.PanelKeyFile)
 	in.PanelDomain = strings.TrimSpace(in.PanelDomain)
@@ -256,7 +257,7 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "panel listen must be host:port")
 		return
 	}
-	if !validPanelBasePath(in.PanelBasePath) {
+	if !panelpath.Valid(in.PanelBasePath) {
 		writeError(w, 400, "invalid panel base path")
 		return
 	}
@@ -319,7 +320,7 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	oldPanel := settingString(s.store, "panel_listen", "127.0.0.1:8080")
-	oldBase := normalizePanelBasePathSetting(settingString(s.store, "panel_base_path", "/"))
+	oldBase := panelpath.Normalize(settingString(s.store, "panel_base_path", "/"))
 	oldCert := settingString(s.store, "panel_cert_file", "")
 	oldKey := settingString(s.store, "panel_key_file", "")
 	oldAPI := settingIntServer(s.store, "xray_api_port", 10085)
@@ -386,30 +387,6 @@ func settingIntServer(st interface {
 		return fallback
 	}
 	return n
-}
-func normalizePanelBasePathSetting(v string) string {
-	v = strings.TrimSpace(v)
-	if v == "" || v == "/" {
-		return "/"
-	}
-	return "/" + strings.Trim(v, "/") + "/"
-}
-func validPanelBasePath(v string) bool {
-	if v == "/" {
-		return true
-	}
-	if !strings.HasPrefix(v, "/") || !strings.HasSuffix(v, "/") {
-		return false
-	}
-	if strings.ContainsAny(v, "?#\\\t\r\n ") {
-		return false
-	}
-	for _, part := range strings.Split(strings.Trim(v, "/"), "/") {
-		if part == "" || part == "." || part == ".." {
-			return false
-		}
-	}
-	return true
 }
 
 func validateSettingsInput(in settingsInput) error {

@@ -1,10 +1,13 @@
-/* X-port v0.1.7: keep account controls outside the scrollable editor body. */
-function accountFormHTMLV7(a={}){
- const p=String(a.protocol||'vless').toLowerCase(),editing=Boolean(a.id)
- if(editing&&!a.editable)return `<div class="modal-title"><span>IMPORTED ACCOUNT</span><h2>${esc(a.name)}</h2></div><div class="readonly-note"><p>该账号包含当前内置编辑器不支持的配置，X-port 会保持原始 Xray 配置不变。</p></div>`
- const expiry=a.expiryTime?new Date(Number(a.expiryTime)-new Date().getTimezoneOffset()*60000).toISOString().slice(0,16):'',qgb=a.quotaBytes?(Number(a.quotaBytes)/1073741824).toFixed(2):'',enabled=editing?Boolean(a.enabled):true
- const range=a._portMin&&a._portMax?`${a._portMin}–${a._portMax}`:`${xportPortRangeV6.min}–${xportPortRangeV6.max}`
- return `<form id="account-form" class="account-editor-form"><div class="account-editor-scroll"><div class="modal-title"><span>${editing?'EDIT ACCOUNT':'NEW ACCOUNT'}</span><h2>${editing?'编辑账号':'新增账号'}</h2></div><div class="form-grid account-editor-grid"><label class="protocol-first full">${reqLabelV3('协议')}<select name="protocol" id="protocol-select" ${editing?'disabled':''}>${protocols.map(x=>option(x,x.toUpperCase(),p)).join('')}</select>${editing?'<small class="field-hint">创建后不可修改</small>':''}</label><label>${reqLabelV3('账号')}<input name="name" value="${esc(a.name||'')}" required maxlength="80"></label><label><span class="field-label-line">端口 <span class="field-inline-note">（自动端口范围 ${esc(range)}）</span></span><input name="port" type="number" min="1" max="65535" value="${a.port||''}" placeholder="留空自动分配"></label><label>流量上限 / GB<input name="quota" type="number" min="0" step="0.1" value="${qgb}" placeholder="0 = 不限"></label><label>到期时间<input name="expiry" type="datetime-local" value="${expiry}"></label><div class="full proto-fields" id="proto-fields"></div><details id="account-advanced" class="advanced account-advanced full"><summary><span>高级</span></summary><div id="expert-content" class="advanced-loading muted tiny"></div></details></div></div><div class="account-editor-footer"><div class="editor-policies">${editorPolicyV5('enabled','启用账号',enabled)}${editorPolicyV5('monthlyReset','每月 1 日流量自动重置',Boolean(a.monthlyReset))}</div><div class="editor-actions"><button type="button" class="btn ghost" id="cancel-form">取消</button><button type="submit" class="btn primary">${editing?'保存并应用':'创建并应用'}</button></div></div></form>`
+/* X-port v0.1.7: retained expert-row compatibility only.
+   The former account-form override is superseded by the later v9/v10 editor implementation. */
+
+/* Folded from the former v8 layer; kept here in the same execution position. */
+const renderExpertV3BaseV8=renderExpertV3
+renderExpertV3=function(d){
+ let html=renderExpertV3BaseV8(d)
+ html=html.replace(
+  /<label class="expert-check full"><input id="expert-proxy" type="checkbox"([^>]*)>接收 PROXY Protocol<small class="field-hint">([^<]*)<\/small><\/label>/,
+  '<label class="expert-check full proxy-protocol-row"><span class="proxy-protocol-copy"><b>接收 PROXY Protocol</b><small class="field-hint">$2</small></span><input id="expert-proxy" type="checkbox"$1 aria-label="接收 PROXY Protocol"></label>'
+ )
+ return html
 }
-accountFormHTMLV6=accountFormHTMLV7
-accountFormHTMLV3=accountFormHTMLV7
