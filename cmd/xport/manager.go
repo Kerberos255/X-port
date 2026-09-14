@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"flag"
 	"fmt"
 	"net"
 	"os"
@@ -21,6 +22,7 @@ import (
 	"github.com/Kerberos255/X-port/internal/ops"
 	"github.com/Kerberos255/X-port/internal/selfupdate"
 	"github.com/Kerberos255/X-port/internal/store"
+	"github.com/Kerberos255/X-port/internal/systemdunit"
 	"github.com/Kerberos255/X-port/internal/xray"
 )
 
@@ -97,7 +99,7 @@ func runManagerCommand(cmd string, args []string) error {
 	case "firewall":
 		return firewallMenu()
 	case "repair":
-		return repairInstall()
+		return repairInstall(args)
 	case "uninstall":
 		return uninstallXport()
 	default:
@@ -170,7 +172,7 @@ func runManagerMenu() error {
 		case "15":
 			err = firewallMenu()
 		case "16":
-			err = repairInstall()
+			err = repairInstall(nil)
 		case "17":
 			err = uninstallXport()
 		case "0", "q", "quit", "exit":
@@ -805,75 +807,39 @@ func firewallChange(kind string, remove bool, port int, proto string) error {
 	return nil
 }
 
-func repairInstall() error {
+func repairInstall(args []string) error {
 	if err := requireRoot(); err != nil {
 		return err
 	}
-	if _, err := os.Stat(managerBinary); err != nil {
-		return errors.New("/usr/local/bin/xport 不存在；首次安装请在源码目录运行 scripts/install.sh")
+	const unitDir = "/etc/systemd/system"
+	paths, err := systemdunit.DetectPaths(filepath.Join(unitDir, systemdunit.PanelUnitName), filepath.Join(unitDir, systemdunit.XrayUnitName))
+	if err != nil {
+		return fmt.Errorf("detect existing systemd paths: %w", err)
 	}
-	if _, err := os.Stat(managerXrayBinary); err != nil {
-		return errors.New("Xray binary 不存在；首次安装请在源码目录运行 scripts/install.sh")
+	if exe, err := os.Executable(); err == nil && filepath.IsAbs(exe) {
+		paths.XportBinary = exe
 	}
-	panel := `[Unit]
-Description=X-port Control Panel
-After=network-online.target
-Wants=network-online.target
-[Service]
-Type=simple
-EnvironmentFile=-/etc/x-port/xport.env
-ExecStart=/usr/local/bin/xport serve --data /etc/x-port --xray-binary /usr/local/x-port/bin/xray --xray-config /etc/x-port/xray/config.json --xray-service xport-xray.service
-Restart=on-failure
-RestartSec=3
-UMask=0027
-NoNewPrivileges=true
-PrivateTmp=true
-PrivateDevices=true
-ProtectHome=read-only
-ProtectKernelTunables=true
-ProtectKernelModules=true
-ProtectControlGroups=true
-RestrictSUIDSGID=true
-RestrictRealtime=true
-LockPersonality=true
-SystemCallArchitectures=native
-ProtectSystem=strict
-ReadWritePaths=/etc/x-port /usr/local/x-port /usr/local/bin
-RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
-[Install]
-WantedBy=multi-user.target
-`
-	xr := `[Unit]
-Description=X-port Xray Core
-After=network-online.target
-Wants=network-online.target
-[Service]
-Type=simple
-Environment=XRAY_LOCATION_ASSET=/usr/local/x-port/bin
-ExecStart=/usr/local/x-port/bin/xray run -config /etc/x-port/xray/config.json
-Restart=on-failure
-RestartSec=3
-LimitNOFILE=1048576
-NoNewPrivileges=true
-PrivateTmp=true
-PrivateDevices=true
-ProtectHome=read-only
-ProtectKernelTunables=true
-ProtectKernelModules=true
-ProtectControlGroups=true
-RestrictSUIDSGID=true
-RestrictRealtime=true
-LockPersonality=true
-SystemCallArchitectures=native
-ProtectSystem=full
-RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
-[Install]
-WantedBy=multi-user.target
-`
-	if err := os.WriteFile("/etc/systemd/system/xport.service", []byte(panel), 0644); err != nil {
+	fs := flag.NewFlagSet("repair", flag.ContinueOnError)
+	dataDir := fs.String("data", paths.DataDir, "X-port data directory")
+	prefix := fs.String("prefix", paths.Prefix, "X-port installation prefix")
+	binary := fs.String("binary", paths.XportBinary, "X-port binary path")
+	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if err := os.WriteFile("/etc/systemd/system/xport-xray.service", []byte(xr), 0644); err != nil {
+	if fs.NArg() != 0 {
+		return errors.New("用法: xport repair [--data /etc/x-port] [--prefix /usr/local/x-port] [--binary /usr/local/bin/xport]")
+	}
+	paths = systemdunit.Paths{DataDir: *dataDir, Prefix: *prefix, XportBinary: *binary}
+	if err := paths.Validate(); err != nil {
+		return err
+	}
+	if _, err := os.Stat(paths.XportBinary); err != nil {
+		return fmt.Errorf("X-port binary 不存在: %s", paths.XportBinary)
+	}
+	if _, err := os.Stat(paths.XrayBinary()); err != nil {
+		return fmt.Errorf("Xray binary 不存在: %s", paths.XrayBinary())
+	}
+	if err := systemdunit.Write(unitDir, paths); err != nil {
 		return err
 	}
 	if err := runCommand("systemctl", "daemon-reload"); err != nil {
