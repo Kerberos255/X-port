@@ -6,7 +6,6 @@ DATA_DIR="${XPORT_DATA_DIR:-/etc/x-port}"
 PREFIX="${XPORT_PREFIX:-/usr/local/x-port}"
 LIB_DIR="${XPORT_LIB_DIR:-/usr/local/lib/xport}"
 XPORT_BIN="${XPORT_BIN:-/usr/local/bin/xport}"
-XPORT_BIN_DIR="$(dirname "$XPORT_BIN")"
 LISTEN="${XPORT_LISTEN:-127.0.0.1:8080}"
 ADMIN_USER="${XPORT_ADMIN_USER:-admin}"
 ARCH="$(uname -m)"
@@ -36,65 +35,9 @@ unset ADMIN_PASSWORD ADMIN_PASSWORD_CONFIRM XPORT_ADMIN_PASSWORD
 "$XPORT_BIN" render --data "$DATA_DIR" --output "$DATA_DIR/xray/config.json"
 "$PREFIX/bin/xray" run -test -config "$DATA_DIR/xray/config.json" >/dev/null
 
-cat > /etc/systemd/system/xport-xray.service <<UNIT
-[Unit]
-Description=X-port Xray Core
-After=network-online.target
-Wants=network-online.target
-[Service]
-Type=simple
-Environment=XRAY_LOCATION_ASSET=$PREFIX/bin
-ExecStart=$PREFIX/bin/xray run -config $DATA_DIR/xray/config.json
-Restart=on-failure
-RestartSec=3
-LimitNOFILE=1048576
-NoNewPrivileges=true
-PrivateTmp=true
-PrivateDevices=true
-ProtectHome=read-only
-ProtectKernelTunables=true
-ProtectKernelModules=true
-ProtectControlGroups=true
-RestrictSUIDSGID=true
-RestrictRealtime=true
-LockPersonality=true
-SystemCallArchitectures=native
-ProtectSystem=full
-RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
-[Install]
-WantedBy=multi-user.target
-UNIT
-cat > /etc/systemd/system/xport.service <<UNIT
-[Unit]
-Description=X-port Control Panel
-After=network-online.target
-Wants=network-online.target
-[Service]
-Type=simple
-EnvironmentFile=-$DATA_DIR/xport.env
-ExecStart=$XPORT_BIN serve --data $DATA_DIR --xray-binary $PREFIX/bin/xray --xray-config $DATA_DIR/xray/config.json --xray-service xport-xray.service
-Restart=on-failure
-RestartSec=3
-UMask=0027
-NoNewPrivileges=true
-PrivateTmp=true
-PrivateDevices=true
-ProtectHome=read-only
-ProtectKernelTunables=true
-ProtectKernelModules=true
-ProtectControlGroups=true
-RestrictSUIDSGID=true
-RestrictRealtime=true
-LockPersonality=true
-SystemCallArchitectures=native
-ProtectSystem=strict
-ReadWritePaths=$DATA_DIR $PREFIX $XPORT_BIN_DIR
-RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
-[Install]
-WantedBy=multi-user.target
-UNIT
-systemctl daemon-reload
-systemctl enable xport.service xport-xray.service >/dev/null
+# Keep systemd unit generation in one place. repair uses the same parameterized
+# renderer for fresh installs and later repairs, preserving custom paths.
+"$XPORT_BIN" repair --data "$DATA_DIR" --prefix "$PREFIX" --binary "$XPORT_BIN"
 systemctl restart xport.service
 if systemctl is-active --quiet x-ui.service 2>/dev/null || [[ -f /etc/x-ui/x-ui.db ]]; then
   echo "Existing x-ui/X-Panel detected. X-port Xray was installed but not started to avoid port conflicts."
