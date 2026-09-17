@@ -104,7 +104,10 @@ cat > "$TMP/__preview.js" <<'JS'
     try {
       await waitFor('#app:not(.hidden)')
       const preview = new URLSearchParams(location.search).get('preview') || 'overview'
-      if (preview === 'clone') {
+      if (preview === 'accounts') {
+        document.querySelector('#nav [data-page="accounts"]').click()
+        await waitFor('.account-row')
+      } else if (preview === 'clone') {
         document.querySelector('#nav [data-page="accounts"]').click()
         const clone = await waitFor('.account-row button[data-act="clone"]')
         clone.click()
@@ -153,6 +156,7 @@ capture() {
 }
 
 capture overview overview
+capture accounts accounts
 capture clone-account clone
 capture account-advanced account
 capture xray-global xray
