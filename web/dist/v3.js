@@ -179,7 +179,8 @@ function initV3(){
  const dayUnit=$('#uptime-days')?.nextElementSibling;if(dayUnit)dayUnit.textContent='天'
  if(state.page==='accounts'){renderAccountsV3();void loadOnlineConnectionsV3(true)}
  if(xportOnlineTimer)clearInterval(xportOnlineTimer)
- xportOnlineTimer=setInterval(()=>{if(state.page==='accounts'&&!$('#app').classList.contains('hidden'))void loadOnlineConnectionsV3(true)},5000)
+ xportOnlineTimer=setInterval(()=>{if(!document.hidden&&state.page==='accounts'&&!$('#app').classList.contains('hidden'))void loadOnlineConnectionsV3(true)},10000)
+ document.addEventListener('visibilitychange',()=>{if(!document.hidden&&state.page==='accounts'&&!$('#app').classList.contains('hidden'))void loadOnlineConnectionsV3(true)})
 }
 document.addEventListener('DOMContentLoaded',initV3)
 

@@ -11,12 +11,19 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/sys/unix"
 )
 
 type cpuTimes struct{ total, idle uint64 }
+
+var xrayVersionCache struct {
+	sync.Mutex
+	value   string
+	expires time.Time
+}
 
 func Snapshot() Info {
 	host, _ := os.Hostname()
@@ -263,17 +270,29 @@ func serviceActive(name string) bool {
 }
 
 func xrayVersion() string {
+	now := time.Now()
+	xrayVersionCache.Lock()
+	defer xrayVersionCache.Unlock()
+	if now.Before(xrayVersionCache.expires) {
+		return xrayVersionCache.value
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 800*time.Millisecond)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, "/usr/local/x-port/bin/xray", "version").Output()
 	if err != nil {
+		xrayVersionCache.value = ""
+		xrayVersionCache.expires = now.Add(5 * time.Second)
 		return ""
 	}
 	line := strings.TrimSpace(strings.SplitN(string(out), "\n", 2)[0])
 	line = strings.TrimPrefix(line, "Xray ")
 	f := strings.Fields(line)
 	if len(f) == 0 {
+		xrayVersionCache.value = ""
+		xrayVersionCache.expires = now.Add(5 * time.Second)
 		return ""
 	}
-	return f[0]
+	xrayVersionCache.value = f[0]
+	xrayVersionCache.expires = now.Add(30 * time.Second)
+	return xrayVersionCache.value
 }

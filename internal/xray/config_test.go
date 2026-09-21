@@ -11,6 +11,10 @@ func testAccount(port int) model.Account { return model.Account{Name:"A",Enabled
 
 func TestBuildConfig(t *testing.T) {
 	b,err:=BuildConfig([]model.Account{testAccount(21001)},10085);if err!=nil{t.Fatal(err)};var cfg map[string]any;if json.Unmarshal(b,&cfg)!=nil{t.Fatal("invalid json")};if len(cfg["inbounds"].([]any))!=2{t.Fatal("expected account and API inbound")}
+	policy:=cfg["policy"].(map[string]any);system:=policy["system"].(map[string]any)
+	if system["statsInboundUplink"]!=true||system["statsInboundDownlink"]!=true{t.Fatalf("inbound stats not enabled: %#v",system)}
+	if _,ok:=system["statsOutboundUplink"];ok{t.Fatalf("outbound stats should not be injected: %#v",system)}
+	if _,ok:=policy["levels"];ok{t.Fatalf("user stats levels should not be injected: %#v",policy)}
 }
 func TestBuildConfigRejectsPortConflict(t *testing.T) { if _,err:=BuildConfig([]model.Account{testAccount(10085)},10085);err==nil{t.Fatal("expected conflict")} }
 func TestBuildConfigWithBasePreservesGlobals(t *testing.T) {

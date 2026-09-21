@@ -20,11 +20,15 @@ func TestRenderCustomPaths(t *testing.T) {
 	for _, want := range []string{
 		"EnvironmentFile=-/srv/xport-data/xport.env",
 		"ExecStart=/opt/bin/xport serve --data /srv/xport-data --xray-binary /opt/xport/bin/xray --xray-config /srv/xport-data/xray/config.json --xray-service xport-xray.service",
+		"Nice=5",
 		"ReadWritePaths=/srv/xport-data /opt/xport /opt/bin",
 	} {
 		if !strings.Contains(panel, want) {
 			t.Fatalf("panel unit missing %q\n%s", want, panel)
 		}
+	}
+	if strings.Contains(xray, "Nice=") {
+		t.Fatalf("Xray unit should keep the default scheduler priority\n%s", xray)
 	}
 	for _, want := range []string{
 		"Environment=XRAY_LOCATION_ASSET=/opt/xport/bin",

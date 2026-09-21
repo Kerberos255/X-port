@@ -16,6 +16,7 @@ async function api(path,options={}){const opts={credentials:'same-origin',...opt
 async function boot(){bind();try{await loadOverview();showApp()}catch(e){showLogin();if(e.status!==401){$('#login-error').textContent=e.message;$('#login-error').classList.remove('hidden')}}}
 function showLogin(){$('#login').classList.remove('hidden');$('#app').classList.add('hidden');setTimeout(()=>$('#login-pass').focus(),20)}
 function showApp(){$('#login').classList.add('hidden');$('#app').classList.remove('hidden');void loadAccounts();void checkUpdate()}
+function overviewPollingActive(){return !document.hidden&&!$('#app').classList.contains('hidden')&&(state.page==='overview'||state.page==='xray')}
 
 function bind(){
  $('#login-form').addEventListener('submit',async e=>{e.preventDefault();const out=$('#login-error');out.classList.add('hidden');try{await api('/api/login',{method:'POST',body:JSON.stringify({username:$('#login-user').value,password:$('#login-pass').value})});$('#login-pass').value='';await loadOverview();showApp()}catch(x){out.textContent=x.message;out.classList.remove('hidden')}})
@@ -27,7 +28,8 @@ function bind(){
  $('#check-update').onclick=()=>checkUpdate(true);$('#do-update').onclick=updateXray;$('#xray-page-update').onclick=async()=>{await checkUpdate(true);if(state.update?.available)await updateXray()}
  $('#restart-xray').onclick=restartXray;$('#load-logs').onclick=loadLogs;$('#download-logs').onclick=downloadLogs
  $('#settings-form').onsubmit=saveSettings;$('#create-backup').onclick=createBackup
- setInterval(()=>{if(!$('#app').classList.contains('hidden'))void loadOverview(false,true)},4000)
+ setInterval(()=>{if(overviewPollingActive())void loadOverview(false,true)},10000)
+ document.addEventListener('visibilitychange',()=>{if(overviewPollingActive())void loadOverview(false,true)})
 }
 function switchPage(page){state.page=page;$$('#nav button').forEach(b=>b.classList.toggle('active',b.dataset.page===page));$$('.page').forEach(p=>p.classList.toggle('active',p.id===`page-${page}`));if(page==='accounts')void loadAccounts();if(page==='overview'||page==='xray')void loadOverview();if(page==='xray')void loadLogs();if(page==='system'){void loadSettings();void loadBackups()}}
 

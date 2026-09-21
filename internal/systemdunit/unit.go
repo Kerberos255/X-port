@@ -70,6 +70,7 @@ EnvironmentFile=-%s/xport.env
 ExecStart=%s serve --data %s --xray-binary %s --xray-config %s --xray-service %s
 Restart=on-failure
 RestartSec=3
+Nice=5
 UMask=0027
 NoNewPrivileges=true
 PrivateTmp=true
