@@ -17,15 +17,54 @@ type Snapshot struct {
 	Settings  map[string]string `json:"settings"`
 }
 
+type TrafficDelta struct {
+	Tag  string
+	Up   int64
+	Down int64
+}
+
 func (s *Store) AddTraffic(tag string, up, down int64) error {
-	if tag == "" || (up <= 0 && down <= 0) {
+	return s.AddTrafficBatch([]TrafficDelta{{Tag: tag, Up: up, Down: down}})
+}
+
+func (s *Store) AddTrafficBatch(deltas []TrafficDelta) error {
+	valid := make([]TrafficDelta, 0, len(deltas))
+	for _, delta := range deltas {
+		if delta.Tag == "" {
+			continue
+		}
+		if delta.Up < 0 || delta.Down < 0 {
+			return errors.New("traffic delta cannot be negative")
+		}
+		if delta.Up == 0 && delta.Down == 0 {
+			continue
+		}
+		valid = append(valid, delta)
+	}
+	if len(valid) == 0 {
 		return nil
 	}
-	if up < 0 || down < 0 {
-		return errors.New("traffic delta cannot be negative")
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
 	}
-	_, err := s.db.Exec(`UPDATE accounts SET up_bytes=up_bytes+?,down_bytes=down_bytes+?,all_time_bytes=all_time_bytes+?,updated_at=? WHERE tag=?`, up, down, up+down, time.Now().UnixMilli(), tag)
-	return err
+	defer tx.Rollback()
+	stmt, err := tx.Prepare(`UPDATE accounts SET up_bytes=up_bytes+?,down_bytes=down_bytes+?,all_time_bytes=all_time_bytes+?,updated_at=? WHERE tag=?`)
+	if err != nil {
+		return err
+	}
+	now := time.Now().UnixMilli()
+	for _, delta := range valid {
+		if _, err := stmt.Exec(delta.Up, delta.Down, delta.Up+delta.Down, now, delta.Tag); err != nil {
+			_ = stmt.Close()
+			return err
+		}
+	}
+	if err := stmt.Close(); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Store) ResetTraffic(id int64) error {

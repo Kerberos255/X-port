@@ -20,9 +20,11 @@ import (
 func (s *Accounts) ApplyTraffic(stats map[string]xray.Traffic, now time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	deltas := make([]store.TrafficDelta, 0, len(stats))
 	for tag, t := range stats {
-		if err := s.store.AddTraffic(tag, t.Up, t.Down); err != nil { return err }
+		deltas = append(deltas, store.TrafficDelta{Tag: tag, Up: t.Up, Down: t.Down})
 	}
+	if err := s.store.AddTrafficBatch(deltas); err != nil { return err }
 	current, err := s.store.Accounts(); if err != nil { return err }
 	next := copyAccounts(current)
 	dbChanged, configChanged := false, false

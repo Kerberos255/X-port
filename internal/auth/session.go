@@ -27,8 +27,10 @@ func (s *Sessions) Create(username string) (string, error) {
 		return "", err
 	}
 	token := base64.RawURLEncoding.EncodeToString(buf)
+	now := time.Now()
 	s.mu.Lock()
-	s.values[token] = Session{Username: username, Expires: time.Now().Add(s.ttl)}
+	s.pruneExpiredLocked(now)
+	s.values[token] = Session{Username: username, Expires: now.Add(s.ttl)}
 	s.mu.Unlock()
 	return token, nil
 }
@@ -75,5 +77,12 @@ func (s *Sessions) Clear() {
 	s.mu.Lock()
 	s.values = map[string]Session{}
 	s.mu.Unlock()
+}
+func (s *Sessions) pruneExpiredLocked(now time.Time) {
+	for token, session := range s.values {
+		if !now.Before(session.Expires) {
+			delete(s.values, token)
+		}
+	}
 }
 func (s *Sessions) Delete(token string) { s.mu.Lock(); delete(s.values, token); s.mu.Unlock() }

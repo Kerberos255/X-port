@@ -54,10 +54,11 @@ func BuildConfigWithBase(accounts []model.Account, apiPort int, baseJSON string)
 	cfg["inbounds"]=inbounds
 
 	policy:=mapObject(cfg["policy"]);system:=mapObject(policy["system"])
+	// X-port persists traffic by inbound tag. Do not enable outbound/user
+	// counters unless the preserved user policy explicitly asks for them.
 	system["statsInboundUplink"],system["statsInboundDownlink"]=true,true
-	system["statsOutboundUplink"],system["statsOutboundDownlink"]=true,true
 	policy["system"]=system
-	levels:=mapObject(policy["levels"]);level0:=mapObject(levels["0"]);level0["statsUserUplink"],level0["statsUserDownlink"]=true,true;levels["0"]=level0;policy["levels"]=levels;cfg["policy"]=policy
+	cfg["policy"]=policy
 
 	routing:=mapObject(cfg["routing"]);oldRules,_:=routing["rules"].([]any);rules:=make([]any,0,len(oldRules)+1)
 	rules=append(rules,map[string]any{"type":"field","inboundTag":[]string{"api"},"outboundTag":"api"})
