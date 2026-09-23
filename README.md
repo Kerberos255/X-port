@@ -15,11 +15,22 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue.svg" alt="License: AGPL-3.0"></a>
 </p>
 
+<p align="center">
+  <img src="docs/images/overview.webp" alt="X-port server overview" width="100%">
+</p>
+<p align="center"><sub>Browser-regression preview with mock data; no production server data is shown.</sub></p>
+
 Its account model is intentionally simple:
 
 > **1 account = 1 inbound = 1 dedicated port = 1 credential set**
 
 The UI presents accounts directly rather than exposing Xray's inbound/client hierarchy.
+
+## Interface preview
+
+<p align="center">
+  <img src="docs/images/accounts.webp" alt="X-port account management" width="100%">
+</p>
 
 ## Disclaimer
 
