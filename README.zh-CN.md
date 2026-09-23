@@ -15,11 +15,22 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue.svg" alt="License: AGPL-3.0"></a>
 </p>
 
+<p align="center">
+  <img src="docs/images/overview.webp" alt="X-port 服务器概览" width="100%">
+</p>
+<p align="center"><sub>浏览器回归测试使用模拟数据生成，不包含生产服务器数据。</sub></p>
+
 X-port 的账号模型刻意保持简单：
 
 > **1 个账号 = 1 个 inbound = 1 个独立端口 = 1 组凭据**
 
 界面直接以“账号”为核心，而不是暴露 Xray 的 inbound / client 层级结构。
+
+## 界面预览
+
+<p align="center">
+  <img src="docs/images/accounts.webp" alt="X-port 账号管理" width="100%">
+</p>
 
 ## 免责声明
 
