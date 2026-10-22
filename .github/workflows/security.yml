@@ -52,8 +52,20 @@ jobs:
         # G104 cleanup-close errors; G124 HTTP-local/Secure-cookie mode; G204 argv-only exec
         # with validated service names; G301/G302/G306 executable/systemd/config modes;
         # G304 privileged, bounded paths; G703 trusted daemon config path; G705 PNG QR output.
-        run: >-
-          go run github.com/securego/gosec/v2/cmd/gosec@v2.29.0
-          -exclude-generated
-          -exclude=G104,G124,G204,G301,G302,G304,G306,G703,G705
-          ./...
+        # gosec v2.29.0 bundles x/tools v0.49, which cannot read Go 1.27.2+
+        # export data. Keep the released scanner and update only its isolated
+        # analysis-tool module; never alter X-port's application dependencies.
+        run: |
+          set -euo pipefail
+          TOOL_DIR="$RUNNER_TEMP/xport-gosec"
+          mkdir -p "$TOOL_DIR"
+          cd "$TOOL_DIR"
+          go mod init example.invalid/xport-gosec-tool
+          go get github.com/securego/gosec/v2/cmd/gosec@v2.29.0
+          go get golang.org/x/tools@v0.50.0
+          go list -m golang.org/x/tools | grep -Fq 'v0.50.0'
+          go build -o "$TOOL_DIR/gosec" github.com/securego/gosec/v2/cmd/gosec
+          cd "$GITHUB_WORKSPACE"
+          "$TOOL_DIR/gosec" -exclude-generated \
+            -exclude=G104,G124,G204,G301,G302,G304,G306,G703,G705 \
+            ./...
