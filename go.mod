@@ -1,6 +1,6 @@
 module github.com/Kerberos255/X-port
 
-go 1.27.0
+go 1.27.3
 
 require (
 	golang.org/x/crypto v0.56.0

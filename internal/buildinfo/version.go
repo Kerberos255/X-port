@@ -1,3 +1,3 @@
 package buildinfo
 
-const Current = "0.2.2"
+const Current = "0.2.3"
