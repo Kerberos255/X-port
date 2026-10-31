@@ -58,7 +58,7 @@ cat > "$TMP/__mock.js" <<'JS'
     const path = u.pathname
     const method = String(init.method || 'GET').toUpperCase()
     if (path === '/api/overview') return json({
-      system: {hostname:'github-runner', os:'Linux', distribution:'Ubuntu 24.04', kernelVersion:'6.x', systemType:'linux', hostAddress:'127.0.0.1', bootTime:0,
+      system: {hostname:'github-runner', os:'Linux', distribution:'Ubuntu 24.04', kernelVersion:'6.x', systemType:'linux', hostAddress:'127.0.0.1', hostIPv6:'2001:db8:85a3::8a2e:370:7334', cpuCores:2, load5:0.48, load15:0.35, bootTime:0,
         uptimeSeconds:345678, cpuPercent:23.4, load1:0.72, memoryUsed:6442450944, memoryTotal:17179869184, diskUsed:68719476736, diskTotal:137438953472,
         networkRx:3145728, networkTx:1572864, xrayVersion:'25.9.11', xrayActive:true},
       accounts: {total:8, enabled:8}, xportVersion:'preview'
@@ -104,7 +104,16 @@ cat > "$TMP/__preview.js" <<'JS'
     try {
       await waitFor('#app:not(.hidden)')
       const preview = new URLSearchParams(location.search).get('preview') || 'overview'
-      if (preview === 'accounts') {
+      if (preview === 'overview-tooltip') {
+        const ring = await waitFor('#page-overview .status-gauge-ring')
+        ring.dispatchEvent(new PointerEvent('pointerenter',{pointerType:'mouse'}))
+        const popup = await waitFor('body > .status-gauge-floating')
+        if (popup.hidden) throw new Error('expected open tooltip in screenshot')
+        if (!document.querySelector('#server-details .is-ipv6')) throw new Error('expected IPv6 in screenshot')
+      } else if (preview === 'overview-ipv6') {
+        const address=await waitFor('#server-details .is-ipv6 b')
+        if (!address.textContent.includes('2001:db8:')) throw new Error('IPv6 is missing from screenshot preview')
+      } else if (preview === 'accounts') {
         document.querySelector('#nav [data-page="accounts"]').click()
         await waitFor('.account-row')
       } else if (preview === 'clone') {
@@ -156,6 +165,8 @@ capture() {
 }
 
 capture overview overview
+capture overview-ipv6 overview-ipv6
+capture overview-tooltip overview-tooltip
 capture accounts accounts
 capture clone-account clone
 capture account-advanced account
