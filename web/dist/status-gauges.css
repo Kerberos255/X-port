@@ -19,7 +19,7 @@
 #page-overview .status-gauge-number{grid-row:2;display:block;width:auto;height:auto;border:0;border-radius:0;background:none;box-shadow:none;color:#eaf1fb;font-size:19px;font-weight:730;line-height:1;letter-spacing:-.4px;white-space:nowrap}
 #page-overview .status-gauge-inner-label{grid-row:3;align-self:start;margin-top:5px;font-size:9px;color:var(--muted,#8494ac)}
 #page-overview .status-gauge-hint{font-size:10px;line-height:1.4;color:var(--muted,#8494ac);min-height:28px;white-space:normal;overflow-wrap:anywhere}
-.status-gauge-floating{position:fixed;z-index:90;width:236px;display:flex;flex-direction:column;gap:11px;padding:15px;border:1px solid rgba(110,156,201,.3);border-radius:12px;background:#142032;color:#e7f1ff;box-shadow:0 18px 40px rgba(0,0,0,.35);text-align:left;pointer-events:none;line-height:1.4}
+.status-gauge-floating{position:fixed;z-index:90;width:236px;overflow-y:auto;display:flex;flex-direction:column;gap:11px;padding:15px;border:1px solid rgba(110,156,201,.3);border-radius:12px;background:#142032;color:#e7f1ff;box-shadow:0 18px 40px rgba(0,0,0,.35);text-align:left;pointer-events:none;line-height:1.4}
 .status-gauge-floating[hidden]{display:none!important}
 .status-gauge-floating .status-gauge-popover-title{font-size:12px;font-weight:700}
 .status-gauge-floating .status-gauge-rows{display:flex;flex-direction:column;gap:9px}
