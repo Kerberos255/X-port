@@ -236,9 +236,10 @@ function renderServerDetailsV10(){
   ['内核版本',sys.kernelVersion||'—'],
   ['系统类型',sys.systemType||sys.os||'—'],
   ['主机地址',sys.hostAddress||'—'],
+  ...(sys.hostIPv6 ? [['IPv6 地址',sys.hostIPv6]] : []),
   ['启动时间',formatBootTimeV5(sys.bootTime)]
  ]
- box.innerHTML=fields.map(([k,v])=>`<div class="server-fact"><small>${esc(k)}</small><b title="${esc(v)}">${esc(v)}</b></div>`).join('')
+ box.innerHTML=fields.map(([k,v])=>`<div class="server-fact${k==="IPv6 地址"?" is-ipv6":""}"><small>${esc(k)}</small><b title="${esc(v)}">${esc(v)}</b></div>`).join('')
 }
 protocolFieldsV9=protocolFieldsV10
 protocolFieldsV6=protocolFieldsV10
