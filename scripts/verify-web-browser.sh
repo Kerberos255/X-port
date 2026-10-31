@@ -170,6 +170,15 @@ cat > "$TMP/__driver.js" <<'JS'
 
       const accountSubtitle = await waitFor('.account-row .account-name small')
       if (parseFloat(getComputedStyle(accountSubtitle).fontSize) < 11) throw new Error('account subtitle too small')
+      // Status belongs in the badge, not in an internal implementation note.
+      renderXrayUpdateState(null)
+      const xrayNote = document.querySelector('#xray-page-update-note')
+      if (!xrayNote || !xrayNote.hidden) throw new Error('Xray checking message must not expose internal note')
+      renderXrayUpdateState({current:'25.9.11',latest:'25.9.11',available:false})
+      if (!xrayNote.hidden || xrayNote.textContent) throw new Error('Xray success note should be hidden')
+      renderXrayUpdateState(null,'Test update failure')
+      if (xrayNote.hidden || !xrayNote.textContent.includes('Test update failure')) throw new Error('Xray error message should remain visible')
+      renderXrayUpdateState({current:'25.9.11',latest:'25.9.11',available:false})
       const clone = await waitFor('.account-row button[data-act="clone"]')
       // If capture interception fails, the legacy row onclick will call this replacement.
       globalThis.openCloneModal = () => { globalThis.__legacyCloneHits++ }
