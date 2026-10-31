@@ -84,6 +84,11 @@ func (s *Server) Handler() http.Handler {
 	if s.static != nil {
 		files := http.FileServerFS(s.static)
 		mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+			// Never reuse an outdated HTML entry point across releases.
+			// Individual JS/CSS assets use bumped versioned URLs.
+			if r.URL.Path == "/" || r.URL.Path == "/index.html" {
+				w.Header().Set("Cache-Control", "no-store, max-age=0")
+			}
 			if strings.HasPrefix(r.URL.Path, "/api/") {
 				http.NotFound(w, r)
 				return
@@ -95,6 +100,7 @@ func (s *Server) Handler() http.Handler {
 					return
 				}
 			}
+			w.Header().Set("Cache-Control", "no-store, max-age=0")
 			r.URL.Path = "/"
 			files.ServeHTTP(w, r)
 		})
