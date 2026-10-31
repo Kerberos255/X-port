@@ -82,7 +82,7 @@ async function updateGeodata(){
 
 function buildXrayUpdatePanel(){
  const panels=$$('#page-xray .two-col .panel'),panel=panels[1];if(!panel||$('#xray-page-update-state'))return
- panel.innerHTML=`<div class="panel-head"><div><span class="kicker">UPDATE CHANNEL</span><h2>官方 Release</h2></div><span id="xray-page-update-state" class="status"><i></i>检查中</span></div><div class="version-line"><div><small>当前版本</small><b id="xray-page-update-current">—</b></div><div><small>官方最新</small><b id="xray-page-update-latest">—</b></div></div><p id="xray-page-update-note" class="muted tiny">与概览共用同一次检查结果，不重复请求。</p><div class="button-row"><button id="xray-page-check" class="btn ghost">重新检查</button><button id="xray-page-do-update" class="btn primary" disabled>更新 Xray</button><button id="xray-page-rollback" class="btn ghost" disabled>暂无上一版</button></div>`
+ panel.innerHTML=`<div class="panel-head"><div><span class="kicker">UPDATE CHANNEL</span><h2>官方 Release</h2></div><span id="xray-page-update-state" class="status"><i></i>检查中</span></div><div class="version-line"><div><small>当前版本</small><b id="xray-page-update-current">—</b></div><div><small>官方最新</small><b id="xray-page-update-latest">—</b></div></div><p id="xray-page-update-note" class="muted tiny" hidden></p><div class="button-row"><button id="xray-page-check" class="btn ghost">重新检查</button><button id="xray-page-do-update" class="btn primary" disabled>更新 Xray</button><button id="xray-page-rollback" class="btn ghost" disabled>暂无上一版</button></div>`
  $('#xray-page-check').onclick=()=>checkUpdate(true)
  $('#xray-page-do-update').onclick=updateXray
  $('#xray-page-rollback').onclick=rollbackXray
@@ -92,12 +92,12 @@ function renderXrayUpdateState(d,error=''){
  buildXrayUpdatePanel()
  const stateEl=$('#xray-page-update-state'),cur=$('#xray-page-update-current'),latest=$('#xray-page-update-latest'),note=$('#xray-page-update-note'),btn=$('#xray-page-do-update')
  if(!stateEl||!cur||!latest||!note||!btn)return
- if(error){stateEl.className='status bad';stateEl.innerHTML='<i></i>检查失败';latest.textContent='—';note.textContent=error;btn.disabled=true;btn.textContent='更新 Xray';return}
- if(!d){stateEl.className='status';stateEl.innerHTML='<i></i>检查中';note.textContent='与概览共用同一次检查结果，不重复请求。';return}
+ if(error){stateEl.className='status bad';stateEl.innerHTML='<i></i>检查失败';latest.textContent='—';note.textContent=error;note.hidden=false;btn.disabled=true;btn.textContent='更新 Xray';return}
+ if(!d){stateEl.className='status';stateEl.innerHTML='<i></i>检查中';note.textContent='';note.hidden=true;return}
  cur.textContent=d.current?`v${String(d.current).replace(/^v/,'')}`:'未安装'
  latest.textContent=d.latest?`v${String(d.latest).replace(/^v/,'')}`:'—'
  stateEl.className=`status ${d.available?'':'ok'}`;stateEl.innerHTML=`<i></i>${d.available?'可更新':'已是最新'}`
- note.textContent=d.available?`发现${d.prerelease?'预发布':''}新版本 · ${d.asset}`:'当前已是最新版本'
+ note.textContent='';note.hidden=true
  btn.disabled=!d.available;btn.textContent=d.available?'更新 Xray':'已是最新'
 }
 
@@ -123,7 +123,7 @@ async function checkUpdate(manual=false){
  const latest=$('#update-latest'),note=$('#update-note'),btn=$('#do-update');latest.textContent='检查中';btn.disabled=true;renderXrayUpdateState(null)
  try{
   const d=await api('/api/xray/update');state.update=d
-  $('#update-current').textContent=d.current?`v${String(d.current).replace(/^v/,'')}`:'未安装';latest.textContent=d.latest?`v${String(d.latest).replace(/^v/,'')}`:'—';note.textContent=d.available?`发现${d.prerelease?'预发布':''}新版本 · ${d.asset}`:'当前已是最新版本';btn.disabled=!d.available;btn.textContent=d.available?'更新 Xray':'已是最新';renderXrayUpdateState(d);if(manual)toast(d.available?'发现可用更新':'Xray 已是最新')
+  $('#update-current').textContent=d.current?`v${String(d.current).replace(/^v/,'')}`:'未安装';latest.textContent=d.latest?`v${String(d.latest).replace(/^v/,'')}`:'—';note.textContent=d.available?`发现${d.prerelease?'预发布':''}新版本，可更新`:'当前已是最新版本';btn.disabled=!d.available;btn.textContent=d.available?'更新 Xray':'已是最新';renderXrayUpdateState(d);if(manual)toast(d.available?'发现可用更新':'Xray 已是最新')
  }catch(e){latest.textContent='检查失败';note.textContent=e.message;renderXrayUpdateState(null,e.message);if(manual)toast(e.message,true)}
  await checkXrayRollback()
 }
