@@ -34,6 +34,9 @@
   if(!tooltip||!activeRing||tooltip.hidden)return;
   if(!document.querySelector('#page-overview')?.classList.contains('active')){unpin();return}
   const rect=activeRing.getBoundingClientRect(),vw=window.innerWidth,vh=window.innerHeight;
+  // A programmatic focus or small viewport may place the ring off-screen.
+  // Clamp the tooltip to the viewport instead of covering adjacent cards.
+  tooltip.style.maxHeight=Math.max(100,vh-16)+'px';
   if(vw<=480){
    tooltip.style.width=Math.max(180,vw-24)+'px';
    tooltip.style.left='12px';
@@ -46,7 +49,8 @@
   const width=tooltip.getBoundingClientRect().width;
   tooltip.style.left=Math.max(10,Math.min(rect.left+rect.width/2-width/2,vw-width-10))+'px';
   const height=tooltip.getBoundingClientRect().height,below=rect.bottom+8;
-  tooltip.style.top=(below+height+10<=vh?below:Math.max(8,rect.top-height-8))+'px';
+  const preferred=below+height+10<=vh?below:rect.top-height-8;
+  tooltip.style.top=Math.max(8,Math.min(preferred,vh-height-8))+'px';
  }
  function paintTooltip(key){
   if(!tooltip)return;
