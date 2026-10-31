@@ -1,0 +1,49 @@
+/* X-port status gauges: SVG stroke only, no chart library or extra polling. */
+#page-overview .metrics.status-gauges{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;padding:20px 0 8px;overflow:visible;align-items:stretch}
+#page-overview .metrics.status-gauges>.status-gauge-card{position:relative;display:flex;flex-direction:column;align-items:center;min-width:0;margin:0;padding:12px 3px;border:1px solid transparent;border-radius:13px;background:transparent;color:inherit;font:inherit;text-align:center;cursor:pointer;transition:background .15s,border-color .15s}
+#page-overview .status-gauge-card:hover,#page-overview .status-gauge-card:focus-visible,#page-overview .status-gauge-card[data-pinned="true"]{background:rgba(87,142,203,.08);border-color:rgba(105,163,221,.2)}
+#page-overview .status-gauge-card:focus-visible{outline:2px solid #64baff;outline-offset:2px}
+#page-overview .status-gauge-title{font-size:11px;font-weight:650;letter-spacing:.15px;color:var(--soft,#b6c3d5)}
+#page-overview .status-gauge-ring{position:relative;display:grid;grid-template-rows:1fr auto 1fr;place-items:center;width:102px;max-width:100%;aspect-ratio:1;margin:9px 0 6px}
+#page-overview .status-gauge-svg{position:absolute;inset:0;display:block;width:100%;height:100%;transform:rotate(-90deg);overflow:visible}
+#page-overview .status-gauge-track,#page-overview .status-gauge-progress{fill:none;stroke-width:7}
+#page-overview .status-gauge-track{stroke:rgba(131,165,199,.17)}
+#page-overview .status-gauge-progress{stroke:#68abff;stroke-linecap:round;transition:stroke-dasharray .45s ease}
+#page-overview [data-gauge="load"] .status-gauge-progress{stroke:#62d9c8}
+#page-overview [data-gauge="memory"] .status-gauge-progress{stroke:#7aabff}
+#page-overview [data-gauge="disk"] .status-gauge-progress{stroke:#a58cff}
+#page-overview .status-gauge-number{grid-row:2;display:block;width:auto;height:auto;border:0;border-radius:0;background:none;box-shadow:none;color:#eaf1fb;font-size:19px;font-weight:730;line-height:1;letter-spacing:-.4px;white-space:nowrap}
+#page-overview .status-gauge-inner-label{grid-row:3;align-self:start;margin-top:5px;font-size:9px;color:var(--muted,#8494ac)}
+#page-overview .status-gauge-hint{font-size:10px;line-height:1.4;color:var(--muted,#8494ac);min-height:28px;white-space:normal;overflow-wrap:anywhere}
+#page-overview .status-gauge-popover{position:absolute;z-index:55;top:calc(100% + 8px);left:50%;width:228px;display:flex;flex-direction:column;gap:11px;padding:15px;border:1px solid rgba(110,156,201,.3);border-radius:12px;background:#142032;color:#e7f1ff;box-shadow:0 18px 40px rgba(0,0,0,.35);text-align:left;visibility:hidden;opacity:0;pointer-events:none;transform:translate(-50%,-4px);transition:opacity .12s,transform .12s,visibility .12s}
+#page-overview .status-gauge-popover-title{font-size:12px;font-weight:700}
+#page-overview .status-gauge-rows{display:flex;flex-direction:column;gap:9px}
+#page-overview .status-gauge-row{display:flex;align-items:baseline;justify-content:space-between;gap:10px;font-size:11px;line-height:1.4;color:#9cadc1}
+#page-overview .status-gauge-row b{font-size:11px;font-weight:650;white-space:nowrap;color:#e9f4ff}
+@media(hover:hover){#page-overview .status-gauge-card:hover .status-gauge-popover{visibility:visible;opacity:1;transform:translate(-50%,0)}}
+#page-overview .status-gauge-card:focus-visible .status-gauge-popover,#page-overview .status-gauge-card[data-pinned="true"] .status-gauge-popover{visibility:visible;opacity:1;transform:translate(-50%,0)}
+#page-overview .status-gauge-card:first-child .status-gauge-popover{left:0;transform:translate(0,-4px)}
+#page-overview .status-gauge-card:last-of-type .status-gauge-popover{left:auto;right:0;transform:translate(0,-4px)}
+@media(hover:hover){#page-overview .status-gauge-card:first-child:hover .status-gauge-popover,#page-overview .status-gauge-card:last-of-type:hover .status-gauge-popover{transform:translate(0,0)}}
+#page-overview .status-gauge-card:first-child:focus-visible .status-gauge-popover,#page-overview .status-gauge-card:first-child[data-pinned="true"] .status-gauge-popover,#page-overview .status-gauge-card:last-of-type:focus-visible .status-gauge-popover,#page-overview .status-gauge-card:last-of-type[data-pinned="true"] .status-gauge-popover{transform:translate(0,0)}
+#page-overview .server-fact.is-ipv6 b{white-space:normal;overflow:visible;overflow-wrap:anywhere;line-height:1.35;padding:6px 0}
+html[data-theme="light"] #page-overview .status-gauge-number{color:#19283a}
+html[data-theme="light"] #page-overview .status-gauge-popover{background:#fff;color:#1b2f44;border-color:rgba(69,104,148,.22);box-shadow:0 18px 40px rgba(44,77,105,.17)}
+html[data-theme="light"] #page-overview .status-gauge-row{color:#677c91}
+html[data-theme="light"] #page-overview .status-gauge-row b{color:#1b2f44}
+@media(max-width:700px){
+ #page-overview .metrics.status-gauges{gap:4px;padding-top:12px}
+ #page-overview .metrics.status-gauges>.status-gauge-card{padding:8px 2px}
+ #page-overview .status-gauge-ring{width:78px;margin:6px 0}
+ #page-overview .status-gauge-number{font-size:15px}
+ #page-overview .status-gauge-title{font-size:10px}
+ #page-overview .status-gauge-hint{font-size:8px}
+ #page-overview .status-gauge-popover{width:204px}
+}
+@media(max-width:430px){
+ #page-overview .metrics.status-gauges{grid-template-columns:repeat(2,minmax(0,1fr));row-gap:3px}
+ #page-overview .status-gauge-ring{width:86px}
+ #page-overview .status-gauge-popover{position:fixed;top:auto;bottom:calc(18px + env(safe-area-inset-bottom));left:12px!important;right:12px!important;width:auto;max-width:none;transform:translateY(8px)!important;z-index:100}
+ #page-overview .status-gauge-card[data-pinned="true"] .status-gauge-popover,#page-overview .status-gauge-card:focus-visible .status-gauge-popover{transform:translateY(0)!important}
+}
+@media(prefers-reduced-motion:reduce){#page-overview .status-gauge-progress,#page-overview .status-gauge-popover{transition:none}}
