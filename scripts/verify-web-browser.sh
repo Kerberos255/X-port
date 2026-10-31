@@ -57,7 +57,7 @@ cat > "$TMP/__mock.js" <<'JS'
     const path = u.pathname
     const method = String(init.method || 'GET').toUpperCase()
     if (path === '/api/overview') return json({
-      system: {hostname:'ci-node', os:'Linux', distribution:'Linux', kernelVersion:'test', systemType:'linux', hostAddress:'127.0.0.1', bootTime:0,
+      system: {hostname:'ci-node', os:'Linux', distribution:'Linux', kernelVersion:'test', systemType:'linux', hostAddress:'127.0.0.1',hostIPv6:'2001:db8::1234',cpuCores:4,load5:0.2,load15:0.3, bootTime:0,
         uptimeSeconds:100, cpuPercent:1, load1:0.1, memoryUsed:1, memoryTotal:2, diskUsed:1, diskTotal:2,
         networkRx:0, networkTx:0, xrayVersion:'test', xrayActive:true},
       accounts: {total:1, enabled:1}, xportVersion:'browser-test'
@@ -123,6 +123,17 @@ cat > "$TMP/__driver.js" <<'JS'
   window.addEventListener('load', async () => {
     try {
       await waitFor('#app:not(.hidden)')
+      const gauges = document.querySelectorAll('#page-overview .status-gauge-card')
+      if (gauges.length !== 4) throw new Error('expected four overview status gauges, got '+gauges.length)
+      if (!document.querySelector('#status-load-value')?.textContent.includes('%')) throw new Error('load gauge did not update')
+      if (!document.querySelector('#server-details .is-ipv6 b')?.textContent.includes('2001:db8::1234')) throw new Error('IPv6 row missing')
+      gauges[0].click()
+      if (gauges[0].dataset.pinned !== 'true') throw new Error('status gauge click did not pin details')
+      await loadOverview(false,true)
+      if (gauges[0].dataset.pinned !== 'true') throw new Error('overview refresh unpinned details')
+      state.overview.system.hostIPv6 = ''
+      renderServerDetailsV10()
+      if (document.querySelector('#server-details .is-ipv6')) throw new Error('IPv6 row should hide when absent')
       document.querySelector('#nav [data-page="accounts"]').click()
 
       const clone = await waitFor('.account-row button[data-act="clone"]')
