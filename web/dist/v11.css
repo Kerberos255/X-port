@@ -185,3 +185,48 @@ html[data-theme="light"] .xhttp-default-hint::placeholder{color:#7b8da3}
  .account-row{grid-template-columns:minmax(135px,1fr) 64px 68px minmax(96px,.8fr) 50px auto}
  .account-row>.usage-cell,.account-row>.hide-mid:not(.protocol-cell){display:none}
 }
+
+/* X-port UI readability pass.
+   Non-critical labels stay compact; daily-use state, subtitles and figures
+   remain readable on desktops and phones without changing grid structure. */
+
+/* Overview server facts and health status */
+#page-overview .server-fact small {font-size:11px;line-height:1.45;color:var(--muted,#74869b)}
+#page-overview .server-fact b {font-size:12px;line-height:1.5}
+#page-overview .health-panel .health-row {font-size:12px;line-height:1.5;gap:12px;align-items:center;color:var(--soft,#8fa3b9);padding:12px 0}
+#page-overview .health-panel .health-row b {font-size:12px;font-weight:650;white-space:nowrap}
+#page-overview .services .service-row b {font-size:13px;line-height:1.4}
+#page-overview .services .service-row small {font-size:11.5px;line-height:1.45;color:var(--muted,#7789a0)}
+#page-overview .services .service-row code {font-size:10.5px;line-height:1.35}
+#page-overview .services .service-row .status {font-size:11px;white-space:nowrap}
+#page-overview .services .service-row {gap:11px}
+#page-overview .metrics.status-gauges .status-gauge-hint {font-size:10.5px;line-height:1.45}
+
+/* Accounts: descriptive status and ID should be legible, not 9px footnotes. */
+#page-accounts .account-name b {font-size:13px;line-height:1.4}
+#page-accounts .account-name small {font-size:11.5px;line-height:1.45;color:var(--muted,#8296ac);overflow-wrap:anywhere}
+#page-accounts .account-row .online-pill,
+#page-accounts .account-row .tag,
+#page-accounts .account-row .usage-cell small,
+#page-accounts .account-row .hide-mid > .tiny {font-size:11px;line-height:1.45}
+#page-accounts .account-row .usage-cell b {font-size:12px;line-height:1.4}
+#page-accounts .summary-strip small {font-size:11px}
+
+/* Readable secondary labels across the Xray and System tools. */
+#page-xray .version-line small,
+#page-system .version-line small {font-size:11px}
+#page-xray .status,
+#page-system .status {font-size:11px}
+#page-xray .muted.tiny,
+#page-system .muted.tiny {font-size:11px;line-height:1.55}
+#page-xray .button-row.compact select {font-size:11px}
+
+/* Keep narrow layouts from wrapping excessively. */
+@media(max-width:700px){
+  #page-overview .health-panel .health-row {font-size:11.5px;padding:11px 0}
+  #page-overview .health-panel .health-row b {font-size:11.5px}
+  #page-overview .services .service-row small {font-size:11px}
+  #page-overview .services .service-row .status {font-size:10.5px}
+  #page-accounts .account-name small {font-size:11px}
+  #page-overview .metrics.status-gauges .status-gauge-hint {font-size:9.5px}
+}

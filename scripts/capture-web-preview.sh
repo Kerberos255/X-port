@@ -104,6 +104,7 @@ cat > "$TMP/__preview.js" <<'JS'
     try {
       await waitFor('#app:not(.hidden)')
       const preview = new URLSearchParams(location.search).get('preview') || 'overview'
+      if (preview.endsWith('-light')) applyTheme('light')
       if (preview === 'overview-tooltip') {
         const ring = await waitFor('#page-overview .status-gauge-ring')
         ring.dispatchEvent(new PointerEvent('pointerenter',{pointerType:'mouse'}))
@@ -113,7 +114,13 @@ cat > "$TMP/__preview.js" <<'JS'
       } else if (preview === 'overview-ipv6') {
         const address=await waitFor('#server-details .is-ipv6 b')
         if (!address.textContent.includes('2001:db8:')) throw new Error('IPv6 is missing from screenshot preview')
-      } else if (preview === 'accounts') {
+      } else if (preview === 'xray-update-light') {
+        document.querySelector('#nav [data-page="xray"]').click()
+        const note = await waitFor('#xray-page-update-note')
+        if (!note.hidden) throw new Error('internal update note should be hidden')
+        const status=await waitFor('#xray-page-update-state')
+        if (!(status.textContent||'').trim()) throw new Error('Xray update state missing')
+      } else if (preview === 'accounts' || preview === 'accounts-light') {
         document.querySelector('#nav [data-page="accounts"]').click()
         await waitFor('.account-row')
       } else if (preview === 'clone') {
@@ -165,6 +172,9 @@ capture() {
 }
 
 capture overview overview
+capture overview-light overview-light
+capture accounts-light accounts-light
+capture xray-update-light xray-update-light
 capture overview-ipv6 overview-ipv6
 capture overview-tooltip overview-tooltip
 capture accounts accounts
