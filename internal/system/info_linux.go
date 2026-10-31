@@ -30,6 +30,8 @@ func Snapshot() Info {
 	a := readCPU()
 	time.Sleep(120 * time.Millisecond)
 	b := readCPU()
+	load1, load5, load15 := readLoadAverages()
+	address, ipv6 := readHostAddresses()
 	mu, mt := readMemory()
 	du, dt := readDisk()
 	rx, tx := readNetwork()
@@ -44,11 +46,15 @@ func Snapshot() Info {
 		Distribution:   readDistribution(),
 		KernelVersion:  readKernelVersion(),
 		SystemType:     runtime.GOOS + " / " + runtime.GOARCH,
-		HostAddress:    readHostAddress(),
+		HostAddress:    address,
+		HostIPv6:       ipv6,
 		BootTime:       bootTime,
 		UptimeSeconds:  uptime,
 		CPUPercent:     cpuPercent(a, b),
-		Load1:          readLoad1(),
+		CPUCores:       runtime.NumCPU(),
+		Load1:          load1,
+		Load5:          load5,
+		Load15:         load15,
 		MemoryUsed:     mu,
 		MemoryTotal:    mt,
 		DiskUsed:       du,
@@ -101,12 +107,15 @@ func readKernelVersion() string {
 	return strings.TrimSpace(string(b))
 }
 
-func readHostAddress() string {
+// readHostAddresses returns the former preferred address (IPv4 first) plus an
+// optional usable IPv6 address. One interface enumeration serves both fields.
+// Prefer globally routable IPv6 over ULA; omit loopback/link-local addresses.
+func readHostAddresses() (primary, ipv6 string) {
 	ifaces, err := net.Interfaces()
 	if err != nil {
-		return ""
+		return "", ""
 	}
-	var fallback string
+	var fallbackIPv6, privateIPv6 string
 	for _, iface := range ifaces {
 		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
 			continue
@@ -117,18 +126,34 @@ func readHostAddress() string {
 		}
 		for _, addr := range addrs {
 			ip, _, err := net.ParseCIDR(addr.String())
-			if err != nil || ip == nil || ip.IsLoopback() || ip.IsLinkLocalUnicast() || !ip.IsGlobalUnicast() {
+			if err != nil || ip == nil || !ip.IsGlobalUnicast() || ip.IsLinkLocalUnicast() {
 				continue
 			}
 			if v4 := ip.To4(); v4 != nil {
-				return v4.String()
+				if primary == "" {
+					primary = v4.String()
+				}
+				continue
 			}
-			if fallback == "" {
-				fallback = ip.String()
+			if fallbackIPv6 == "" {
+				fallbackIPv6 = ip.String()
+			}
+			if ip.IsPrivate() {
+				if privateIPv6 == "" {
+					privateIPv6 = ip.String()
+				}
+			} else if ipv6 == "" {
+				ipv6 = ip.String()
 			}
 		}
 	}
-	return fallback
+	if ipv6 == "" {
+		ipv6 = privateIPv6
+	}
+	if primary == "" {
+		primary = fallbackIPv6
+	}
+	return primary, ipv6
 }
 
 func readCPU() cpuTimes {
@@ -181,17 +206,19 @@ func readUptime() int64 {
 	return int64(v)
 }
 
-func readLoad1() float64 {
+func readLoadAverages() (one, five, fifteen float64) {
 	b, err := os.ReadFile("/proc/loadavg")
 	if err != nil {
-		return 0
+		return
 	}
-	f := strings.Fields(string(b))
-	if len(f) == 0 {
-		return 0
+	parts := strings.Fields(string(b))
+	if len(parts) < 3 {
+		return
 	}
-	v, _ := strconv.ParseFloat(f[0], 64)
-	return v
+	one, _ = strconv.ParseFloat(parts[0], 64)
+	five, _ = strconv.ParseFloat(parts[1], 64)
+	fifteen, _ = strconv.ParseFloat(parts[2], 64)
+	return
 }
 
 func readMemory() (uint64, uint64) {

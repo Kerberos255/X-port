@@ -7,4 +7,4 @@ import (
 	"runtime"
 )
 
-func Snapshot() Info { h, _ := os.Hostname(); return Info{Hostname: h, OS: runtime.GOOS} }
+func Snapshot() Info { h, _ := os.Hostname(); return Info{Hostname: h, OS: runtime.GOOS, CPUCores: runtime.NumCPU()} }
