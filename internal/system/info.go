@@ -7,10 +7,14 @@ type Info struct {
 	KernelVersion  string  `json:"kernelVersion"`
 	SystemType     string  `json:"systemType"`
 	HostAddress    string  `json:"hostAddress"`
+	HostIPv6       string  `json:"hostIPv6,omitempty"`
 	BootTime       int64   `json:"bootTime"`
 	UptimeSeconds  int64   `json:"uptimeSeconds"`
 	CPUPercent     float64 `json:"cpuPercent"`
+	CPUCores       int     `json:"cpuCores"`
 	Load1          float64 `json:"load1"`
+	Load5          float64 `json:"load5"`
+	Load15         float64 `json:"load15"`
 	MemoryUsed     uint64  `json:"memoryUsed"`
 	MemoryTotal    uint64  `json:"memoryTotal"`
 	DiskUsed       uint64  `json:"diskUsed"`
