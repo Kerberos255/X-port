@@ -126,6 +126,13 @@ cat > "$TMP/__driver.js" <<'JS'
       const gauges = document.querySelectorAll('#page-overview .status-gauge-ring')
       if (gauges.length !== 4) throw new Error('expected four overview status gauges, got '+gauges.length)
       if (!document.querySelector('#status-load-value')?.textContent.includes('%')) throw new Error('load gauge did not update')
+      const healthLabel = document.querySelector('#page-overview .health-row')
+      const healthStatus = document.querySelector('#page-overview .health-row b')
+      const serviceSub = document.querySelector('#page-overview .service-row small')
+      if (!healthLabel || !healthStatus || !serviceSub) throw new Error('overview readability elements missing')
+      for (const [node,minSize] of [[healthLabel,11],[healthStatus,11],[serviceSub,10.5]]) {
+        if (parseFloat(getComputedStyle(node).fontSize) < minSize) throw new Error('overview text too small: '+node.className)
+      }
       if (!document.querySelector('#server-details .is-ipv6 b')?.textContent.includes('2001:db8::1234')) throw new Error('IPv6 row missing')
       const popup = document.querySelector('body > .status-gauge-floating')
       if (!popup || !popup.hidden) throw new Error('body-level tooltip should start hidden')
@@ -161,6 +168,8 @@ cat > "$TMP/__driver.js" <<'JS'
       if (document.querySelector('#server-details .is-ipv6')) throw new Error('IPv6-only server must not show duplicate address')
       document.querySelector('#nav [data-page="accounts"]').click()
 
+      const accountSubtitle = await waitFor('.account-row .account-name small')
+      if (parseFloat(getComputedStyle(accountSubtitle).fontSize) < 11) throw new Error('account subtitle too small')
       const clone = await waitFor('.account-row button[data-act="clone"]')
       // If capture interception fails, the legacy row onclick will call this replacement.
       globalThis.openCloneModal = () => { globalThis.__legacyCloneHits++ }
