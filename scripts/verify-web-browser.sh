@@ -134,6 +134,10 @@ cat > "$TMP/__driver.js" <<'JS'
       state.overview.system.hostIPv6 = ''
       renderServerDetailsV10()
       if (document.querySelector('#server-details .is-ipv6')) throw new Error('IPv6 row should hide when absent')
+      state.overview.system.hostIPv6 = '2001:db8::1234'
+      state.overview.system.hostAddress = '2001:db8::1234'
+      renderServerDetailsV10()
+      if (document.querySelector('#server-details .is-ipv6')) throw new Error('IPv6-only server must not show duplicate address')
       document.querySelector('#nav [data-page="accounts"]').click()
 
       const clone = await waitFor('.account-row button[data-act="clone"]')
