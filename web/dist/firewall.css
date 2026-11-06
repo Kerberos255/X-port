@@ -201,3 +201,83 @@ html[data-theme="light"] #fw-detail-dialog .btn.ghost{color:#395672}
  #page-firewall .fw-table tr,#page-firewall .fw-table td{min-width:0;max-width:100%}
  #page-firewall .fw-source{max-width:100%;font-size:11px}
 }
+
+/* Firewall rules console: responsive account, usage, policy and switch columns. */
+#page-firewall .fw-table{min-width:980px}
+#page-firewall .fw-table th{font-size:12px;white-space:nowrap}
+#page-firewall .fw-table th:nth-child(1){width:12%}
+#page-firewall .fw-table th:nth-child(2){width:20%}
+#page-firewall .fw-table th:nth-child(3){width:14%}
+#page-firewall .fw-table th:nth-child(4){width:9%}
+#page-firewall .fw-table th:nth-child(5){width:13%}
+#page-firewall .fw-table th:nth-child(6){width:10%}
+#page-firewall .fw-table th:nth-child(7){width:13%}
+#page-firewall .fw-table th:nth-child(8){width:9%}
+#page-firewall .fw-port-cell{display:flex;align-items:baseline;gap:7px;font-variant-numeric:tabular-nums}
+#page-firewall .fw-port-cell strong{font-size:14px;color:#edf4ff;white-space:nowrap}
+#page-firewall .fw-port-cell small{font-size:11px;color:#9eb6ce;font-weight:550}
+#page-firewall .fw-account-cell{display:grid;gap:3px;min-width:0}
+#page-firewall .fw-account-cell strong,#page-firewall .fw-account-link{font-size:13px;font-weight:750;color:#e7f0fa;max-width:100%;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#page-firewall .fw-account-link{background:none;border:0;text-align:left;cursor:pointer;padding:0;color:#86d9e2;text-decoration:underline;text-decoration-color:rgba(91,217,226,.3);text-underline-offset:3px}
+#page-firewall .fw-account-cell small{font-size:11px;color:#9aacbe;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#page-firewall .fw-usage{display:inline-flex;align-items:center;gap:7px;font-size:12px;white-space:nowrap;color:#a7b9cc}
+#page-firewall .fw-usage-dot{height:7px;width:7px;border-radius:100%;background:currentColor;opacity:.85}
+#page-firewall .fw-usage.used{color:#64d9b4}
+#page-firewall .fw-usage.idle{color:#9daec3}
+#page-firewall .fw-usage.unknown{color:#e4b768}
+#page-firewall .fw-policy{display:inline-flex;align-items:center;border-radius:7px;padding:5px 9px;font-size:12px;font-weight:750}
+#page-firewall .fw-policy.allow{color:#72d4aa;background:rgba(53,178,132,.12)}
+#page-firewall .fw-policy.deny{color:#ee9f9a;background:rgba(213,88,82,.14)}
+#page-firewall .fw-toggle-cell{display:flex;align-items:center;gap:4px}
+#page-firewall .fw-switch{cursor:pointer;border:1px solid rgba(165,187,205,.4);height:23px;width:43px;border-radius:30px;padding:2px;display:inline-flex;align-items:center;background:#566579;transition:background .15s;flex-shrink:0}
+#page-firewall .fw-switch>span{width:17px;height:17px;border-radius:50%;background:#f9fbff;box-shadow:0 2px 4px rgba(0,0,0,.25);transition:transform .15s}
+#page-firewall .fw-switch.on{background:#149c88;border-color:#149c88}
+#page-firewall .fw-switch.on>span{transform:translateX(19px)}
+#page-firewall .fw-switch:disabled{cursor:not-allowed;opacity:.48}
+#page-firewall .fw-switch-caption{color:#9babc1;font-size:10px}
+#page-firewall .fw-actions{display:flex;align-items:center;gap:4px;white-space:nowrap;flex-wrap:wrap}
+#page-firewall .fw-actions button{min-width:0!important;padding:6px 8px!important;font-size:12px!important;color:#9fd7e8}
+#page-firewall .fw-actions button:hover{background:rgba(112,211,232,.1)}
+#page-firewall .fw-preview-banner{padding:10px 14px;background:rgba(77,179,216,.08);border:1px solid rgba(77,179,216,.22);border-radius:9px;font-size:12px;color:#afd6ea;margin:0 0 14px;line-height:1.55}
+#fw-policy-dialog{width:min(540px,calc(100% - 24px));max-height:86vh;overflow:auto;border:1px solid rgba(133,165,204,.3);border-radius:15px;padding:24px;background:#121c2c;color:#e7f0fb;box-shadow:0 30px 90px rgba(0,0,0,.48)}
+#fw-policy-dialog::backdrop{background:rgba(3,8,16,.65);backdrop-filter:blur(5px)}
+#fw-policy-dialog .fw-modal-head h2,#fw-add-dialog .fw-modal-head h2{margin:5px 0 7px;font-size:22px}
+#fw-policy-dialog .fw-modal-head p,#fw-add-dialog .fw-modal-head p{color:#a6bcd5;font-size:13px;line-height:1.65;margin:0}
+#fw-policy-dialog .fw-form label{display:grid;gap:7px;color:#9fb4cc;font-size:12px}
+#fw-policy-dialog .fw-form input,#fw-policy-dialog .fw-form select{border:1px solid var(--line);background:#1a293d;border-radius:8px;padding:11px;color:#edf3fb;font-size:13px;min-width:0;width:100%}
+#fw-policy-dialog .fw-form{display:grid;grid-template-columns:1fr 1fr;gap:15px;margin-top:19px}
+#fw-policy-dialog .fw-policy-alert,#fw-add-dialog .fw-form-hint{font-size:12px;color:#e0bf82;background:rgba(225,173,72,.08);border:1px solid rgba(225,173,72,.18);padding:10px 12px;border-radius:8px;line-height:1.6;margin-top:17px}
+#fw-policy-dialog .fw-form-buttons{display:flex;gap:9px;justify-content:flex-end;margin-top:20px}
+#fw-policy-dialog .btn:disabled{opacity:.5;cursor:not-allowed}
+html[data-theme="light"] #page-firewall .fw-port-cell strong{color:#223b55}
+html[data-theme="light"] #page-firewall .fw-port-cell small{color:#607b99}
+html[data-theme="light"] #page-firewall .fw-account-cell strong{color:#253d59}
+html[data-theme="light"] #page-firewall .fw-account-link{color:#166a9b;text-decoration-color:#8bbcd8}
+html[data-theme="light"] #page-firewall .fw-account-cell small{color:#607690}
+html[data-theme="light"] #page-firewall .fw-usage.used{color:#168058}
+html[data-theme="light"] #page-firewall .fw-usage.idle{color:#536b84}
+html[data-theme="light"] #page-firewall .fw-usage.unknown{color:#86580e}
+html[data-theme="light"] #page-firewall .fw-policy.allow{color:#11714b;background:#e6f7ed}
+html[data-theme="light"] #page-firewall .fw-policy.deny{color:#a12f36;background:#ffedf0}
+html[data-theme="light"] #page-firewall .fw-actions button{color:#2775a3}
+html[data-theme="light"] #page-firewall .fw-preview-banner{background:#ebf7fc;border-color:#cce7f2;color:#345b72}
+html[data-theme="light"] #fw-policy-dialog{background:#fff;color:#263b53;border-color:#d8e1ed}
+html[data-theme="light"] #fw-policy-dialog .fw-modal-head p,
+html[data-theme="light"] #fw-add-dialog .fw-modal-head p{color:#526b86}
+html[data-theme="light"] #fw-policy-dialog .fw-form label{color:#425a77}
+html[data-theme="light"] #fw-policy-dialog .fw-form input,
+html[data-theme="light"] #fw-policy-dialog .fw-form select{background:#f8fafc;color:#263b53;border-color:#cfd9e5}
+html[data-theme="light"] #fw-policy-dialog .fw-policy-alert,
+html[data-theme="light"] #fw-add-dialog .fw-form-hint{color:#795212;background:#fff7e8;border-color:#ead29c}
+@media(max-width:700px){
+ #page-firewall .fw-table{min-width:0}
+ #page-firewall .fw-table tr{grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px}
+ #page-firewall .fw-table td:nth-child(7){grid-column:1/-1;border-top:1px solid var(--line);padding-top:10px}
+ #page-firewall .fw-table td:nth-child(8){grid-column:1/-1}
+ #page-firewall .fw-actions{justify-content:flex-end}
+ #page-firewall .fw-table td:before{font-size:11px;color:var(--muted)}
+ #page-firewall .fw-account-cell strong,#page-firewall .fw-account-link{white-space:normal;overflow-wrap:anywhere}
+ #page-firewall .fw-account-cell small{white-space:normal}
+ #fw-policy-dialog{padding:18px}
+ #fw-policy-dialog .fw-form{gap:11px}
+}
