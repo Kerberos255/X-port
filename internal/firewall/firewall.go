@@ -103,8 +103,8 @@ func independentInputChains(data string)(bool,error){
 		b:=obj["chain"];if len(b)==0{continue}
 		var c struct{Table string `json:"table"`; Hook string `json:"hook"`; Type string `json:"type"`}
 		if json.Unmarshal(b,&c)!=nil{continue}
-		if c.Hook!="input"{continue}
-		if strings.HasPrefix(c.Table,"firewalld") {continue}
+		if c.Hook!="input"&&c.Hook!="prerouting"&&c.Hook!="ingress"{continue}
+		if c.Table=="firewalld" {continue}
 		return true,nil
 	}
 	return false,nil

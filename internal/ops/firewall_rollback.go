@@ -41,6 +41,9 @@ func ScheduleFirewallRestore(ctx context.Context,backend string,port int,proto,z
 func CancelFirewallRestore(ctx context.Context,unit string)error{
  if !restoreUnitRE.MatchString(unit){return errors.New("invalid recovery unit")}
  cctx,cancel:=context.WithTimeout(ctx,10*time.Second);defer cancel()
+ // A timer that already fired cannot be safely treated as cancelled.
+ activeErr:=exec.CommandContext(cctx,"systemctl","is-active","--quiet",unit+".timer").Run()
+ if activeErr!=nil{return errors.New("recovery timer is no longer active; it may have fired")}
  out,err:=exec.CommandContext(cctx,"systemctl","stop",unit+".timer").CombinedOutput()
  if err!=nil{return fmt.Errorf("cannot cancel firewall recovery: %w: %s",err,strings.TrimSpace(string(out)))}
  return nil

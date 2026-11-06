@@ -105,7 +105,7 @@ func (s *Server) firewallRuleChange(w http.ResponseWriter,r *http.Request){
   if err!=nil{writeError(w,409,"could not arm connection recovery: "+err.Error());return}
  }
  if err:=ops.ApplyFirewall(ctx,in.Action,in.Port,in.Protocol,in.Zone);err!=nil{
-  if restoreUnit!=""{_ = ops.CancelFirewallRestore(context.Background(),restoreUnit)}
+  // Keep the independent restore armed: a failed operation might have changed runtime rules partially.
   writeError(w,409,"firewall operation failed: "+err.Error());return
  }
  if in.Action=="add"{

@@ -61,6 +61,11 @@ func (s *Server) firewallRuleConfirm(w http.ResponseWriter,r *http.Request){
  if err!=nil{writeError(w,502,"cannot verify removal before confirmation");return}
  for _,rule:=range snap.Rules{if rule.ID==p.ID{writeError(w,409,"rule already restored; confirmation rejected");return}}
  if err:=ops.CancelFirewallRestore(ctx,p.Unit);err!=nil{writeError(w,409,err.Error());return}
+ verified,err:=ops.InspectFirewall(ctx)
+ if err!=nil{writeError(w,502,"recovery timer cancelled, but final rule state could not be verified");return}
+ for _,rule:=range verified.Rules{
+  if rule.ID==p.ID{writeError(w,409,"rule restored during confirmation; refresh before retrying");return}
+ }
  // Only once the external recovery timer is stopped do we clear metadata.
  for _,prefix:=range []string{"firewall_owned:","firewall_note:","firewall_purpose:","firewall_pending:"}{
   if err:=s.store.SetSetting(prefix+p.ID,"");err!=nil{
