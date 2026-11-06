@@ -11,7 +11,7 @@
   function rules() { return Array.isArray(state.data?.rules) ? state.data.rules : [] }
   function label(r) { return r.purpose || '未识别' }
   function editable() { return state.data?.writable === true && (state.data?.backend === 'firewalld' || state.data?.backend === 'ufw') }
-  function status(r) { return r.runtime !== r.permanent ? '需检查' : (r.runtime ? '已配置' : '未生效') }
+  function status(r) { return r.pausedDrift?'状态冲突':r.paused?'已暂停':r.runtime !== r.permanent ? '需检查' : (r.runtime ? '已配置' : '未生效') }
   function stateBadge(r) { return '<span class="fw-state '+(r.runtime !== r.permanent ? 'warn' : '')+'">'+status(r)+'</span>' }
   function usageBadge(r) {
     if(r.usage==='used')return '<span class="fw-usage used"><span class="fw-usage-dot"></span>已使用</span>'
@@ -19,7 +19,7 @@
     return '<span class="fw-usage unknown"><span class="fw-usage-dot"></span>无法检测</span>'
   }
   function needsCheck(r) {
-    return Boolean(r.conflict) || r.runtime !== r.permanent ||
+    return Boolean(r.conflict)||Boolean(r.pausedDrift)|| r.runtime !== r.permanent ||
       r.usage === 'unknown' ||
       Boolean(r.accountAmbiguous) ||
       Boolean(r.xray && r.accountName && r.accountEnabled && r.usage === 'unused') ||
@@ -46,9 +46,9 @@
     return '<div class="fw-account-cell">'+(linked?'<button type="button" class="fw-account-link" data-fw-act="account" data-fw-account="'+r.accountId+'" title="前往 Xray 账号管理">'+title+'</button>':'<strong>'+title+'</strong>')+'<small>'+subtitle+'</small></div>'
   }
   function ruleToggle(r) {
-    const active=Boolean(r.runtime&&r.permanent)
-    const locked=Boolean(r.protected||r.runtime!==r.permanent||!editable())
-    return '<button type="button" class="fw-switch '+(active?'on':'')+'" role="switch" aria-checked="'+active+'" aria-label="'+html(r.port+'/'+r.protocol)+' 规则生效" data-fw-act="toggle" data-fw-id="'+html(r.id)+'" aria-disabled="true" '+(locked?'disabled title="受保护或状态不一致，暂不能切换"':'title="规则启停功能仍在隔离测试"')+'><span></span></button>'+(locked?'<small class="fw-switch-caption">保护中</small>':'')
+    const active=Boolean(!r.paused&&r.runtime&&r.permanent)
+    const locked=Boolean(!r.canToggle||r.conflict||r.pausedDrift||!editable())
+    return '<button type="button" class="fw-switch '+(active?'on':'')+'" role="switch" aria-checked="'+active+'" aria-label="'+html(r.port+'/'+r.protocol)+' 规则生效" data-fw-act="toggle" data-fw-id="'+html(r.id)+'" aria-disabled="'+locked+'" '+(locked?'disabled title="外部、管理端口或冲突规则受保护"':'title="切换此规则的生效状态（120 秒安全恢复）"')+'><span></span></button>'+(locked?'<small class="fw-switch-caption">保护中</small>':'')
   }
   function source(r) { return (r.managed ? 'X-port · ' : '外部 · ') + (r.backend === 'firewalld' ? 'firewalld · '+r.zone : r.backend) }
   function shortSource(r) { return (r.managed ? 'X-port · ' : '外部 · ') + r.backend }
@@ -91,7 +91,7 @@
     }
     pendingBox.innerHTML = pending.map(p => {
       const active = Number(p.deadline) > Date.now()
-      return '<div class="fw-pending-item"><span>↺ '+html(p.id)+' · '+(active ? '等待连接确认，超时自动恢复' : '恢复期限已过，请刷新检查规则')+'</span>' +
+      return '<div class="fw-pending-item"><span>↺ '+html(p.id)+' · '+(active ? ((p.kind==='add-drop'?'拒绝策略未确认，届时自动撤销':p.kind==='pause-drop'?'拒绝暂停待确认，届时自动恢复拒绝':p.kind==='pause-allow'?'放行暂停待确认，届时自动恢复放行':'等待连接确认，超时自动恢复')) : '恢复期限已过，请刷新检查规则')+'</span>' +
         (active ? '<button type="button" class="btn fw-mini" data-fw-act="confirm-pending" data-fw-id="'+html(p.id)+'" data-fw-token="'+html(p.token)+'">确认连接正常</button>' : '')+'</div>'
     }).join('')
     const filtered = shown()
@@ -185,6 +185,36 @@
     row.scrollIntoView({block:'nearest'})
     edit.click()
   }
+  let policyChangeBusy=false
+  async function runPolicyControl(action,r){
+    if(policyChangeBusy||!editable())return
+    const warning=action==='add-drop'||action==='resume-drop'
+      ? '拒绝策略会影响端口访问。确认当前不是管理入口，且已有备用 SSH 连接。'
+      : action==='pause-allow'
+      ? '暂停允许规则可能中断该端口的服务。120 秒内未确认将自动恢复原放行规则。'
+      : action==='pause-drop'
+      ? '暂停拒绝规则将临时开放访问。120 秒内未确认将自动恢复拒绝。'
+      : action==='remove-drop'
+      ? '永久删除拒绝规则可能扩大外部访问。确认仍要继续？'
+      : '确认恢复这条规则的原有策略？'
+    if(!window.confirm(warning))return
+    policyChangeBusy=true
+    try{
+      const result=await request('/api/firewall/control','POST',{
+        action,id:r.id,port:r.port,protocol:r.protocol,zone:r.zone||''
+      })
+      await refresh()
+      if(result?.pending){
+        const yes=window.confirm('规则已临时修改。请验证管理面板仍可访问。\n在约 120 秒内点「确定」确认保存；取消则系统自动恢复原规则。')
+        if(yes){
+          await request('/api/firewall/rules/confirm','POST',{id:result.id,token:result.token})
+          toast('规则已确认，外部恢复计时器已取消')
+          await refresh()
+        }else toast('未确认，系统将按计时器恢复原规则')
+      }else toast('规则已恢复')
+    }catch(err){toast('规则操作未确认：'+err.message,true);await refresh()}
+    finally{policyChangeBusy=false}
+  }
   function openRuleEditor(id){
     const r=rules().find(row=>row.id===id)
     if(!r)return
@@ -232,7 +262,15 @@
       return
     }
     if(act==='account'){void openLinkedAccount(button.dataset.fwAccount);return}
-    if(act==='toggle'){toast('预览阶段：规则启停正在验证断线恢复与规则冲突，暂不执行系统修改。');return}
+    if(act==='toggle'){
+      const rule=rules().find(x=>x.id===id)
+      if(!rule||!rule.canToggle||!editable())return toast('此规则由外部管理或状态不确定，无法切换',true)
+      const action=rule.paused
+        ? (rule.action==='deny'?'resume-drop':'resume-allow')
+        : (rule.action==='deny'?'pause-drop':rule.kind==='port'?'pause-allow':'')
+      if(!action)return toast('当前规则类型暂不支持启停',true)
+      void runPolicyControl(action,rule);return
+    }
     if(act==='configure'){openRuleEditor(id);return}
     if(act==='edit'){state.editing={id,key:button.dataset.fwKey};render()}
     if(act==='cancel'){state.editing=null;render()}
@@ -262,7 +300,12 @@
     const protocol=el('fw-add-proto').value,zone=el('fw-add-zone').value
     if(!Number.isInteger(port)||port<1||port>65535)return toast('端口必须是 1–65535 的整数',true)
     const policy=el('fw-add-policy').value
-    if(policy!=='allow')return toast('拒绝策略仍在隔离验证中，当前不会错误地创建允许规则',true)
+    if(policy!=='allow'){
+      if(state.data?.backend!=='firewalld')return toast('拒绝策略目前仅支持经过验证的 firewalld 后端',true)
+      const id='firewalld:'+zone+':rich:'+port+'/'+protocol+':deny:both'
+      void runPolicyControl('add-drop',{id,port,protocol,zone,action:'deny'})
+      return
+    }
     if(!window.confirm('确认在系统防火墙中放行 '+port+'/'+protocol+' 吗？'))return
     try{await request('/api/firewall/rules','POST',{action:'add',port,protocol,zone});toast('规则已添加');await refresh()}
     catch(err){toast(err.message,true)}
@@ -273,6 +316,10 @@
     el('fw-detail-dialog').returnValue = ''
     if(action!=='remove'||!r)return
     if(!r.managed||r.protected||!editable())return toast('规则受保护或不属于 X-port，不能删除',true)
+    if(r.kind==='rich'&&r.action==='deny'){
+      void runPolicyControl('remove-drop',r)
+      return
+    }
     if(!window.confirm('删除 X-port 创建的 '+r.port+'/'+r.protocol+' 放行规则？请先确认该端口没有正在运行的服务。'))return
     try{
       const result=await request('/api/firewall/rules','POST',{action:'remove',port:r.port,protocol:r.protocol,zone:r.zone||''})
