@@ -2,6 +2,8 @@ package server
 
 import (
  "context"
+ "crypto/sha256"
+ "encoding/hex"
  "encoding/json"
  "fmt"
  "log"
@@ -31,6 +33,7 @@ type firewallViewRule struct {
  Paused bool `json:"paused,omitempty"`
  PausedDrift bool `json:"pausedDrift,omitempty"`
  CanToggle bool `json:"canToggle"`
+ Revision string `json:"revision,omitempty"`
 }
 type firewallView struct {
  firewall.Snapshot
@@ -82,6 +85,16 @@ func accountFirewallMatches(accounts []model.Account)map[string][]model.Account{
  return found
 }
 
+// Revision is a bounded, content-derived precondition token. It prevents
+// using a stale Web snapshot after another control plane has changed the rule.
+// Identical delete/recreate races cannot be distinguished by firewalld's API.
+func firewallRuleRevision(rule firewall.Rule)string{
+ raw:=fmt.Sprintf("%s|%d|%s|%s|%s|%s|%s|%t|%t|%t",
+  rule.ID,rule.Port,rule.Protocol,rule.Zone,rule.Kind,rule.Action,rule.Family,
+  rule.Runtime,rule.Permanent,rule.Conflict)
+ value:=sha256.Sum256([]byte(raw))
+ return hex.EncodeToString(value[:12])
+}
 func (s *Server) firewallGuardPort() int {
  listen:=settingString(s.store,"panel_listen","127.0.0.1:8080")
  _,p,err:=net.SplitHostPort(listen);if err!=nil{return 8080}
@@ -133,7 +146,7 @@ func (s *Server) firewallRead(w http.ResponseWriter,r *http.Request){
    Note:settings["firewall_note:"+rr.ID],Protected:protected,
    Managed:settings["firewall_owned:"+rr.ID]=="v1",Xray:xray,
    AccountID:account.ID,AccountName:account.Name,AccountEnabled:account.Enabled,
-   AccountAmbiguous:ambiguous,Usage:usage,
+   AccountAmbiguous:ambiguous,Usage:usage,Revision:firewallRuleRevision(rr),
     CanToggle:settings["firewall_owned:"+rr.ID]=="v1"&&!rr.Conflict&&
       rr.Port!=22&&rr.Port!=s.firewallGuardPort()&&
       (rr.Kind=="port"||rr.Kind=="rich")&&
@@ -176,7 +189,7 @@ func (s *Server) firewallRead(w http.ResponseWriter,r *http.Request){
    Protected:paused.Port==22||paused.Port==s.firewallGuardPort(),
    Managed:true,Xray:len(account)>0,AccountID:accountID,AccountName:name,
    AccountEnabled:enabled,AccountAmbiguous:len(account)>1,Usage:usage,
-   Paused:true,CanToggle:!conflicting&&paused.Port!=22&&paused.Port!=s.firewallGuardPort(),
+   Paused:true,Revision:firewallRuleRevision(paused),CanToggle:!conflicting&&paused.Port!=22&&paused.Port!=s.firewallGuardPort(),
   })
  }
  writeJSON(w,200,firewallView{Snapshot:snap,Rules:rules,Pending:pendingFromSettings(settings)})
