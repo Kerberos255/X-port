@@ -184,6 +184,7 @@ func (s *Server) firewallRead(w http.ResponseWriter,r *http.Request){
    continue
   }
   paused.Runtime=false;paused.Permanent=false
+  paused.Conflict=conflicting
   account:=bySocket[fmt.Sprintf("%s/%d",paused.Protocol,paused.Port)]
   name:="";var accountID int64;enabled:=false
   if len(account)==1{name=account[0].Name;accountID=account[0].ID;enabled=account[0].Enabled}
@@ -195,7 +196,7 @@ func (s *Server) firewallRead(w http.ResponseWriter,r *http.Request){
    Protected:paused.Port==22||paused.Port==s.firewallGuardPort(),
    Managed:true,Xray:len(account)>0,AccountID:accountID,AccountName:name,
    AccountEnabled:enabled,AccountAmbiguous:len(account)>1,Usage:usage,
-   Paused:true,PausedDrift:conflicting,Conflict:conflicting,
+   Paused:true,PausedDrift:conflicting,
    Revision:firewallRuleRevision(paused),
    CanToggle:snap.Backend=="firewalld"&&!snap.OpaqueRichZones[paused.Zone]&&!conflicting&&
      paused.Port!=22&&paused.Port!=s.firewallGuardPort()&&
