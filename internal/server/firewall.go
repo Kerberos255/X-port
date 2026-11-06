@@ -2,6 +2,7 @@ package server
 
 import (
  "context"
+ "encoding/json"
  "fmt"
  "log"
  "net"
@@ -10,6 +11,7 @@ import (
  "strings"
  "time"
  "github.com/Kerberos255/X-port/internal/firewall"
+ "github.com/Kerberos255/X-port/internal/model"
  "github.com/Kerberos255/X-port/internal/ops"
 )
 
@@ -25,11 +27,38 @@ type firewallViewRule struct {
  AccountName string `json:"accountName,omitempty"`
  AccountEnabled bool `json:"accountEnabled"`
  Usage string `json:"usage"`
+ AccountAmbiguous bool `json:"accountAmbiguous,omitempty"`
 }
 type firewallView struct {
  firewall.Snapshot
  Rules []firewallViewRule `json:"rules"`
  Pending []firewallPending `json:"pending,omitempty"`
+}
+
+// Account association is by both port and actual Xray transport, never by
+// numeric port alone. Unknown/custom transports stay unassociated.
+func accountFirewallTransport(a model.Account) string {
+ var stream struct{Network string `json:"network"`}
+ if a.StreamSettingsJSON!="" {
+  if err:=json.Unmarshal([]byte(a.StreamSettingsJSON),&stream);err!=nil{return ""}
+ }
+ network:=strings.ToLower(strings.TrimSpace(stream.Network))
+ if network==""{network="tcp"}
+ switch network{
+ case "tcp","raw","ws","websocket","grpc","http","h2","httpupgrade","xhttp": return "tcp"
+ case "mkcp","kcp","quic": return "udp"
+ default: return ""
+ }
+}
+func accountFirewallMatches(accounts []model.Account)map[string][]model.Account{
+ found:=make(map[string][]model.Account)
+ for _,a:=range accounts{
+  protocol:=accountFirewallTransport(a)
+  if protocol==""||!firewall.ValidRule(a.Port,protocol){continue}
+  key:=fmt.Sprintf("%s/%d",protocol,a.Port)
+  found[key]=append(found[key],a)
+ }
+ return found
 }
 
 func (s *Server) firewallGuardPort() int {
@@ -44,27 +73,37 @@ func (s *Server) firewallRead(w http.ResponseWriter,r *http.Request){
  w.Header().Set("Cache-Control","no-store")
  accounts,err:=s.store.Accounts();if err!=nil{writeError(w,500,"database error");return}
  settings,err:=s.store.Settings();if err!=nil{writeError(w,500,"database error");return}
- type accountUse struct {name,protocol string;id int64;enabled bool}
- byPort:=make(map[int]accountUse,len(accounts))
- for _,a:=range accounts {byPort[a.Port]=accountUse{name:a.Name,protocol:strings.ToUpper(a.Protocol),id:a.ID,enabled:a.Enabled}}
+ bySocket:=accountFirewallMatches(accounts)
  listening,listeningError:=ops.FirewallListeners(ctx,s.store.Dir())
+ sockets,socketError:=ops.FirewallSockets(ctx,s.store.Dir())
  rules:=make([]firewallViewRule,0,len(snap.Rules))
  for _,rr:=range snap.Rules {
   purpose,xray:="未识别",false
-  account,matched:=byPort[rr.Port]
-  if matched{purpose,xray="Xray · "+account.protocol,true}
+  key:=fmt.Sprintf("%s/%d",rr.Protocol,rr.Port)
+  candidates:=bySocket[key]
+  xray=len(candidates)>0
+  ambiguous:=len(candidates)>1
+  var account model.Account
+  if len(candidates)==1{account=candidates[0];purpose="Xray · "+strings.ToUpper(account.Protocol)}
+  if ambiguous{purpose="多个 Xray 账号关联同一端口（需检查）"}
   source:="unknown"
   if xray{source="xray"}
   protected:=rr.Port==22||rr.Port==s.firewallGuardPort()||listeningError!=nil||listening[rr.Port]
   usage:="unknown"
-  if listeningError==nil{
+  if socketError==nil{
    usage="unused"
-   if listening[rr.Port]{usage="used"}
+   if sockets[key]{usage="used"}
   }
   if !xray&&rr.Port==22{purpose="SSH（常见端口，未核实）";source="assumed"}
   if !xray&&rr.Port==s.firewallGuardPort(){purpose="X-port 管理面板";source="panel"}
   if custom:=settings["firewall_purpose:"+rr.ID];custom!=""{purpose=custom;source="manual"}
-  rules=append(rules,firewallViewRule{Rule:rr,Purpose:purpose,PurposeSource:source,Note:settings["firewall_note:"+rr.ID],Protected:protected,Managed:settings["firewall_owned:"+rr.ID]=="v1",Xray:xray,AccountID:account.id,AccountName:account.name,AccountEnabled:account.enabled,Usage:usage})
+  rules=append(rules,firewallViewRule{
+   Rule:rr,Purpose:purpose,PurposeSource:source,
+   Note:settings["firewall_note:"+rr.ID],Protected:protected,
+   Managed:settings["firewall_owned:"+rr.ID]=="v1",Xray:xray,
+   AccountID:account.ID,AccountName:account.Name,AccountEnabled:account.Enabled,
+   AccountAmbiguous:ambiguous,Usage:usage,
+  })
  }
  writeJSON(w,200,firewallView{Snapshot:snap,Rules:rules,Pending:pendingFromSettings(settings)})
 }
