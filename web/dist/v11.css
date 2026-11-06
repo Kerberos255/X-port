@@ -230,3 +230,16 @@ html[data-theme="light"] .xhttp-default-hint::placeholder{color:#7b8da3}
   #page-accounts .account-name small {font-size:11px}
   #page-overview .metrics.status-gauges .status-gauge-hint {font-size:9.5px}
 }
+
+/* Daily navigation and authentication text must stay readable in compact mode. */
+@media(min-width:701px){
+ .shell .sidebar #nav button{font-size:14px;line-height:1.5}
+}
+.login-card label{font-size:13px;color:#b5c7dc}
+.login-card input{font-size:14px;min-height:42px}
+.login-title p{font-size:12px;color:#9bb0c8}
+.login-card .btn.primary{font-size:14px;min-height:41px}
+.login-card .secure-note{font-size:11px;color:#8b9fb9}
+html[data-theme="light"] .login-card label{color:#405770}
+html[data-theme="light"] .login-title p{color:#536a84}
+html[data-theme="light"] .login-card .secure-note{color:#526b84}
