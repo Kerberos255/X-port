@@ -85,9 +85,10 @@ func TestFirewallReadMapsAccountsAndListenerUsage(t *testing.T) {
   "exec 1>\"$out\"",
   "case \" $* \" in",
   "  *\" firewall-inspect\"*)",
-  "    printf '%s' '{\"backend\":\"firewalld\",\"active\":true,\"writable\":true,\"zones\":[\"public\"],\"rules\":[{\"id\":\"firewalld:public:2053/tcp\",\"port\":2053,\"protocol\":\"tcp\",\"zone\":\"public\",\"backend\":\"firewalld\",\"runtime\":true,\"permanent\":true},{\"id\":\"firewalld:public:8443/tcp\",\"port\":8443,\"protocol\":\"tcp\",\"zone\":\"public\",\"backend\":\"firewalld\",\"runtime\":true,\"permanent\":true}]}'",
+  "    printf '%s' '{\"backend\":\"firewalld\",\"active\":true,\"writable\":true,\"zones\":[\"public\"],\"rules\":[{\"id\":\"firewalld:public:2053/tcp\",\"port\":2053,\"protocol\":\"tcp\",\"zone\":\"public\",\"backend\":\"firewalld\",\"runtime\":true,\"permanent\":true},{\"id\":\"firewalld:public:8443/tcp\",\"port\":8443,\"protocol\":\"tcp\",\"zone\":\"public\",\"backend\":\"firewalld\",\"runtime\":true,\"permanent\":true},{\"id\":\"firewalld:public:2053/udp\",\"port\":2053,\"protocol\":\"udp\",\"zone\":\"public\",\"backend\":\"firewalld\",\"runtime\":true,\"permanent\":true}]}'",
   "    ;;",
   "  *\" firewall-listeners\"*) printf '%s' '{\"2053\":true}' ;;",
+  "  *\" firewall-sockets\"*) printf '%s' '{\"tcp/2053\":true}' ;;",
   "  *) exit 97 ;;",
   "esac",
  },"\n")+"\n"
@@ -120,10 +121,11 @@ func TestFirewallReadMapsAccountsAndListenerUsage(t *testing.T) {
   Protected bool `json:"protected"`
  }}
  if err:=json.Unmarshal(response.Body.Bytes(),&payload);err!=nil{t.Fatal(err)}
- if len(payload.Rules)!=2{t.Fatalf("rules: %+v",payload.Rules)}
+ if len(payload.Rules)!=3{t.Fatalf("rules: %+v",payload.Rules)}
  byPort:=map[string]struct{ID int64;Name,Usage string;Enabled,Protected bool}{
   "firewalld:public:2053/tcp":{1,"Active inbound","used",true,true},
   "firewalld:public:8443/tcp":{2,"Paused inbound","unused",false,false},
+  "firewalld:public:2053/udp":{0,"","unused",false,true},
  }
  for _,rule:=range payload.Rules{
   want,ok:=byPort[rule.ID]
@@ -131,4 +133,18 @@ func TestFirewallReadMapsAccountsAndListenerUsage(t *testing.T) {
      rule.AccountEnabled!=want.Enabled||rule.Usage!=want.Usage||
      rule.Protected!=want.Protected{t.Fatalf("unexpected rule: %+v",rule)}
  }
+}
+
+func TestAccountFirewallTransportAndPortCollisions(t *testing.T){
+ accounts:=[]model.Account{
+  {ID:1,Name:"TCP-only",Port:10401,Protocol:"vless",StreamSettingsJSON:`{"network":"xhttp"}`},
+  {ID:2,Name:"UDP-only",Port:10401,Protocol:"vmess",StreamSettingsJSON:`{"network":"quic"}`},
+  {ID:3,Name:"second TCP",Port:10401,Protocol:"trojan",StreamSettingsJSON:`{"network":"tcp"}`},
+  {ID:4,Name:"unrecognized transport",Port:20000,Protocol:"vless",StreamSettingsJSON:`{"network":"future-protocol"}`},
+  {ID:5,Name:"malformed transport",Port:20001,Protocol:"vless",StreamSettingsJSON:"{"},
+ }
+ got:=accountFirewallMatches(accounts)
+ if len(got["tcp/10401"])!=2||len(got["udp/10401"])!=1{t.Fatalf("wrong network mapping: %+v",got)}
+ if got["udp/10401"][0].ID!=2{t.Fatalf("wrong UDP account: %+v",got["udp/10401"])}
+ if got["tcp/20000"]!=nil||got["tcp/20001"]!=nil{t.Fatalf("unknown transport was guessed: %+v",got)}
 }
