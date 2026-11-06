@@ -3,6 +3,7 @@ package server
 import (
  "bytes"
  "encoding/json"
+ "fmt"
  "net/http"
  "net/http/httptest"
  "os"
@@ -73,6 +74,20 @@ func TestExternalFirewallRuleCannotBeDeletedThroughWeb(t *testing.T) {
  rec=postRemove()
  if rec.Code!=http.StatusConflict{t.Fatalf("listening port must be blocked: %d %s",rec.Code,rec.Body.String())}
  if _,err:=os.Stat(marker);!os.IsNotExist(err){t.Fatalf("write attempted despite Web rejection: %v",err)}
+
+ // Upcoming policy/edit/toggle verbs must never fall back to the old
+ // "allow" mutation path before their own guarded transactions exist.
+ for _,action:=range []string{"deny","drop","toggle","pause","resume","edit","update"}{
+  body:=strings.NewReader(fmt.Sprintf(`{"action":%q,"port":53114,"protocol":"tcp","zone":"public"}`,action))
+  req:=httptest.NewRequest(http.MethodPost,"http://panel/api/firewall/rules",body)
+  req.Header.Set("Origin","http://panel")
+  req.Header.Set("Content-Type","application/json")
+  req.AddCookie(cookies[0])
+  res:=httptest.NewRecorder()
+  h.ServeHTTP(res,req)
+  if res.Code!=http.StatusBadRequest{t.Fatalf("%s must remain unsupported: %d %s",action,res.Code,res.Body.String())}
+  if _,err:=os.Stat(marker);!os.IsNotExist(err){t.Fatalf("%s unexpectedly changed firewall: %v",action,err)}
+ }
 }
 
 func TestFirewallReadMapsAccountsAndListenerUsage(t *testing.T) {
