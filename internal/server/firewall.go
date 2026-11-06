@@ -455,3 +455,107 @@ func (s *Server) firewallControl(w http.ResponseWriter,r *http.Request){
   "ok":true,"pending":true,"id":id,"token":pending.Token,"deadline":pending.Deadline,"kind":kind,
  })
 }
+
+type firewallExternalEditRequest struct{
+ ID string `json:"id"`
+ Revision string `json:"revision"`
+ NewPort int `json:"newPort"`
+ NewProtocol string `json:"newProtocol"`
+ ExternalAcknowledged bool `json:"externalAcknowledged"`
+}
+// firewallExternalEdit only replaces one unrestricted firewalld port allowance.
+// It never transfers ownership from another manager and it never touches rich
+// rules, active listeners, or management ports.
+func (s *Server) firewallExternalEdit(w http.ResponseWriter,r *http.Request){
+ var in firewallExternalEditRequest
+ if decodeJSONLimit(w,r,&in,4<<10)!=nil{return}
+ if !in.ExternalAcknowledged||in.ID==""||len(in.ID)>140||len(in.Revision)!=24||
+    !firewall.ValidRule(in.NewPort,in.NewProtocol){
+  writeError(w,400,"explicit external-rule consent and a valid revision are required");return
+ }
+ s.firewallMu.Lock();defer s.firewallMu.Unlock()
+ ctx,cancel:=context.WithTimeout(r.Context(),100*time.Second);defer cancel()
+ snap,err:=ops.InspectFirewall(ctx,s.store.Dir())
+ if err!=nil{writeError(w,502,"cannot inspect firewall before external edit");return}
+ if snap.Backend!="firewalld"||!snap.Writable{
+  writeError(w,409,"firewalld is read-only");return
+ }
+ var source firewall.Rule
+ found:=false
+ for _,rr:=range snap.Rules{if rr.ID==in.ID{source=rr;found=true;break}}
+ if !found{writeError(w,409,"source rule changed or disappeared");return}
+ if firewallRuleRevision(source)!=in.Revision{
+  writeError(w,409,"source rule changed since page load; refresh before editing");return
+ }
+ if source.Kind!="port"||source.Action!="allow"||!source.Runtime||!source.Permanent||source.Conflict||
+    !firewall.ValidZone(source.Zone)||snap.OpaqueRichZones[source.Zone]{
+  writeError(w,409,"only simple, fully synchronized port allowances can be edited");return
+ }
+ if source.Port==in.NewPort&&source.Protocol==in.NewProtocol{
+  writeError(w,400,"new rule must differ from existing port/protocol");return
+ }
+ if source.Port==22||source.Port==s.firewallGuardPort()||
+    in.NewPort==22||in.NewPort==s.firewallGuardPort(){
+  writeError(w,403,"management ports cannot be edited");return
+ }
+ oldOwned,_,err:=s.store.Setting("firewall_owned:"+source.ID)
+ if err!=nil{writeError(w,500,"could not inspect source ownership");return}
+ if oldOwned=="v1"{writeError(w,403,"this endpoint only edits external rules");return}
+ targetID:=firewall.RuleID("firewalld",source.Zone,in.NewPort,in.NewProtocol)
+ for _,id:=range []string{source.ID,targetID}{
+  if err:=s.ensureNoPending(id);err!=nil{writeError(w,409,err.Error());return}
+ }
+ newOwned,_,err:=s.store.Setting("firewall_owned:"+targetID)
+ if err!=nil{writeError(w,500,"could not inspect target ownership");return}
+ if newOwned!=""{writeError(w,409,"destination has existing ownership metadata");return}
+ for _,prefix:=range []string{"firewall_note:","firewall_purpose:","firewall_paused:"}{
+  value,_,err:=s.store.Setting(prefix+targetID)
+  if err!=nil{writeError(w,500,"cannot inspect destination metadata");return}
+  if value!=""{writeError(w,409,"destination has existing metadata; cannot overwrite");return}
+ }
+ for _,rr:=range snap.Rules{
+  if rr.ID==source.ID{continue}
+  if (rr.Port==source.Port&&rr.Protocol==source.Protocol&&rr.Zone==source.Zone)||
+     (rr.Port==in.NewPort&&rr.Protocol==in.NewProtocol){
+   writeError(w,409,"source or destination overlaps another rule");return
+  }
+ }
+ listeners,err:=ops.FirewallListeners(ctx,s.store.Dir())
+ if err!=nil{writeError(w,409,"cannot inspect live listeners; external edit blocked");return}
+ if listeners[source.Port]||listeners[in.NewPort]{
+  writeError(w,409,"an active listener uses the source or destination port");return
+ }
+ // Always pre-arm a native rollback: add the old rule first, then remove
+ // the new one. The timer survives panel restart, crash or binary upgrade.
+ unit,deadline,err:=ops.ScheduleFirewallEditUndo(
+  ctx,source.Port,source.Protocol,in.NewPort,in.NewProtocol,source.Zone)
+ if err!=nil{writeError(w,409,"cannot arm external-rule recovery: "+err.Error());return}
+ if err:=ops.ApplyFirewall(ctx,s.store.Dir(),"add",in.NewPort,in.NewProtocol,source.Zone);err!=nil{
+  writeError(w,409,"destination add failed; watchdog remains armed: "+err.Error());return
+ }
+ if err:=ops.ApplyFirewall(ctx,s.store.Dir(),"remove",source.Port,source.Protocol,source.Zone);err!=nil{
+  writeError(w,409,"source removal failed; watchdog will restore original rule: "+err.Error());return
+ }
+ changed,err:=ops.InspectFirewall(ctx,s.store.Dir())
+ if err!=nil{writeError(w,502,"edit made; cannot verify result; watchdog stays armed");return}
+ target:=firewall.Rule{ID:targetID,Port:in.NewPort,Protocol:in.NewProtocol,
+  Zone:source.Zone,Backend:"firewalld",Kind:"port",Action:"allow",Family:"both"}
+ oldExists,newFound:=false,false
+ for _,rr:=range changed.Rules{
+  if rr.ID==source.ID{oldExists=true}
+  if rr.ID==targetID{
+   newFound=rr.Kind=="port"&&rr.Action=="allow"&&rr.Runtime&&rr.Permanent&&!rr.Conflict
+  }
+ }
+ if oldExists||!newFound{
+  writeError(w,409,"external edit not in expected final state; watchdog remains armed");return
+ }
+ pending,err:=s.firewallPendingExternalEdit(source,target,unit,deadline)
+ if err!=nil{writeError(w,500,"edit made but confirmation cannot persist; watchdog stays armed");return}
+ s.firewallAudit("edit-external-pending",source.ID)
+ writeJSON(w,http.StatusAccepted,map[string]any{
+  "ok":true,"pending":true,"id":source.ID,"token":pending.Token,
+  "deadline":pending.Deadline,"kind":"edit-external",
+  "newId":targetID,
+ })
+}
