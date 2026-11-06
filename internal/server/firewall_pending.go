@@ -22,6 +22,7 @@ type firewallPending struct {
  Deadline int64 `json:"deadline"`
  Kind string `json:"kind,omitempty"`
  Rule firewall.Rule `json:"rule,omitempty"`
+ Destination firewall.Rule `json:"destination,omitempty"`
 }
 func firewallPendingKey(id string)string{return "firewall_pending:"+id}
 func newFirewallToken()(string,error){
@@ -41,6 +42,18 @@ func (s *Server) firewallPendingSaveKind(id,unit string,deadline int64,kind stri
  return entry,err
 }
 func firewallPausedKey(id string)string{return "firewall_paused:"+id}
+func (s *Server) firewallPendingExternalEdit(source,destination firewall.Rule,unit string,deadline int64)(firewallPending,error){
+ token,err:=newFirewallToken();if err!=nil{return firewallPending{},err}
+ if source.ID==""||destination.ID==""||unit==""||deadline<=0{
+  return firewallPending{},errors.New("invalid external edit recovery state")
+ }
+ p:=firewallPending{ID:source.ID,Token:token,Unit:unit,Deadline:deadline,
+  Kind:"edit-external",Rule:source,Destination:destination}
+ raw,err:=json.Marshal(p);if err!=nil{return firewallPending{},err}
+ err=s.store.SetSetting(firewallPendingKey(source.ID),string(raw))
+ return p,err
+}
+
 func pendingFromSettings(settings map[string]string)[]firewallPending{
  var results []firewallPending
  for key,value:=range settings{
@@ -64,7 +77,7 @@ func (s *Server) firewallRuleConfirm(w http.ResponseWriter,r *http.Request){
   writeError(w,403,"invalid pending action token");return
  }
  switch p.Kind{
- case "","remove-allow","add-drop","remove-drop","pause-allow","pause-drop":
+ case "","remove-allow","add-drop","remove-drop","pause-allow","pause-drop","edit-external":
  default:writeError(w,409,"unrecognized pending action");return
  }
  if time.Now().UnixMilli()>=p.Deadline{writeError(w,409,"confirmation expired; automatic restoration may have started");return}
@@ -73,6 +86,28 @@ func (s *Server) firewallRuleConfirm(w http.ResponseWriter,r *http.Request){
  if err!=nil{writeError(w,502,"cannot verify firewall before confirmation");return}
  expectsPresent:=p.Kind=="add-drop"
  correct:=func(snapshot firewall.Snapshot)bool{
+  if p.Kind=="edit-external"{
+   old,newRule:=p.Rule,p.Destination
+   if old.ID!=p.ID||newRule.ID==""||old.Kind!="port"||newRule.Kind!="port"||
+      old.Action!="allow"||newRule.Action!="allow"||
+      old.Backend!="firewalld"||newRule.Backend!="firewalld"||
+      old.Zone!=newRule.Zone||old.Zone==""||old.ID==newRule.ID{return false}
+   seenNew:=false
+   for _,item:=range snapshot.Rules{
+    if item.ID==old.ID{return false}
+    if item.ID==newRule.ID{
+     if item.Kind!="port"||item.Action!="allow"||!item.Runtime||!item.Permanent||item.Conflict{
+      return false
+     }
+     seenNew=true
+    }
+    if (item.Zone==old.Zone&&item.Port==old.Port&&item.Protocol==old.Protocol&&item.ID!=old.ID)||
+       (item.Zone==newRule.Zone&&item.Port==newRule.Port&&item.Protocol==newRule.Protocol&&item.ID!=newRule.ID){
+     return false
+    }
+   }
+   return seenNew
+  }
   present:=false
   for _,rule:=range snapshot.Rules{
    if rule.ID!=p.ID{
@@ -116,6 +151,25 @@ func (s *Server) firewallRuleConfirm(w http.ResponseWriter,r *http.Request){
  if !correct(verified){writeError(w,409,"rule changed during confirmation; refresh before retrying");return}
  // Pausing retains ownership and note, whereas permanent deletion drops it.
  switch p.Kind{
+ case "edit-external":
+  // Both managers observe the same native rule after a refresh; X-port's
+  // local annotations are moved only after native recovery is cancelled.
+  for _,prefix:=range []string{"firewall_note:","firewall_purpose:"}{
+   value,_,err:=s.store.Setting(prefix+p.ID)
+   if err!=nil{writeError(w,500,"cannot read rule annotation");return}
+   if value!=""{
+    if err:=s.store.SetSetting(prefix+p.Destination.ID,value);err!=nil{
+     writeError(w,500,"cannot migrate rule annotation");return
+    }
+    if err:=s.store.SetSetting(prefix+p.ID,"");err!=nil{
+     writeError(w,500,"cannot clean original annotation");return
+    }
+   }
+  }
+  if err:=s.store.SetSetting(firewallPendingKey(p.ID),"");err!=nil{
+   writeError(w,500,"could not clear pending external edit");return
+  }
+  s.firewallAudit("edit-external",p.ID)
  case "add-drop","pause-allow","pause-drop":
   if err:=s.store.SetSetting(firewallPendingKey(p.ID),"");err!=nil{writeError(w,500,"could not clear pending state");return}
   s.firewallAudit(p.Kind,p.ID)
