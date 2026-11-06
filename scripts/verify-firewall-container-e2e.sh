@@ -64,7 +64,7 @@ for item in d.get("nftables",[]):
             for entry in d.get("nftables",[]):
                 r=entry.get("rule")
                 if r and r.get("family")==c.get("family") and r.get("table")==c.get("table") and r.get("chain")==c.get("name"):
-                    print("UFW_INPUT_RULE", [list(expr.keys()) for expr in r.get("expr",[])])
+                    print("UFW_INPUT_RULE", [list(expr.keys()) for expr in r.get("expr",[])], [x["jump"].get("target") for x in r.get("expr",[]) if "jump" in x])
 PY
 check_snapshot "$UF" ufw true 54321 no
 docker exec "$UF" /usr/local/bin/xport firewall-apply add 54321 tcp ""

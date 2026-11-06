@@ -114,7 +114,8 @@ type nftRule struct {
 }
 func ufwManagedInput(c nftChain, objects []map[string]json.RawMessage) bool {
  if c.Name!="INPUT"||c.Table!="filter"||(c.Family!="ip"&&c.Family!="ip6"){return false}
- required:=map[string]bool{"ufw-before-input":false,"ufw-after-input":false,"ufw-reject-input":false,"ufw-track-input":false}
+ prefix:="ufw-";if c.Family=="ip6"{prefix="ufw6-"}
+ required:=map[string]bool{prefix+"before-input":false,prefix+"after-input":false,prefix+"reject-input":false,prefix+"track-input":false}
  rules:=0
  for _,obj:=range objects{
   raw:=obj["rule"];if len(raw)==0{continue}
@@ -130,7 +131,7 @@ func ufwManagedInput(c nftChain, objects []map[string]json.RawMessage) bool {
     if kind=="counter"{continue}
     if kind!="jump"{return false}
     var target struct{Target string `json:"target"`}
-    if json.Unmarshal(data,&target)!=nil||!strings.HasPrefix(target.Target,"ufw-"){return false}
+    if json.Unmarshal(data,&target)!=nil||!strings.HasPrefix(target.Target,prefix){return false}
     sawJump=true
     if _,ok:=required[target.Target];ok{required[target.Target]=true}
    }

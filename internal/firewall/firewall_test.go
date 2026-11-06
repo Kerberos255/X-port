@@ -129,6 +129,9 @@ func TestUFWTopLevelOwnershipDetection(t *testing.T){
  baseline:=`{"nftables":[{"chain":{"family":"ip","table":"filter","name":"INPUT","hook":"input"}},{"rule":{"family":"ip","table":"filter","chain":"INPUT","expr":[{"counter":{"packets":0,"bytes":0}},{"jump":{"target":"ufw-before-input"}}]}},{"rule":{"family":"ip","table":"filter","chain":"INPUT","expr":[{"counter":{"packets":0,"bytes":0}},{"jump":{"target":"ufw-after-input"}}]}},{"rule":{"family":"ip","table":"filter","chain":"INPUT","expr":[{"counter":{"packets":0,"bytes":0}},{"jump":{"target":"ufw-reject-input"}}]}},{"rule":{"family":"ip","table":"filter","chain":"INPUT","expr":[{"counter":{"packets":0,"bytes":0}},{"jump":{"target":"ufw-track-input"}}]}}]}`
  conflict,err:=independentInputChainsWithUFW(baseline,true)
  if err!=nil||conflict{t.Fatalf("UFW managed input incorrectly flagged: %v %v",conflict,err)}
+ ip6:=strings.ReplaceAll(strings.ReplaceAll(baseline,`"family":"ip"`,`"family":"ip6"`),"ufw-","ufw6-")
+ conflict,err=independentInputChainsWithUFW(ip6,true)
+ if err!=nil||conflict{t.Fatalf("UFW IPv6 managed input incorrectly flagged: %v %v",conflict,err)}
  conflict,err=independentInputChainsWithUFW(baseline,false)
  if err!=nil||!conflict{t.Fatalf("same rules without UFW must be flagged: %v %v",conflict,err)}
  var parsed struct{Nftables []map[string]json.RawMessage `json:"nftables"`}
