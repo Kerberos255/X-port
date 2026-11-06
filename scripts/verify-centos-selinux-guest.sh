@@ -183,6 +183,107 @@ if [[ "$runtime_query" != no || "$permanent_query" != no ]]; then
  exit 1
 fi
 echo "[selinux-vm] Web rule removal confirmed"
+
+# Exercise the independent authenticated rule control endpoint while SELinux
+# remains Enforcing. None of these ports are used for remote administration.
+STAGE=web-policy-control
+control_request(){
+ local payload="$1" output="$2" expected="$3" code
+ code="$(curl -sS -b /run/xport-ci.cookie -H "Origin: $BASE" \
+  -H 'Content-Type: application/json' -o "$output" -w '%{http_code}' \
+  -d "$payload" "$BASE/api/firewall/control")"
+ if [[ "$code" != "$expected" ]]; then
+  echo "[selinux-vm] control HTTP $code, expected $expected"
+  cat "$output"; exit 1
+ fi
+}
+confirm_control(){
+ local pending="$1"
+ python3 - "$pending" <<'PY'
+import json,sys
+p=json.load(open(sys.argv[1]))
+assert p["pending"] and len(p["token"])==32,p
+json.dump({"id":p["id"],"token":p["token"]},open("/run/control-confirm.json","w"))
+PY
+ local code
+ code="$(curl -sS -b /run/xport-ci.cookie -H "Origin: $BASE" \
+  -H 'Content-Type: application/json' -o /run/control-confirm-result.json -w '%{http_code}' \
+  -d @/run/control-confirm.json "$BASE/api/firewall/rules/confirm")"
+ if [[ "$code" != 200 ]]; then cat /run/control-confirm-result.json; exit 1; fi
+}
+drop_id="firewalld:$ZONE:rich:53342/tcp:deny:both"
+allow_id="firewalld:$ZONE:53343/tcp"
+control_request "$(printf '{"action":"add-drop","id":"%s","port":53342,"protocol":"tcp","zone":"%s"}' "$drop_id" "$ZONE")" /run/control-drop-add.json 202
+firewall-cmd --zone="$ZONE" --list-rich-rules | grep -F 'port="53342"'
+firewall-cmd --permanent --zone="$ZONE" --list-rich-rules | grep -F 'port="53342"'
+confirm_control /run/control-drop-add.json
+curl -fsS -b /run/xport-ci.cookie "$BASE/api/firewall" >/run/control-drop-list.json
+python3 - <<'PY'
+import json
+d=json.load(open("/run/control-drop-list.json"))
+r=[r for r in d["rules"] if r["port"]==53342 and r["protocol"]=="tcp"]
+assert len(r)==1 and r[0]["action"]=="deny" and r[0]["managed"],r
+PY
+control_request "$(printf '{"action":"pause-drop","id":"%s","port":53342,"protocol":"tcp","zone":"%s"}' "$drop_id" "$ZONE")" /run/control-drop-pause.json 202
+test -z "$(firewall-cmd --zone="$ZONE" --list-rich-rules | grep -F 'port="53342"' || true)"
+confirm_control /run/control-drop-pause.json
+curl -fsS -b /run/xport-ci.cookie "$BASE/api/firewall" >/run/control-drop-paused.json
+python3 - <<'PY'
+import json
+d=json.load(open("/run/control-drop-paused.json"))
+r=[r for r in d["rules"] if r["port"]==53342 and r["protocol"]=="tcp"]
+assert len(r)==1 and r[0]["paused"] and r[0]["managed"] and r[0]["action"]=="deny",r
+PY
+control_request "$(printf '{"action":"resume-drop","id":"%s","port":53342,"protocol":"tcp","zone":"%s"}' "$drop_id" "$ZONE")" /run/control-drop-resume.json 200
+firewall-cmd --zone="$ZONE" --list-rich-rules | grep -F 'port="53342"'
+control_request "$(printf '{"action":"remove-drop","id":"%s","port":53342,"protocol":"tcp","zone":"%s"}' "$drop_id" "$ZONE")" /run/control-drop-remove.json 202
+confirm_control /run/control-drop-remove.json
+test -z "$(firewall-cmd --zone="$ZONE" --list-rich-rules | grep -F 'port="53342"' || true)"
+
+payload="$(printf '{"action":"add","port":53343,"protocol":"tcp","zone":"%s"}' "$ZONE")"
+code="$(curl -sS -b /run/xport-ci.cookie -H "Origin: $BASE" -H 'Content-Type: application/json' \
+ -o /run/control-allow-add.json -w '%{http_code}' -d "$payload" "$BASE/api/firewall/rules")"
+test "$code" = 200
+control_request "$(printf '{"action":"pause-allow","id":"%s","port":53343,"protocol":"tcp","zone":"%s"}' "$allow_id" "$ZONE")" /run/control-allow-pause.json 202
+test "$(firewall-cmd --zone="$ZONE" --query-port=53343/tcp || true)" = no
+confirm_control /run/control-allow-pause.json
+curl -fsS -b /run/xport-ci.cookie "$BASE/api/firewall" >/run/control-allow-paused.json
+python3 - <<'PY'
+import json
+d=json.load(open("/run/control-allow-paused.json"))
+r=[r for r in d["rules"] if r["port"]==53343 and r["protocol"]=="tcp"]
+assert len(r)==1 and r[0]["paused"] and r[0]["action"]=="allow",r
+PY
+control_request "$(printf '{"action":"resume-allow","id":"%s","port":53343,"protocol":"tcp","zone":"%s"}' "$allow_id" "$ZONE")" /run/control-allow-resume.json 200
+test "$(firewall-cmd --zone="$ZONE" --query-port=53343/tcp || true)" = yes
+test "$(firewall-cmd --permanent --zone="$ZONE" --query-port=53343/tcp || true)" = yes
+control_request "$(printf '{"action":"pause-allow","id":"%s","port":22,"protocol":"tcp","zone":"%s"}' "$allow_id" "$ZONE")" /run/control-protected.json 409
+echo "[selinux-vm] DROP creation, pause/resume, removal and allow pause/resume passed"
+
+# Confirm the DROP-add watchdog really runs without any X-port binary.
+# Only the standalone SELinux VM performs this additional full timer.
+if [[ ! -f /run/xport-ci-seed/panel-test.sh ]]; then
+ STAGE=drop-recovery-without-panel-binary
+ timeout_id="firewalld:$ZONE:rich:53344/tcp:deny:both"
+ control_request "$(printf '{"action":"add-drop","id":"%s","port":53344,"protocol":"tcp","zone":"%s"}' "$timeout_id" "$ZONE")" /run/control-drop-timeout.json 202
+ test -n "$(firewall-cmd --zone="$ZONE" --list-rich-rules | grep -F 'port="53344"')"
+ mv /usr/local/bin/xport /usr/local/bin/xport.drop-timer
+ restored=0
+ for i in $(seq 1 140); do
+  if [[ -z "$(firewall-cmd --zone="$ZONE" --list-rich-rules | grep -F 'port="53344"' || true)" ]] &&
+     [[ -z "$(firewall-cmd --permanent --zone="$ZONE" --list-rich-rules | grep -F 'port="53344"' || true)" ]]; then
+   restored=1; break
+  fi
+  sleep 1
+ done
+ mv /usr/local/bin/xport.drop-timer /usr/local/bin/xport
+ if [[ "$restored" != 1 ]]; then
+  echo "[selinux-vm] Native DROP watchdog failed to remove unconfirmed rule"
+  exit 1
+ fi
+ echo "[selinux-vm] Real 120-second DROP watchdog removed rule while panel binary was absent"
+fi
+
 # Validate an actual 120-second Web recovery while the panel binary
 # is temporarily absent. Run once in the standalone SELinux guest, not the
 # second VM which also installs 1Panel.
