@@ -137,9 +137,13 @@ cat > "$TMP/__preview.js" <<'JS'
         if (!note.hidden) throw new Error('internal update note should be hidden')
         const status=await waitFor('#xray-page-update-state')
         if (!(status.textContent||'').trim()) throw new Error('Xray update state missing')
-      } else if (preview === 'firewall' || preview === 'firewall-light') {
+      } else if (preview === 'firewall' || preview === 'firewall-light' || preview === 'firewall-detail-light') {
         document.querySelector('#nav [data-page="firewall"]').click()
         await waitFor('#fw-rows tr button[data-fw-act="edit"]')
+        if (preview === 'firewall-detail-light') {
+          document.querySelector('#fw-rows button[data-fw-act="detail"][data-fw-id="firewalld:public:2053/tcp"]').click()
+          await waitFor('#fw-detail-dialog[open]')
+        }
       } else if (preview === 'accounts' || preview === 'accounts-light') {
         document.querySelector('#nav [data-page="accounts"]').click()
         await waitFor('.account-row')
@@ -206,6 +210,7 @@ capture account-advanced account
 capture xray-global xray
 capture firewall-desktop firewall
 capture firewall-light firewall-light
+capture firewall-detail-light firewall-detail-light
 # The integrated firewall screen also needs narrow-viewport validation.
 "$BROWSER" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage \
   --window-size=390,844 --force-device-scale-factor=1 --virtual-time-budget=6500 \
