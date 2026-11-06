@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
-exec >/dev/ttyS0 2>&1
+if [[ "${XPORT_CI_SSH:-}" != 1 ]]; then exec >/dev/ttyS0 2>&1; fi
 STAGE=preflight
 fail(){
  local rc="$1"
@@ -109,5 +109,15 @@ firewall-cmd --zone="$ZONE" --query-port=53333/tcp | grep -Fxq no
 firewall-cmd --permanent --zone="$ZONE" --query-port=53333/tcp | grep -Fxq no
 echo "[selinux-vm] Web rule removal confirmed"
 echo "XPORT_SELINUX_E2E_OK"
+if [[ -f /run/xport-ci-seed/panel-test.sh ]]; then
+ STAGE=panel-coexist
+ echo "[selinux-vm] Starting separate panel coinstallation under Enforcing"
+ if ! timeout 450 bash /run/xport-ci-seed/panel-test.sh; then
+  echo "XPORT_SELINUX_E2E_FAILED stage=panel-coexist"
+  sync
+  systemctl poweroff --no-block || true
+  exit 1
+ fi
+fi
 sync
 systemctl poweroff --no-block

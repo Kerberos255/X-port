@@ -12,6 +12,7 @@ on:
       - 'scripts/verify-web-update-http.sh'
       - 'scripts/verify-centos-selinux-vm.sh'
       - 'scripts/verify-centos-selinux-guest.sh'
+      - 'scripts/verify-centos-panel-coexist-guest.sh'
       - 'scripts/verify-firewall-distros.sh'
       - 'scripts/testdata/cancel_timer/main.go'
       - 'scripts/testdata/upgrade_harness.go'
@@ -126,3 +127,21 @@ jobs:
         run: CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o "$RUNNER_TEMP/xport-selinux-e2e" ./cmd/xport
       - name: Boot official CentOS Stream 9 under KVM and exercise Enforcing mode
         run: sudo bash scripts/verify-centos-selinux-vm.sh "$RUNNER_TEMP/xport-selinux-e2e"
+
+  centos9-panel-coexist:
+    # Full 1Panel installation is performed only in a disposable KVM guest.
+    # Keep it separate from the SELinux baseline to identify installer failures.
+    needs: centos9-selinux-enforcing
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 27
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.27.3'
+          cache: false
+      - name: Build X-port
+        run: CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o "$RUNNER_TEMP/xport-panel-coexist" ./cmd/xport
+      - name: Install both management panels in CentOS 9 Enforcing guest
+        run: sudo bash scripts/verify-centos-selinux-vm.sh "$RUNNER_TEMP/xport-panel-coexist" panel
