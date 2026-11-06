@@ -112,6 +112,8 @@ X-port deliberately keeps a narrower scope than large multi-user proxy platforms
 
 The **Firewall** page reads the live firewalld or UFW backend and offers explicit, confirmed changes to simple TCP/UDP port allowances. For firewalld, X-port updates both runtime and permanent state and refuses to edit mismatched rules; SSH default port 22 and the configured panel port are protected against removal. The separate read-only nftables view displays native rules for diagnosis, not definitive external reachability. Notes and manual purpose labels are stored in X-port's SQLite settings (and included in backups). Xray-owned ports are labeled from X-port account configuration; other purposes remain unknown unless entered manually. The page does not automatically open account ports.
 
+**Existing systemd installs upgraded from versions before v0.2.8:** The firewall diagnostics require `AF_NETLINK`, which older X-port systemd units do not allow. After updating the binary, inspect any custom unit overrides, then run `sudo xport repair` and `sudo systemctl restart xport` to regenerate and activate the updated panel service unit. This briefly restarts the panel, not the independently managed Xray core; preserve a separate SSH access path during maintenance.
+
 ## Runtime layout
 
 ```text

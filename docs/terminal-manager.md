@@ -68,6 +68,8 @@ sudo xport uninstall
 
 The terminal menu remains available. The authenticated WebUI also supports guarded simple port rules for active firewalld/UFW backends, plus editable note and purpose metadata in SQLite. The WebUI keeps custom nftables/iptables rules read-only; never infer external reachability solely from one manager's rule list.
 
+After upgrading an existing panel service from a version older than v0.2.8, its old systemd unit may still deny AF_NETLINK sockets required by nftables and UFW. After checking any custom unit overrides, run `sudo xport repair` followed by `sudo systemctl restart xport` to apply the newer unit definition. This is an explicit administrator operation; WebUI updates never silently rewrite systemd services.
+
 - `ufw`: view rules, allow a TCP/UDP/both port, remove an allow rule.
 - active `firewalld`: view rules, add/remove runtime and permanent TCP/UDP/both ports.
 - custom `nftables` / `iptables`: read-only rule display. X-port does not guess how a custom ruleset should be modified.

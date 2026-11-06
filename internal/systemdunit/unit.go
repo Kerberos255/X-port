@@ -85,7 +85,8 @@ LockPersonality=true
 SystemCallArchitectures=native
 ProtectSystem=strict
 ReadWritePaths=%s %s %s
-RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+
 [Install]
 WantedBy=multi-user.target
 `, dataDir, xportBinary, dataDir, xrayBinary, xrayConfig, XrayUnitName, dataDir, prefix, xportBinDir)

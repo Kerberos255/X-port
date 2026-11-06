@@ -144,7 +144,7 @@
     el('fw-load-raw').disabled=true
     el('fw-raw').textContent='读取中…'
     try{const data=await api('/api/firewall/raw');el('fw-raw').textContent=data.ruleset||'规则集为空'}
-    catch(err){el('fw-raw').textContent='读取失败：'+err.message}
+    catch(err){el('fw-raw').textContent='读取失败：'+err.message+'。若是从旧版升级且系统服务限制 AF_NETLINK，请确认现有 unit 配置后运行 sudo xport repair，并重启 xport 服务。'}
     finally{el('fw-load-raw').disabled=false}
   })
   el('fw-add-dialog').addEventListener('close',async()=>{
