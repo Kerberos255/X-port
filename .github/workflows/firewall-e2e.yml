@@ -13,6 +13,8 @@ on:
       - 'scripts/verify-centos-selinux-vm.sh'
       - 'scripts/verify-centos-selinux-guest.sh'
       - 'scripts/verify-centos-helper-matrix.sh'
+      - 'scripts/verify-centos-go-helper-diag.sh'
+      - 'scripts/testdata/firewall_helper_diag/main.go'
       - 'scripts/verify-centos-panel-coexist-guest.sh'
       - 'scripts/verify-firewall-distros.sh'
       - 'scripts/testdata/cancel_timer/main.go'
@@ -126,8 +128,10 @@ jobs:
           cache: false
       - name: Build the candidate X-port binary
         run: CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o "$RUNNER_TEMP/xport-selinux-e2e" ./cmd/xport
+      - name: Build equivalent Go os/exec diagnostic program
+        run: CGO_ENABLED=0 go build -trimpath -o "$RUNNER_TEMP/go-helper-diag" ./scripts/testdata/firewall_helper_diag/main.go
       - name: Boot official CentOS Stream 9 under KVM and exercise Enforcing mode
-        run: sudo bash scripts/verify-centos-selinux-vm.sh "$RUNNER_TEMP/xport-selinux-e2e"
+        run: sudo env GO_HELPER_DIAG="$RUNNER_TEMP/go-helper-diag" bash scripts/verify-centos-selinux-vm.sh "$RUNNER_TEMP/xport-selinux-e2e"
 
   centos9-panel-coexist:
     # Full 1Panel installation is performed only in a disposable KVM guest.
