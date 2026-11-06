@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -18,6 +19,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/Kerberos255/X-port/internal/backup"
+	"github.com/Kerberos255/X-port/internal/firewall"
 	"github.com/Kerberos255/X-port/internal/buildinfo"
 	"github.com/Kerberos255/X-port/internal/ops"
 	"github.com/Kerberos255/X-port/internal/selfupdate"
@@ -59,7 +61,7 @@ func dispatchManager(args []string) (bool, int) {
 
 func isManagerCommand(cmd string) bool {
 	switch cmd {
-	case "menu", "status", "start", "stop", "restart", "restart-xray", "logs", "autostart", "settings", "admin", "update", "update-xray", "update-geodata", "backup", "firewall", "repair", "uninstall":
+	case "menu", "status", "start", "stop", "restart", "restart-xray", "logs", "autostart", "settings", "admin", "update", "update-xray", "update-geodata", "backup", "firewall", "firewall-apply", "firewall-inspect", "firewall-raw", "firewall-listeners", "repair", "uninstall":
 		return true
 	default:
 		return false
@@ -98,6 +100,14 @@ func runManagerCommand(cmd string, args []string) error {
 		return backupMenu()
 	case "firewall":
 		return firewallMenu()
+	case "firewall-apply":
+		return firewallApplyHelper(args)
+	case "firewall-inspect":
+		return firewallHelperInspect(args)
+	case "firewall-raw":
+		return firewallHelperRaw(args)
+	case "firewall-listeners":
+		return firewallHelperListeners(args)
 	case "repair":
 		return repairInstall(args)
 	case "uninstall":
@@ -870,4 +880,37 @@ func uninstallXport() error {
 	}
 	fmt.Println("/etc/x-port 已保留。")
 	return nil
+}
+
+func firewallApplyHelper(args []string) error {
+ if err:=requireRoot();err!=nil{return err}
+ if len(args)!=4{return errors.New("usage: xport firewall-apply add|remove PORT tcp|udp ZONE")}
+ port,err:=strconv.Atoi(args[1]);if err!=nil{return errors.New("invalid port")}
+ if !firewall.ValidRule(port,args[2]){return errors.New("invalid firewall port/protocol")}
+ if args[0]!="add"&&args[0]!="remove"{return errors.New("invalid action")}
+ if args[3]!=""&&!firewall.ValidZone(args[3]){return errors.New("invalid zone")}
+ ctx,cancel:=context.WithTimeout(context.Background(),50*time.Second);defer cancel()
+ return firewall.Change(ctx,args[0],port,args[2],args[3])
+}
+
+func firewallHelperInspect(args []string)error{
+ if err:=requireRoot();err!=nil{return err}
+ if len(args)>0{return errors.New("firewall-inspect takes no arguments")}
+ ctx,cancel:=context.WithTimeout(context.Background(),30*time.Second);defer cancel()
+ snap,err:=firewall.Inspect(ctx);if err!=nil{return err}
+ return json.NewEncoder(os.Stdout).Encode(snap)
+}
+func firewallHelperRaw(args []string)error{
+ if err:=requireRoot();err!=nil{return err}
+ if len(args)>0{return errors.New("firewall-raw takes no arguments")}
+ ctx,cancel:=context.WithTimeout(context.Background(),15*time.Second);defer cancel()
+ raw,err:=firewall.Raw(ctx);if err!=nil{return err}
+ _,err=fmt.Println(raw);return err
+}
+func firewallHelperListeners(args []string)error{
+ if err:=requireRoot();err!=nil{return err}
+ if len(args)>0{return errors.New("firewall-listeners takes no arguments")}
+ ctx,cancel:=context.WithTimeout(context.Background(),10*time.Second);defer cancel()
+ ports,err:=firewall.ListeningPorts(ctx);if err!=nil{return err}
+ return json.NewEncoder(os.Stdout).Encode(ports)
 }
