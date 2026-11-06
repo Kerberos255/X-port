@@ -155,7 +155,9 @@ func independentInputChainBlocker(data string, ufwActive bool)(string,error){
   case "input","prerouting","ingress":
   default:continue
   }
-  if c.Table=="firewalld"{continue}
+  // Only the inet table is owned by firewalld. An unrelated ip/ip6 table
+  // with the same name is still an independent firewall chain.
+  if c.Table=="firewalld"&&c.Family=="inet"{continue}
   // An ordinary NAT PREROUTING chain alters addresses/ports, but does not
   // represent an independent input filter. Keep unknown or non-NAT chains
   // fail-closed; NAT can still affect effective reachability.
