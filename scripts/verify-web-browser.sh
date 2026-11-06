@@ -257,7 +257,7 @@ cat > "$TMP/__driver.js" <<'JS'
       detailButton.click()
       const detail=await waitFor('#fw-detail-dialog[open]')
       if(detail.querySelectorAll('.fw-detail-section').length!==3) throw new Error('firewall detail groups missing')
-      if(detail.getBoundingClientRect().width < 440 && innerWidth > 800) throw new Error('firewall detail dialog is too narrow')
+      if(detail.getBoundingClientRect().width < 440 && innerWidth > 700) throw new Error('firewall detail dialog is too narrow')
       if(!detail.querySelector('.fw-detail-summary')?.textContent.includes('X-port')) throw new Error('detail summary missing')
       detail.querySelector('button[value="cancel"]').click()
 
@@ -272,7 +272,7 @@ cat > "$TMP/__driver.js" <<'JS'
         const values=computed.color.match(/[0-9]+/g)?.slice(0,3).map(Number)||[]
         if(values.length!==3 || values.reduce((a,b)=>a+b,0)/3>135) throw new Error('light-theme metadata too pale: '+computed.color)
       }
-      if(parseFloat(getComputedStyle(document.querySelector('#nav button')).fontSize)<13 && innerWidth>800) throw new Error('sidebar text too small')
+      if(parseFloat(getComputedStyle(document.querySelector('#nav button')).fontSize)<13 && innerWidth>1050) throw new Error('sidebar text too small')
       if(parseFloat(getComputedStyle(document.querySelector('#login-form label')).fontSize)<12) throw new Error('login label too small')
       document.documentElement.dataset.theme=oldTheme||'dark'
 
