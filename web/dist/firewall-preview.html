@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<title>X-port · 防火墙界面预览</title>
+<style>
+:root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;color:#eaf1fb;background:#070b12;--bg:#070b12;--panel:#111a29;--panel2:#121e30;--line:rgba(132,166,211,.17);--muted:#8294ad;--strong:#eaf1fb;--cyan:#5de0db;--green:#62dca8;--amber:#e9bf70;--red:#ee8792;--soft:#b6c3d5;--field:#0c1421}
+*{box-sizing:border-box}body{margin:0;min-width:320px;background:radial-gradient(circle at 76% -8%,rgba(62,125,199,.13),transparent 32%),var(--bg);min-height:100vh;line-height:1.5}button,input,select,textarea{font:inherit;color:inherit}button{cursor:pointer}button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}button:disabled{opacity:.5;cursor:not-allowed}a{color:inherit;text-decoration:none}
+.shell{min-height:100vh;display:grid;grid-template-columns:220px minmax(0,1fr)}.sidebar{height:100vh;position:sticky;top:0;padding:27px 17px 20px;border-right:1px solid var(--line);background:rgba(7,11,18,.84);backdrop-filter:blur(22px);display:flex;flex-direction:column}.brand{display:flex;align-items:center;gap:11px;margin:0 8px 28px}.brand-mark{width:38px;height:38px;display:grid;place-items:center;border-radius:11px;font-size:18px;font-weight:850;color:var(--cyan);border:1px solid rgba(93,224,219,.26);background:linear-gradient(145deg,rgba(70,221,215,.16),rgba(92,115,232,.08))}.brand b{display:block;font-size:18px}.brand small{font-size:8px;letter-spacing:1.6px;color:#60738c}.nav{display:grid;gap:5px}.nav button{background:transparent;border:0;border-radius:9px;color:#8c9bb1;text-align:left;padding:11px 13px;display:flex;gap:12px;align-items:center;font-size:13px}.nav button:hover{background:rgba(111,174,224,.07)}.nav button.active{color:var(--strong);background:linear-gradient(90deg,rgba(74,203,207,.13),rgba(82,119,189,.04));box-shadow:inset 2px 0 var(--cyan)}.nav button .nav-icon{width:19px;text-align:center;color:#69c6cf;font-size:15px}.side-foot{margin-top:auto;color:#67778e;font-size:10px;padding:10px 9px;display:flex;gap:8px;align-items:center;letter-spacing:.7px}.dot{width:7px;height:7px;background:var(--green);border-radius:50%;display:inline-block;box-shadow:0 0 11px rgba(98,220,168,.4)}
+.main{min-width:0;max-width:1580px;width:100%;margin:0 auto;padding:34px 38px 56px}.top{display:flex;align-items:flex-start;justify-content:space-between;gap:15px;margin-bottom:23px}.eyebrow,.kicker{font-size:9px;letter-spacing:1.65px;font-weight:750;color:#59bcc4}.top h1{margin:5px 0 5px;font-size:28px;letter-spacing:-.7px}.top p{font-size:12px;color:var(--muted);margin:0}.top-right{display:flex;gap:9px;align-items:center;flex-wrap:wrap;justify-content:flex-end}.chip,.badge{display:inline-flex;gap:6px;align-items:center;white-space:nowrap;border-radius:7px;padding:5px 9px;border:1px solid var(--line);color:var(--soft);font-size:11px}.chip.preview{color:#d9bb82;background:rgba(233,191,112,.06);border-color:rgba(233,191,112,.24)}.button{min-height:36px;padding:8px 12px;border:1px solid var(--line);border-radius:8px;background:rgba(110,141,179,.055);font-size:12px;white-space:nowrap}.button:hover,.icon-button:hover{border-color:rgba(93,224,219,.35);background:rgba(93,224,219,.07)}.button.primary{background:linear-gradient(135deg,rgba(58,210,201,.94),rgba(69,145,219,.92));color:#07141c;font-weight:800;border-color:rgba(103,228,222,.24)}.button.danger{color:var(--red);border-color:rgba(238,135,146,.22)}.icon-button{display:inline-grid;place-items:center;width:34px;height:34px;border:1px solid var(--line);background:rgba(110,141,179,.055);border-radius:8px;font-size:15px;color:var(--soft)}.muted{color:var(--muted)}.tiny{font-size:11px}.panel{background:linear-gradient(145deg,rgba(18,27,42,.91),rgba(10,16,27,.84));border:1px solid var(--line);border-radius:13px;box-shadow:0 15px 43px rgba(0,0,0,.13),inset 0 1px rgba(255,255,255,.015);backdrop-filter:blur(16px)}
+.backend{padding:15px 19px;display:grid;grid-template-columns:1fr 1fr auto;align-items:center;gap:15px;margin-bottom:13px}.backend-cell{display:flex;align-items:center;gap:12px;min-width:0}.backend-cell+.backend-cell{border-left:1px solid var(--line);padding-left:22px}.backend-icon{width:37px;height:37px;display:grid;place-items:center;border:1px solid rgba(93,224,219,.16);color:var(--cyan);border-radius:10px;background:rgba(93,224,219,.045);flex:0 0 auto}.backend small{display:block;color:var(--muted);font-size:10px}.backend b{font-size:13px;font-weight:700}.good{color:#8ee7bb}.warning{color:#f0c67d}.danger-text{color:#f0a4ad}
+.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:15px}.stat{padding:16px 19px;display:flex;align-items:center;justify-content:space-between;gap:6px}.stat small{font-size:10px;color:var(--muted);display:block}.stat strong{display:block;font-size:24px;line-height:1.25;margin-top:6px;letter-spacing:-.5px}.stat-icon{font-size:20px;color:#85a4c7;opacity:.8}.stat .accent{color:var(--cyan)}
+.workspace{padding:18px 19px 16px}.tabs{display:flex;gap:3px;border-bottom:1px solid var(--line);margin:-2px 0 17px}.tab{padding:10px 15px;border:0;border-bottom:2px solid transparent;color:var(--muted);background:transparent;font-size:12px;font-weight:650}.tab.selected{color:var(--strong);border-bottom-color:var(--cyan)}.tab:hover{color:var(--strong)}.toolbar{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap}.filters{display:flex;gap:5px}.filter{font-size:11px;border-radius:7px;padding:7px 12px;border:1px solid transparent;background:transparent;color:var(--muted)}.filter.selected{color:var(--strong);border-color:var(--line);background:rgba(115,149,188,.1)}.actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.search{position:relative}.search input{height:36px;width:210px;border-radius:8px;border:1px solid var(--line);padding:7px 11px 7px 31px;background:var(--field);font-size:12px;outline:none}.search::before{content:"⌕";position:absolute;left:10px;top:4px;font-size:20px;color:#7890ac}.search input:focus{border-color:rgba(93,224,219,.5)}.table-wrap{width:100%;overflow-x:auto}.rules{width:100%;border-collapse:collapse;table-layout:fixed;text-align:left}.rules th{padding:12px 11px;font-size:10px;color:var(--muted);font-weight:650;border-bottom:1px solid var(--line);white-space:nowrap}.rules td{border-bottom:1px solid rgba(132,166,211,.09);padding:14px 11px;font-size:12px;vertical-align:middle;overflow-wrap:anywhere}.rules tbody tr:last-child td{border-bottom:0}.rules tbody tr:hover{background:rgba(123,163,212,.035)}.rules th:nth-child(1){width:10%}.rules th:nth-child(2){width:15%}.rules th:nth-child(3){width:8%}.rules th:nth-child(4){width:12%}.rules th:nth-child(5){width:13%}.rules th:nth-child(6){width:12%}.rules th:nth-child(7){width:24%}.rules th:nth-child(8){width:6%}.port{font-weight:750;color:var(--strong);font-variant-numeric:tabular-nums}.service{font-weight:600}.sub{display:block;color:var(--muted);font-size:10px;margin-top:3px}.source{font-size:10px;border:1px solid var(--line);color:#b3c4dc;background:rgba(96,141,189,.07);padding:5px 7px;border-radius:6px;display:inline-block;white-space:nowrap}.source.dual{color:#e5c58e;border-color:rgba(233,191,112,.2)}.status{font-size:11px;display:inline-flex;gap:6px;align-items:center}.status::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--green)}.status.warn{color:var(--amber)}.status.warn::before{background:var(--amber)}.status.protect{color:#a4b3c9}.status.protect::before{background:#7c9ab9}.note-cell{min-width:0}.note-button{display:flex;align-items:center;gap:7px;color:#c2d1e5;background:transparent;border:1px solid transparent;border-radius:7px;padding:6px 7px;margin-left:-7px;width:100%;text-align:left;min-width:0;font-size:11.5px}.note-button span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}.note-button i{margin-left:auto;font-style:normal;color:#80a3bb;font-size:12px;flex:0 0 auto}.note-button:hover{background:rgba(92,205,210,.065);border-color:rgba(92,205,210,.14)}.note-empty{color:#768aa5!important;font-style:italic}.edit-note{display:flex;flex-direction:column;gap:6px}.edit-note input{width:100%;height:33px;border:1px solid rgba(93,224,219,.5);border-radius:7px;background:var(--field);padding:6px 8px;font-size:12px}.edit-acts{display:flex;gap:6px;justify-content:flex-end}.mini{font-size:10px;padding:4px 8px;min-height:25px}.detail-button{width:32px;height:32px;border:1px solid var(--line);border-radius:8px;color:var(--soft);background:transparent;font-size:19px}.detail-button:hover{color:var(--cyan);border-color:rgba(93,224,219,.3)}.table-foot{font-size:10px;color:var(--muted);padding:11px 2px 2px;border-top:1px solid var(--line);margin-top:4px;display:flex;align-items:center;justify-content:space-between;gap:10px}.hint{font-size:11px;color:var(--muted);margin:14px 0 0;line-height:1.6}.advanced-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.advanced-card{padding:17px;border:1px solid var(--line);border-radius:10px;background:rgba(110,141,179,.035)}.advanced-card h3{margin:0 0 5px;font-size:15px}.advanced-card p{color:var(--muted);font-size:11px;line-height:1.75}.advanced-card .line{display:flex;gap:9px;align-items:center;justify-content:space-between}.codebox{margin:12px 0 0;border:1px solid var(--line);background:var(--field);padding:12px;border-radius:8px;white-space:pre-wrap;word-break:break-all;font-size:11px;color:#91b1d1}.full-span{grid-column:1/-1}.xray-list{display:grid;gap:9px}.xray-item{border:1px solid var(--line);border-radius:9px;padding:14px;display:grid;grid-template-columns:1fr auto auto;gap:12px;align-items:center;background:rgba(110,141,179,.035)}.xray-item b{font-size:13px}.xray-item small{font-size:11px;color:var(--muted)}
+.overlay{position:fixed;inset:0;background:rgba(2,6,12,.7);backdrop-filter:blur(5px);z-index:10;display:none}.overlay.show{display:block}.drawer{position:fixed;right:0;top:0;bottom:0;width:min(425px,100vw);background:#0e1725;border-left:1px solid var(--line);padding:30px 26px;z-index:11;overflow:auto;transform:translateX(105%);transition:transform .2s}.drawer.show{transform:translateX(0)}.drawer h2{margin:8px 0 4px;font-size:24px}.detail-line{border-bottom:1px solid var(--line);padding:14px 0;display:flex;justify-content:space-between;gap:12px;font-size:12px}.detail-line span{color:var(--muted)}.drawer-actions{display:flex;gap:8px;margin-top:22px;flex-wrap:wrap}.dialog-backdrop{position:fixed;inset:0;z-index:12;display:none;align-items:center;justify-content:center;background:rgba(2,6,12,.72);backdrop-filter:blur(6px);padding:15px}.dialog-backdrop.show{display:flex}.dialog{max-width:480px;width:100%;background:#111b2a;border:1px solid var(--line);border-radius:15px;padding:23px;box-shadow:0 30px 110px rgba(0,0,0,.5)}.dialog h2{margin:4px 0 5px;font-size:19px}.dialog label{font-size:11px;color:var(--soft);display:grid;gap:6px}.dialog input,.dialog select{width:100%;border:1px solid var(--line);background:var(--field);border-radius:8px;padding:10px;font-size:13px}.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:13px;margin:20px 0}.form-grid .wide{grid-column:1/-1}.footer-actions{display:flex;justify-content:flex-end;gap:8px}.toast{position:fixed;bottom:26px;left:50%;transform:translateX(-50%);padding:10px 17px;background:#183342;border:1px solid rgba(93,224,219,.25);border-radius:9px;z-index:25;font-size:12px;box-shadow:0 15px 35px rgba(0,0,0,.25);display:none}.toast.show{display:block}
+html[data-theme="light"]{--bg:#f1f5fa;--panel:#fff;--panel2:#f8fbff;--line:rgba(56,91,130,.17);--muted:#63768e;--strong:#1e3046;--soft:#435872;--field:#f5f8fd;color:#253b54;background:#f1f5fa;color-scheme:light}html[data-theme="light"] body{background:radial-gradient(circle at 70% -10%,#dcebf9,transparent 33%),#f1f5fa}html[data-theme="light"] .sidebar{background:rgba(248,251,255,.93)}html[data-theme="light"] .nav button{color:#63758c}html[data-theme="light"] .nav button.active{color:#1e3046}html[data-theme="light"] .panel{background:linear-gradient(145deg,#fff,#f8fbff)}html[data-theme="light"] .advanced-card,html[data-theme="light"] .xray-item{background:#f8fbff}html[data-theme="light"] .drawer,html[data-theme="light"] .dialog{background:#fff}html[data-theme="light"] .chip.preview{color:#80602e}html[data-theme="light"] .note-button{color:#334a62}html[data-theme="light"] .source{color:#426284}html[data-theme="light"] .codebox{color:#375a7b}
+@media(max-width:1160px){.main{padding:26px 22px 50px}.rules{min-width:900px}.stat{padding:14px 12px}.backend{grid-template-columns:1fr 1fr}.backend>.chip{grid-column:1/-1;justify-self:start}}
+@media(max-width:700px){.shell{display:block}.sidebar{height:auto;position:fixed;z-index:5;top:auto;bottom:max(8px,env(safe-area-inset-bottom));left:8px;right:8px;border:1px solid var(--line);border-radius:13px;padding:6px 7px;background:#101a29;box-shadow:0 18px 45px rgba(0,0,0,.38)}html[data-theme="light"] .sidebar{background:#fff}.sidebar .brand,.side-foot{display:none}.nav{display:grid;grid-template-columns:repeat(5,1fr);gap:2px}.nav button{display:grid;justify-items:center;gap:2px;padding:7px 2px;font-size:10px;text-align:center;min-width:0}.nav button .nav-icon{font-size:19px;width:auto}.nav button.active{box-shadow:inset 0 -2px var(--cyan);background:rgba(74,203,207,.1)}.main{padding:20px 12px calc(108px + env(safe-area-inset-bottom))}.top{gap:8px;margin-bottom:17px}.top h1{font-size:24px}.top p{font-size:11px}.top-right .chip{display:none}.backend{padding:13px;grid-template-columns:1fr 1fr;gap:8px}.backend-cell{gap:7px}.backend-cell+.backend-cell{padding-left:9px}.backend-icon{display:none}.backend b{font-size:12px}.backend small{font-size:9px}.backend>.chip{grid-column:1/-1}.stats{grid-template-columns:1fr 1fr;gap:8px}.stat{padding:12px}.stat strong{font-size:21px}.workspace{padding:13px}.tabs{margin-bottom:15px}.tab{padding:10px 11px;font-size:11px}.toolbar{align-items:stretch}.search{flex:1}.search input{width:100%}.actions{flex:1 0 100%;display:grid;grid-template-columns:1fr auto}.filters{gap:3px}.filter{padding:7px 10px}.table-wrap{overflow:visible}.rules,.rules tbody,.rules tr,.rules td{display:block;width:100%;min-width:0}.rules thead{display:none}.rules tbody{display:grid;gap:9px}.rules tbody tr{border:1px solid var(--line);border-radius:10px;padding:11px 12px;background:rgba(120,154,198,.025);display:grid;grid-template-columns:1fr 1fr;gap:7px 10px}.rules td{border:0;padding:0;font-size:11px;min-width:0}.rules td::before{content:attr(data-label);color:var(--muted);display:block;font-size:9px;margin-bottom:3px}.rules td:nth-child(1),.rules td:nth-child(2){grid-column:auto}.rules td:nth-child(7){grid-column:1/-1;border-top:1px solid var(--line);padding-top:8px}.rules td:nth-child(8){grid-column:1/-1;text-align:right}.note-button{margin:0;padding:5px 3px}.detail-button{height:28px;width:33px}.table-foot{margin-top:12px}.advanced-grid{grid-template-columns:1fr}.xray-item{grid-template-columns:1fr auto}.xray-item .button{grid-column:1/-1}.drawer{width:100%;padding:22px 20px calc(90px + env(safe-area-inset-bottom))}.dialog{padding:18px}.toast{bottom:110px;max-width:calc(100vw - 24px);text-align:center;white-space:normal}}
+@media(max-width:390px){.top-right{gap:4px}.top-right .button{padding:6px 8px;font-size:11px}.tabs .tab{padding:9px 8px;font-size:10px}.filters .filter{padding:7px 8px}.xray-item{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar"><div class="brand"><span class="brand-mark">X</span><div><b>X-port</b><small>CONTROL PLANE</small></div></div>
+    <nav class="nav" aria-label="主导航">
+      <button type="button" data-other="概览"><span class="nav-icon">◫</span>概览</button>
+      <button type="button" data-other="账号"><span class="nav-icon">◉</span>账号</button>
+      <button type="button" data-other="Xray"><span class="nav-icon">◇</span>Xray</button>
+      <button type="button" class="active" aria-current="page"><span class="nav-icon">♧</span>防火墙</button>
+      <button type="button" data-other="系统"><span class="nav-icon">⚙</span>系统</button>
+    </nav>
+    <div class="side-foot"><span class="dot"></span> PREVIEW NODE</div>
+  </aside>
+  <main class="main">
+    <header class="top"><div><span class="eyebrow">SECURITY / FIREWALL</span><h1>防火墙</h1><p>端口与来源访问规则 · 统一查看、清晰管理</p></div>
+      <div class="top-right"><span class="chip preview">◆ 交互预览 · 模拟数据</span><button class="button" id="themeBtn" title="切换明暗主题" aria-label="切换明暗主题">☀ 主题</button></div>
+    </header>
+    <section class="panel backend" aria-label="防火墙引擎">
+      <div class="backend-cell"><span class="backend-icon">◈</span><div><small>管理服务</small><b>firewalld</b> <span class="tiny good">● 运行中</span></div></div>
+      <div class="backend-cell"><span class="backend-icon">▣</span><div><small>底层规则</small><b>nftables</b> <span class="tiny muted">· 已检测</span></div></div>
+      <span class="chip">演示：同时显示两种来源</span>
+    </section>
+    <section class="stats" aria-label="规则统计">
+      <div class="panel stat"><div><small>端口规则</small><strong id="countAll">6</strong></div><span class="stat-icon">▤</span></div>
+      <div class="panel stat"><div><small>允许访问</small><strong id="countAllowed" class="accent">4</strong></div><span class="stat-icon">◉</span></div>
+      <div class="panel stat"><div><small>受保护</small><strong id="countProtect">1</strong></div><span class="stat-icon">♧</span></div>
+      <div class="panel stat"><div><small>需检查</small><strong id="countWarn" class="warning">1</strong></div><span class="stat-icon">⚠</span></div>
+    </section>
+    <section class="panel workspace">
+      <div class="tabs" role="tablist" aria-label="防火墙视图">
+        <button class="tab selected" role="tab" aria-selected="true" data-tab="ports">端口规则</button>
+        <button class="tab" role="tab" aria-selected="false" data-tab="raw">底层规则</button>
+        <button class="tab" role="tab" aria-selected="false" data-tab="xray">Xray 端口</button>
+      </div>
+      <div id="portsView">
+        <div class="toolbar">
+          <div class="filters" role="group" aria-label="规则筛选">
+            <button class="filter selected" data-filter="all">全部</button>
+            <button class="filter" data-filter="xray">Xray</button>
+            <button class="filter" data-filter="warn">需检查</button>
+          </div>
+          <div class="actions"><div class="search"><input id="search" aria-label="搜索端口规则" placeholder="搜索端口、备注、服务…" autocomplete="off"></div><button class="button primary" id="addBtn">＋ 添加规则</button></div>
+        </div>
+        <div class="table-wrap"><table class="rules"><thead><tr><th>端口</th><th>用途</th><th>协议</th><th>规则来源</th><th>访问来源</th><th>状态</th><th>备注 <span class="muted">✎</span></th><th>操作</th></tr></thead><tbody id="ruleRows"></tbody></table></div>
+        <div class="table-foot"><span id="resultCount"></span><span>点击备注可直接编辑 · Enter 保存 / Esc 取消</span></div>
+      </div>
+      <div id="rawView" hidden>
+        <div class="advanced-grid">
+          <div class="advanced-card"><div class="line"><h3>◈ firewalld</h3><span class="chip good">运行中</span></div><p>负责管理区域、服务与端口规则。通过对应管理器修改，保留规则所有权。</p><button class="button" data-show-raw="fw">查看示例规则</button><pre id="rawFw" class="codebox" hidden>zone: public
+ports: 22/tcp 443/tcp 2053/tcp
+sources: 0.0.0.0/0, ::/0
+backend: nftables</pre></div>
+          <div class="advanced-card"><div class="line"><h3>▣ 独立 nftables</h3><span class="chip">只读检查</span></div><p>识别独立创建的规则，不把 firewalld 管理的内核规则误当成另一套防火墙。</p><button class="button" data-show-raw="nft">查看示例规则</button><pre id="rawNft" class="codebox" hidden>table inet custom_filter {
+  chain input {
+    type filter hook input priority 0;
+    tcp dport 8443 drop
+  }
+}</pre></div>
+          <div class="advanced-card full-span"><h3>规则诊断</h3><p>示例端口 8443：firewalld 已存在允许规则，但独立 nftables 链另有 DROP，显示「需检查」。真实产品需要结合 hook、优先级、来源、网卡、IPv4/IPv6 等条件进行判定。</p></div>
+        </div>
+      </div>
+      <div id="xrayView" hidden><p class="muted tiny">Xray 端口与防火墙规则关联示例。规则状态不是外网可达性检测。</p><div class="xray-list" id="xrayList"></div></div>
+    </section>
+    <p class="hint">◆ 本页为隔离的设计演示：新增、删除与备注编辑仅修改浏览器内的模拟数据，不执行系统命令，也不会更改真实服务器。正式版的备注应独立存入 X-port 数据库，避免被 firewalld 重载覆盖。</p>
+  </main>
+</div>
+<div class="overlay" id="overlay"></div>
+<aside class="drawer" id="drawer" role="dialog" aria-modal="true" aria-label="规则详情" aria-hidden="true"><div class="line" style="display:flex;justify-content:space-between;align-items:center"><span class="eyebrow">RULE DETAILS</span><button class="icon-button" id="closeDrawer" aria-label="关闭规则详情">×</button></div><div id="drawerBody"></div></aside>
+<div class="dialog-backdrop" id="dialogBackdrop"><form id="addForm" class="dialog"><div class="line" style="display:flex;justify-content:space-between;align-items:center"><span class="eyebrow">NEW RULE · DEMO ONLY</span><button type="button" class="icon-button" id="closeDialog" aria-label="关闭添加规则">×</button></div><h2>添加端口规则</h2><p class="tiny muted">此操作仅在当前浏览器中模拟，不会修改系统防火墙。</p><div class="form-grid"><label>端口<input name="port" type="number" min="1" max="65535" required placeholder="例如 2087"></label><label>协议<select name="protocol"><option>TCP</option><option>UDP</option><option>TCP/UDP</option></select></label><label class="wide">用途<input name="service" maxlength="40" required placeholder="例如 游戏服务"></label><label class="wide">备注<input name="note" maxlength="120" placeholder="可选，最多 120 字"></label></div><div class="footer-actions"><button class="button" type="button" id="cancelDialog">取消</button><button class="button primary" type="submit">添加模拟规则</button></div></form></div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script>
+(function(){
+'use strict';
+var key='xport-firewall-ui-preview-v1';
+var initial=[
+{id:'ssh',port:'22',service:'SSH 管理',proto:'TCP',source:'系统',access:'管理地址',status:'protect',note:'服务器远程管理',protected:true},
+{id:'https',port:'443',service:'HTTPS 入口',proto:'TCP',source:'firewalld',access:'所有来源',status:'allow',note:'面板反向代理入口'},
+{id:'vless',port:'2053',service:'Xray · VLESS',proto:'TCP',source:'firewalld',access:'所有来源',status:'allow',note:'主节点 · REALITY',xray:true},
+{id:'trojan',port:'8443',service:'Xray · Trojan',proto:'TCP',source:'多重规则',access:'所有来源',status:'warn',note:'检查独立 nftables 规则',xray:true},
+{id:'wg',port:'51820',service:'WireGuard',proto:'UDP',source:'firewalld',access:'指定来源',status:'allow',note:'仅用于站点互联'},
+{id:'ss',port:'9000',service:'Xray · SS',proto:'TCP/UDP',source:'firewalld',access:'所有来源',status:'allow',note:'',xray:true}
+];
+var state={rows:initial.map(function(r){return Object.assign({},r)}),filter:'all',tab:'ports',search:'',editing:null,selected:null,theme:'dark'};
+function get(id){return document.getElementById(id)}
+function e(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
+function load(){try{var value=JSON.parse(localStorage.getItem(key));if(value&&Array.isArray(value.rows)){var matches=value.rows.every(function(r){return r&&typeof r.id==='string'&&typeof r.note==='string'});if(matches)state.rows=value.rows}}catch(_){}}
+function save(){try{localStorage.setItem(key,JSON.stringify({rows:state.rows}))}catch(_){}}
+function find(id){return state.rows.find(function(r){return r.id===id})}
+var toastTimer;function toast(s){clearTimeout(toastTimer);get('toast').textContent=s;get('toast').classList.add('show');toastTimer=setTimeout(function(){get('toast').classList.remove('show')},2700)}
+function statusHTML(r){var label=r.status==='warn'?'需检查':r.status==='protect'?'已保护':'允许';return '<span class="status '+(r.status==='warn'?'warn':r.status==='protect'?'protect':'')+'">'+label+'</span>'}
+function visible(r){if(state.filter==='xray'&&!r.xray)return false;if(state.filter==='warn'&&r.status!=='warn')return false;var q=state.search.toLowerCase().trim();return !q||[r.port,r.service,r.proto,r.source,r.access,r.note].join(' ').toLowerCase().includes(q)}
+function noteMarkup(r){if(state.editing===r.id)return '<div class="edit-note"><input id="noteEditInput" maxlength="120" aria-label="编辑 '+e(r.port)+' 端口备注" value="'+e(r.note)+'"><div class="edit-acts"><button class="button mini" data-act="cancel" data-id="'+e(r.id)+'">取消</button><button class="button primary mini" data-act="save" data-id="'+e(r.id)+'">保存</button></div></div>';
+return '<button class="note-button" data-act="note" data-id="'+e(r.id)+'" title="编辑备注" aria-label="编辑 '+e(r.port)+' 端口备注"><span class="'+(!r.note?'note-empty':'')+'">'+e(r.note||'添加备注')+'</span><i aria-hidden="true">✎</i></button>'}
+function rowMarkup(r){return '<tr>'+
+'<td data-label="端口"><span class="port">'+e(r.port)+'</span></td>'+
+'<td data-label="用途"><span class="service">'+e(r.service)+'</span></td>'+
+'<td data-label="协议">'+e(r.proto)+'</td>'+
+'<td data-label="规则来源"><span class="source '+(r.source==='多重规则'?'dual':'')+'">'+e(r.source)+'</span></td>'+
+'<td data-label="访问来源">'+e(r.access)+'</td>'+
+'<td data-label="状态">'+statusHTML(r)+'</td>'+
+'<td data-label="备注" class="note-cell">'+noteMarkup(r)+'</td>'+
+'<td data-label="操作"><button class="detail-button" data-act="detail" data-id="'+e(r.id)+'" aria-label="查看 '+e(r.port)+' 端口详情">›</button></td></tr>'}
+function render(){var shown=state.rows.filter(visible);get('ruleRows').innerHTML=shown.length?shown.map(rowMarkup).join(''):'<tr><td colspan="8" style="padding:28px;text-align:center;color:var(--muted)">没有匹配的规则</td></tr>';
+get('resultCount').textContent='显示 '+shown.length+' / '+state.rows.length+' 条规则';
+get('countAll').textContent=state.rows.length;get('countAllowed').textContent=state.rows.filter(function(r){return r.status==='allow'}).length;get('countProtect').textContent=state.rows.filter(function(r){return r.status==='protect'}).length;get('countWarn').textContent=state.rows.filter(function(r){return r.status==='warn'}).length;
+get('xrayList').innerHTML=state.rows.filter(function(r){return r.xray}).map(function(r){return '<div class="xray-item"><div><b>'+e(r.service)+'</b><br><small>端口 '+e(r.port)+' · '+e(r.proto)+'</small></div><span>'+statusHTML(r)+'</span><button class="button" data-act="detail" data-id="'+e(r.id)+'">查看规则</button></div>'}).join('')||'<p class="muted">暂无 Xray 规则</p>'}
+function noteEdit(id){if(!find(id))return;state.editing=id;render();var input=get('noteEditInput');if(input){input.focus();input.select()}}
+function saveNote(id){var r=find(id),input=get('noteEditInput');if(!r||!input)return;r.note=input.value.trim().slice(0,120);state.editing=null;save();render();toast('备注已保存到本地预览')}
+function cancelNote(){state.editing=null;render()}
+function tab(name){state.tab=name;['ports','raw','xray'].forEach(function(t){get(t+'View').hidden=t!==name});document.querySelectorAll('[data-tab]').forEach(function(b){var on=b.dataset.tab===name;b.classList.toggle('selected',on);b.setAttribute('aria-selected',String(on))});state.editing=null;render()}
+function details(id){var r=find(id);if(!r)return;state.selected=id;get('drawerBody').innerHTML='<h2>'+e(r.port)+' / '+e(r.proto)+'</h2><p class="muted tiny">'+e(r.service)+'</p>'+
+[['状态',r.status==='warn'?'需检查':r.status==='protect'?'已保护':'允许'],['规则来源',r.source],['访问来源',r.access],['端口协议',r.proto],['备注',r.note||'暂无备注']].map(function(p){return '<div class="detail-line"><span>'+e(p[0])+'</span><b>'+e(p[1])+'</b></div>'}).join('')+
+'<div class="drawer-actions"><button class="button primary" data-drawer="edit">✎ 编辑备注</button>'+(r.protected?'':r.id.indexOf('demo-')===0?'<button class="button danger" data-drawer="delete">删除模拟规则</button>':'')+'</div><p class="hint">这里只展示规则信息及备注交互；系统级修改尚未接入。</p>';
+get('overlay').classList.add('show');get('drawer').classList.add('show');get('drawer').setAttribute('aria-hidden','false');get('closeDrawer').focus()}
+function closeDetails(){state.selected=null;get('overlay').classList.remove('show');get('drawer').classList.remove('show');get('drawer').setAttribute('aria-hidden','true')}
+function addDialog(open){get('dialogBackdrop').classList.toggle('show',open);if(open){get('addForm').reset();get('addForm').elements.port.focus()}}
+document.addEventListener('click',function(ev){
+var b=ev.target.closest('button');if(!b)return;
+if(b.dataset.other){toast('当前是防火墙独立预览，'+b.dataset.other+'页面未接入');return}
+if(b.dataset.tab){tab(b.dataset.tab);return}
+if(b.dataset.filter){state.filter=b.dataset.filter;document.querySelectorAll('[data-filter]').forEach(function(x){x.classList.toggle('selected',x===b)});state.editing=null;render();return}
+if(b.dataset.act){var id=b.dataset.id;if(b.dataset.act==='note')noteEdit(id);else if(b.dataset.act==='save')saveNote(id);else if(b.dataset.act==='cancel')cancelNote();else if(b.dataset.act==='detail')details(id);return}
+if(b.dataset.showRaw){var raw=get(b.dataset.showRaw==='fw'?'rawFw':'rawNft');raw.hidden=!raw.hidden;b.textContent=raw.hidden?'查看示例规则':'收起规则';return}
+if(b.dataset.drawer==='edit'){var old=state.selected;closeDetails();tab('ports');state.filter='all';state.search='';get('search').value='';document.querySelectorAll('[data-filter]').forEach(function(x){x.classList.toggle('selected',x.dataset.filter==='all')});noteEdit(old);return}
+if(b.dataset.drawer==='delete'){var did=state.selected;state.rows=state.rows.filter(function(r){return r.id!==did});save();closeDetails();render();toast('模拟规则已删除');return}
+if(b.id==='themeBtn'){state.theme=state.theme==='dark'?'light':'dark';document.documentElement.dataset.theme=state.theme;b.textContent=state.theme==='dark'?'☀ 主题':'☾ 主题';return}
+if(b.id==='addBtn'){addDialog(true);return}
+if(b.id==='closeDrawer'){closeDetails();return}
+if(b.id==='closeDialog'||b.id==='cancelDialog'){addDialog(false);return}
+});
+get('overlay').addEventListener('click',closeDetails);
+get('dialogBackdrop').addEventListener('click',function(ev){if(ev.target===this)addDialog(false)});
+get('search').addEventListener('input',function(ev){state.search=ev.target.value;state.editing=null;render()});
+get('ruleRows').addEventListener('keydown',function(ev){if(ev.target.id!=='noteEditInput')return;if(ev.key==='Enter'){ev.preventDefault();var r=state.editing;if(r)saveNote(r)}if(ev.key==='Escape'){ev.preventDefault();cancelNote()}});
+document.addEventListener('keydown',function(ev){if(ev.key==='Escape'){closeDetails();addDialog(false)}});
+get('addForm').addEventListener('submit',function(ev){ev.preventDefault();var form=ev.currentTarget;var port=String(form.elements.port.value),proto=form.elements.protocol.value,service=form.elements.service.value.trim(),note=form.elements.note.value.trim();if(!/^\d+$/.test(port)||Number(port)<1||Number(port)>65535||!service)return;
+if(state.rows.some(function(r){return r.port===port&&r.proto===proto})){toast('演示数据里已有相同端口与协议');return}
+state.rows.push({id:'demo-'+Date.now(),port:port,proto:proto,service:service.slice(0,40),source:'模拟规则',access:'所有来源',status:'allow',note:note.slice(0,120)});save();addDialog(false);state.filter='all';state.search='';get('search').value='';document.querySelectorAll('[data-filter]').forEach(function(x){x.classList.toggle('selected',x.dataset.filter==='all')});tab('ports');toast('模拟规则已添加')});
+load();render();
+if(new URLSearchParams(location.search).has('selftest')){
+try{var before=find('vless').note;noteEdit('vless');get('noteEditInput').value='预览回归测试';saveNote('vless');if(find('vless').note!=='预览回归测试')throw Error('note save failed');if(JSON.parse(localStorage.getItem(key)).rows.find(function(r){return r.id==='vless'}).note!=='预览回归测试')throw Error('note persistence failed');find('vless').note=before;save();tab('raw');if(!get('portsView').hidden||get('rawView').hidden)throw Error('tab switch failed');tab('ports');state.filter='warn';render();if(state.rows.filter(visible).length!==1)throw Error('filter failed');state.filter='all';render();document.documentElement.dataset.firewallTest='pass'}catch(err){document.documentElement.dataset.firewallTest='fail';document.documentElement.dataset.firewallTestDetail=String(err.message)}}
+})();
+</script>
+</body>
+</html>
