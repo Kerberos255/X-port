@@ -301,6 +301,22 @@ cat > "$TMP/__driver.js" <<'JS'
       document.querySelector('#fw-refresh').click()
       await waitFor('#fw-diagnostic[hidden]')
       if(document.querySelector('#fw-add').disabled) throw new Error('write access did not recover')
+      const beforeDeny=globalThis.__fwMutationCalls||0
+      document.querySelector('#fw-add').click()
+      const create=await waitFor('#fw-add-dialog[open]')
+      create.querySelector('#fw-add-port').value='18666'
+      create.querySelector('#fw-add-policy').value='deny'
+      create.close('apply')
+      await sleep(80)
+      if((globalThis.__fwMutationCalls||0)!==beforeDeny) throw new Error('deny option unexpectedly sent an allow mutation')
+      const activeLink=await waitFor('#fw-rows button.fw-account-link[data-fw-account="1"]')
+      activeLink.click()
+      const accountEditor=await waitFor('#account-form')
+      if(document.querySelector('#nav [data-page="accounts"]')?.classList.contains('active')!==true)
+        throw new Error('account link did not switch navigation')
+      if(accountEditor.querySelector('input[name="name"]')?.value!=='alpha')
+        throw new Error('account link did not open the exact account editor')
+      document.querySelector('#modal-close').click()
       mark('pass', `clonePort=${portInput.value};legacyHits=0;fallbackDest=${dest};layout=contained;globalXray=ok`)
     } catch (err) {
       mark('fail', String(err && err.message || err))
