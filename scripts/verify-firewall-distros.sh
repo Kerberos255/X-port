@@ -8,6 +8,7 @@ DISTRO="$2"
 case "$DISTRO" in
   debian) IMAGE="debian:trixie-slim";BACKEND="ufw";PORT=53111;;
   rocky) IMAGE="rockylinux:9";BACKEND="firewalld";PORT=53112;;
+  centos9) IMAGE="quay.io/centos/centos:stream9";BACKEND="firewalld";PORT=53113;;
   *) echo "unknown distro" >&2; exit 1;;
 esac
 NAME="xport-ci-cross-$DISTRO-$(date +%s)-$$"
@@ -37,6 +38,9 @@ else
     exit 1
   fi
   ZONE="$(docker exec "$NAME" firewall-cmd --get-default-zone | tr -d '\r\n')"
+  if [[ "$DISTRO" == centos9 ]]; then
+    docker exec "$NAME" sh -c '. /etc/os-release; test "$ID" = centos; test "${VERSION_ID%%.*}" = 9; printf "CentOS Stream test image: %s %s\\n" "$PRETTY_NAME" "$VERSION_ID"'
+  fi
 fi
 
 check(){
