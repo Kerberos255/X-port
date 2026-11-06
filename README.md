@@ -87,7 +87,7 @@ X-port deliberately keeps a narrower scope than large multi-user proxy platforms
 - **Guarded migration** — x-ui / 3x-ui migration uses dry-run checks, snapshots, Xray config validation and rollback instead of blindly copying a database.
 - **Transactional recovery** — backup restore creates a pre-restore snapshot and rolls back the running state when apply/restart fails.
 - **Verified updates** — Xray and X-port update flows verify release integrity and validate candidates before replacement, with rollback protection.
-- **Explicit firewall ownership** — the WebUI never silently rewrites firewall rules; common firewall helpers stay in the terminal manager.
+- **Guarded firewall control** — an authenticated WebUI can inspect simple firewalld/UFW port rules, add/remove explicit port allowances and retain editable rule notes; custom nftables rules remain read-only.
 
 ## What it provides
 
@@ -110,7 +110,7 @@ X-port deliberately keeps a narrower scope than large multi-user proxy platforms
 - X-port self-update from stable GitHub Releases with candidate version + SHA-256 verification and a systemd restart watchdog that restores the previous binary if the new service cannot stay active.
 - Responsive dark/light WebUI with a mobile bottom navigation layout.
 
-X-port **does not modify firewall rules from the WebUI**. Open or close account ports yourself with the firewall tooling you already use. The terminal manager provides guarded helpers for common firewall setups.
+The **Firewall** page reads the live firewalld or UFW backend and offers explicit, confirmed changes to simple TCP/UDP port allowances. For firewalld, X-port updates both runtime and permanent state and refuses to edit mismatched rules; SSH default port 22 and the configured panel port are protected against removal. The separate read-only nftables view displays native rules for diagnosis, not definitive external reachability. Notes and manual purpose labels are stored in X-port's SQLite settings (and included in backups). Xray-owned ports are labeled from X-port account configuration; other purposes remain unknown unless entered manually. The page does not automatically open account ports.
 
 ## Runtime layout
 
@@ -252,7 +252,7 @@ During an actual self-update, the old executable is kept as `.previous`. A trans
 - Imported backups are size-limited and parsed before being accepted.
 - Panel TLS settings store filesystem paths, not certificate/private-key contents in the browser.
 - systemd services use `NoNewPrivileges`, `PrivateTmp` and read-only home visibility. Read-only visibility is intentional so migrated certificate paths can still be used.
-- Firewall management remains explicit and local; X-port does not silently rewrite custom rulesets.
+- Firewall changes require an authenticated, same-origin request and explicit confirmation. Only narrow firewalld/UFW port operations are exposed; custom nftables rules are read-only. Back up or validate remote access paths before changing firewall rules.
 
 ## Compatibility
 

@@ -22,6 +22,11 @@ import (
 )
 
 func (s *Server) registerExtraRoutes(mux *http.ServeMux) {
+ mux.Handle("GET /api/firewall", s.require(http.HandlerFunc(s.firewallRead)))
+ mux.Handle("PUT /api/firewall/notes", s.require(http.HandlerFunc(s.firewallNote)))
+ mux.Handle("PUT /api/firewall/purpose", s.require(http.HandlerFunc(s.firewallPurpose)))
+ mux.Handle("POST /api/firewall/rules", s.require(http.HandlerFunc(s.firewallRuleChange)))
+ mux.Handle("GET /api/firewall/raw", s.require(http.HandlerFunc(s.firewallRaw)))
 	mux.Handle("GET /api/accounts/export", s.require(http.HandlerFunc(s.exportAccounts)))
 	mux.Handle("GET /api/xray/geodata", s.require(http.HandlerFunc(s.checkGeodata)))
 	mux.Handle("POST /api/xray/geodata", s.require(http.HandlerFunc(s.updateGeodata)))

@@ -30,7 +30,7 @@ The menu intentionally keeps server operations in the terminal while the WebUI s
  12. 备份与恢复
  13. x-ui / 3x-ui 迁移
  14. 开机自启设置
- 15. 防火墙管理（仅终端）
+ 15. 防火墙管理（终端命令）
  16. 修复 systemd 安装
  17. 卸载 X-port
 
@@ -66,7 +66,7 @@ sudo xport uninstall
 
 ## Firewall policy
 
-Firewall mutation is deliberately **terminal-only**. No firewall controls are added to the WebUI.
+The terminal menu remains available. The authenticated WebUI also supports guarded simple port rules for active firewalld/UFW backends, plus editable note and purpose metadata in SQLite. The WebUI keeps custom nftables/iptables rules read-only; never infer external reachability solely from one manager's rule list.
 
 - `ufw`: view rules, allow a TCP/UDP/both port, remove an allow rule.
 - active `firewalld`: view rules, add/remove runtime and permanent TCP/UDP/both ports.

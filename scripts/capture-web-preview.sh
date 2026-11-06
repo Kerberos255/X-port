@@ -53,6 +53,7 @@ cat > "$TMP/__mock.js" <<'JS'
     tlsAlpn:['h2','http/1.1'], tlsMinVersion:'1.2', tlsMaxVersion:'', tlsCipherSuites:'',
     tlsRejectUnknownSni:false, tlsCertificatesJson:'[]'
   }
+  let fwNote = '主节点 · REALITY'
   globalThis.fetch = (input, init = {}) => {
     const u = new URL(typeof input === 'string' ? input : input.url, location.href)
     const path = u.pathname
@@ -68,6 +69,22 @@ cat > "$TMP/__mock.js" <<'JS'
     if (path === '/api/accounts/1/expert' && method === 'GET') return json(expert)
     if (path === '/api/accounts/online') return json({connections:{'1':2}})
     if (path === '/api/accounts/port-suggestion') return json({port:23741,min:20000,max:60000})
+    if (path === '/api/firewall' && method === 'GET') return json({
+      backend:'firewalld',active:true,defaultZone:'public',zones:['public'],services:{public:['ssh']},
+      notice:'预览：简单端口规则展示；底层链可能影响结果',rules:[
+        {id:'firewalld:public:22/tcp',port:22,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'SSH（常见端口，未核实）',purposeSource:'assumed',note:'远程管理',protected:true,xray:false},
+        {id:'firewalld:public:443/tcp',port:443,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'HTTPS',purposeSource:'manual',note:'网站入口',protected:false,xray:false},
+        {id:'firewalld:public:2053/tcp',port:2053,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'Xray · VLESS',purposeSource:'xray',note:fwNote,protected:false,xray:true},
+        {id:'firewalld:public:8443/tcp',port:8443,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:false,access:'区域：public',purpose:'Xray · Trojan',purposeSource:'xray',note:'临时放行，需同步',protected:false,xray:true},
+        {id:'firewalld:public:51820/udp',port:51820,protocol:'udp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'未识别',purposeSource:'unknown',note:'WireGuard 站点互联',protected:false,xray:false}
+      ]})
+    if (path === '/api/firewall/notes' && method === 'PUT') {
+      fwNote = JSON.parse(init.body).note
+      return json({note:fwNote})
+    }
+    if (path === '/api/firewall/purpose' && method === 'PUT') return json({purpose:JSON.parse(init.body).purpose})
+    if (path === '/api/firewall/raw' && method === 'GET') return json({ruleset:'table inet firewalld {\\n chain INPUT { type filter hook input priority 10; }\\n}'})
+    if (path === '/api/firewall/rules' && method === 'POST') return json({ok:true})
     if (path === '/api/xray/update' && method === 'GET') return json({current:'25.9.11',latest:'25.9.11',available:false})
     if (path === '/api/xray/geodata' && method === 'GET') return json({current:'2026-09-14',latest:'2026-09-14',available:false})
     if (path === '/api/settings') return json({panelListen:'127.0.0.1:8080',panelBasePath:'/',panelCertFile:'',panelKeyFile:'',panelDomain:'panel.example.com',panelTLS:false,xrayApiPort:10085,portMin:20000,portMax:60000,defaultRealitySni:'www.microsoft.com',defaultRealityDest:'www.microsoft.com:443',adminUsername:'admin'})
@@ -120,6 +137,9 @@ cat > "$TMP/__preview.js" <<'JS'
         if (!note.hidden) throw new Error('internal update note should be hidden')
         const status=await waitFor('#xray-page-update-state')
         if (!(status.textContent||'').trim()) throw new Error('Xray update state missing')
+      } else if (preview === 'firewall' || preview === 'firewall-light') {
+        document.querySelector('#nav [data-page="firewall"]').click()
+        await waitFor('#fw-rows tr button[data-fw-act="edit"]')
       } else if (preview === 'accounts' || preview === 'accounts-light') {
         document.querySelector('#nav [data-page="accounts"]').click()
         await waitFor('.account-row')
@@ -166,11 +186,10 @@ curl -fsS "http://127.0.0.1:$PORT/" >/dev/null
 capture() {
   local name="$1" query="$2"
   "$BROWSER" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage \
-    --window-size=1440,1000 --force-device-scale-factor=1 --virtual-time-budget=6000 \
+    --window-size=1440,1000 --force-device-scale-factor=1 --virtual-time-budget=6500 \
     --screenshot="$OUT/$name.png" "http://127.0.0.1:$PORT/?preview=$query" >/dev/null 2>"$TMP/$name.log"
   [[ -s "$OUT/$name.png" ]] || { cat "$TMP/$name.log" >&2; echo "Screenshot missing: $name" >&2; exit 1; }
 }
-
 capture overview overview
 capture overview-light overview-light
 capture accounts-light accounts-light
@@ -181,5 +200,12 @@ capture accounts accounts
 capture clone-account clone
 capture account-advanced account
 capture xray-global xray
+capture firewall-desktop firewall
+capture firewall-light firewall-light
+# The integrated firewall screen also needs narrow-viewport validation.
+"$BROWSER" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage \
+  --window-size=390,844 --force-device-scale-factor=1 --virtual-time-budget=6500 \
+  --screenshot="$OUT/firewall-mobile.png" "http://127.0.0.1:$PORT/?preview=firewall" >/dev/null 2>"$TMP/firewall-mobile.log"
+[[ -s "$OUT/firewall-mobile.png" ]] || { cat "$TMP/firewall-mobile.log" >&2; exit 1; }
 printf 'GitHub runner UI screenshots:\n'
 ls -lh "$OUT"/*.png
