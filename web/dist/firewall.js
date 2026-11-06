@@ -215,20 +215,71 @@
     }catch(err){toast('规则操作未确认：'+err.message,true);await refresh()}
     finally{policyChangeBusy=false}
   }
+  let selectedEditRule=null
+  let externalEditBusy=false
+  function canEditExternal(r){
+    return Boolean(r&&!r.managed&&r.kind==='port'&&r.action==='allow'&&
+      r.runtime&&r.permanent&&!r.conflict&&!r.protected&&
+      !r.paused&&r.backend==='firewalld'&&
+      !state.data?.opaqueRichZones?.[r.zone]&&
+      typeof r.revision==='string'&&r.revision.length===24&&editable())
+  }
+  function updateExternalSaveState(){
+    const r=selectedEditRule
+    const allowed=canEditExternal(r)
+    const port=Number(el('fw-policy-port').value)
+    const protocol=el('fw-policy-proto').value
+    const different=r&&(port!==r.port||protocol!==r.protocol)
+    el('fw-policy-save').disabled=!(allowed&&el('fw-external-confirm').checked&&
+      Number.isInteger(port)&&port>=1&&port<=65535&&different&&
+      el('fw-policy-action').value==='allow')
+  }
+  async function saveExternalEdit(r){
+    if(externalEditBusy||!canEditExternal(r))return
+    const port=Number(el('fw-policy-port').value),proto=el('fw-policy-proto').value
+    if(!Number.isInteger(port)||port<1||port>65535||!['tcp','udp'].includes(proto)||
+      el('fw-policy-action').value!=='allow'||!el('fw-external-confirm').checked){
+      return toast('外部规则只支持明确确认后的简单端口/协议修改',true)
+    }
+    if(!window.confirm('这条规则由其他管理器维护。\nX-PORT 会修改真实 firewalld，原管理器刷新后可看到新端口；其数据库备注不会自动迁移。\n继续吗？'))return
+    externalEditBusy=true
+    try{
+      const result=await request('/api/firewall/edit','POST',{
+        id:r.id,revision:r.revision,newPort:port,newProtocol:proto,
+        externalAcknowledged:true
+      })
+      await refresh()
+      if(result?.pending){
+        if(window.confirm('已临时修改端口，旧规则有 120 秒恢复保护。\n请确认仍可访问管理面板，点「确定」才永久保存。')){
+          await request('/api/firewall/rules/confirm','POST',{id:result.id,token:result.token})
+          toast('外部规则已修改。请刷新原防火墙管理器确认新端口。')
+          await refresh()
+        }else toast('未确认：系统将自动恢复原端口并撤销新端口')
+      }
+    }catch(err){toast('外部规则编辑未完成：'+err.message,true);await refresh()}
+    finally{externalEditBusy=false;selectedEditRule=null}
+  }
   function openRuleEditor(id){
     const r=rules().find(row=>row.id===id)
     if(!r)return
+    selectedEditRule=r
+    const allowed=canEditExternal(r)
     el('fw-policy-title').textContent='编辑 '+r.port+'/'+r.protocol.toUpperCase()
-    el('fw-policy-subtitle').textContent=r.managed?'X-port 管理的规则':'外部规则 · 与当前 firewalld 共用'
+    el('fw-policy-subtitle').textContent=r.managed?'X-port 自管规则（端口请在原账号配置中调整）':'外部规则 · 共享 firewalld'
     el('fw-policy-port').value=r.port
     el('fw-policy-proto').value=r.protocol
     el('fw-policy-action').value=policy(r)
+    el('fw-policy-action').disabled=true
     el('fw-policy-zone').value=r.zone||'UFW'
-    el('fw-policy-protection').textContent=r.protected
-      ? '此端口检测到管理服务或监听，系统会禁止危险改动。'
-      : '预览阶段：后端安全编辑及 120 秒回退仍在联调，此处只展示字段，不会修改系统规则。'
+    el('fw-external-confirm-label').hidden=!allowed
+    el('fw-external-confirm').checked=false
+    el('fw-policy-protection').textContent=allowed
+      ? '仅支持无监听的简单允许规则修改端口与协议。120 秒内必须确认连接；原管理器备注不会自动迁移。'
+      : r.protected?'检测到实际监听或管理端口，危险编辑已锁定。':
+        r.managed?'Xray/自管规则应通过其原有配置界面修改端口。':
+        '复杂策略、端口冲突或无法验证状态，暂不支持直接修改。'
     el('fw-policy-save').disabled=true
-    el('fw-policy-save').title='待隔离安全验证通过后开放'
+    el('fw-policy-save').title=allowed?'勾选外部规则确认后保存':'此规则不符合安全编辑条件'
     el('fw-policy-dialog').showModal()
   }
   function openAdd() {
@@ -285,6 +336,17 @@
   el('fw-search').addEventListener('input',ev=>{state.term=ev.target.value;state.editing=null;render()})
   el('fw-refresh').addEventListener('click',()=>void refresh())
   el('fw-add').addEventListener('click',openAdd)
+  for(const id of ['fw-policy-port','fw-policy-proto','fw-policy-action','fw-external-confirm']){
+    el(id).addEventListener('input',updateExternalSaveState)
+    el(id).addEventListener('change',updateExternalSaveState)
+  }
+  el('fw-policy-dialog').addEventListener('close',()=>{
+    const action=el('fw-policy-dialog').returnValue
+    el('fw-policy-dialog').returnValue=''
+    const rule=selectedEditRule
+    if(action!=='save'){selectedEditRule=null;return}
+    if(rule)void saveExternalEdit(rule)
+  })
   el('fw-load-raw').addEventListener('click',async ()=>{
     el('fw-load-raw').disabled=true
     el('fw-raw').textContent='读取中…'
