@@ -63,6 +63,10 @@ func (s *Server) firewallRuleConfirm(w http.ResponseWriter,r *http.Request){
  if err=json.Unmarshal([]byte(raw),&p);err!=nil||p.ID!=in.ID||subtle.ConstantTimeCompare([]byte(p.Token),[]byte(in.Token))!=1{
   writeError(w,403,"invalid pending action token");return
  }
+ switch p.Kind{
+ case "","remove-allow","add-drop","remove-drop","pause-allow":
+ default:writeError(w,409,"unrecognized pending action");return
+ }
  if time.Now().UnixMilli()>=p.Deadline{writeError(w,409,"confirmation expired; automatic restoration may have started");return}
  ctx,cancel:=context.WithTimeout(r.Context(),35*time.Second);defer cancel()
  snap,err:=ops.InspectFirewall(ctx,s.store.Dir())
@@ -71,7 +75,14 @@ func (s *Server) firewallRuleConfirm(w http.ResponseWriter,r *http.Request){
  correct:=func(snapshot firewall.Snapshot)bool{
   present:=false
   for _,rule:=range snapshot.Rules{
-   if rule.ID!=p.ID{continue}
+   if rule.ID!=p.ID{
+    // If another manager replaces the target with a different rule on the
+    // same zone/port, this is no longer the state that was presented.
+    if p.Rule.Port>0&&rule.Zone==p.Rule.Zone&&rule.Port==p.Rule.Port&&rule.Protocol==p.Rule.Protocol{
+     return false
+    }
+    continue
+   }
    if p.Kind=="add-drop"&&(rule.Action!="deny"||rule.Kind!="rich"||rule.Family!="both"||!rule.Runtime||!rule.Permanent||rule.Conflict){return false}
    present=true
   }
