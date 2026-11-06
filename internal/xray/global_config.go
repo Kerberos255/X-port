@@ -12,10 +12,10 @@ import (
 const maxEditableGlobalConfigBytes = 2 << 20
 
 var editableGlobalXraySections = map[string]struct{}{
-	"routing": {},
-	"dns":      {},
+	"routing":   {},
+	"dns":       {},
 	"outbounds": {},
-	"policy":   {},
+	"policy":    {},
 }
 
 var managedGlobalXraySections = map[string]struct{}{
@@ -101,9 +101,11 @@ func parseGlobalConfigObject(raw, label string) (map[string]json.RawMessage, err
 // ApplyWithBase applies accounts against a candidate base configuration. The
 // Manager runtime value changes only after Xray validation/restart succeeds.
 func (m *Manager) ApplyWithBase(accounts []model.Account, baseJSON string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	previous := m.BaseConfigJSON
 	m.BaseConfigJSON = baseJSON
-	if err := m.Apply(accounts); err != nil {
+	if err := m.applyLocked(accounts); err != nil {
 		m.BaseConfigJSON = previous
 		return err
 	}

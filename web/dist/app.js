@@ -11,7 +11,7 @@ function toast(msg,bad=false){const e=$('#toast');e.textContent=msg;e.classList.
 function reasonText(a){if(a.enabled)return '运行中';return ({quota:'流量额度已用完',expiry:'已到期',manual:'手动停用'})[a.disabledReason]||'已停用'}
 function formValue(form,name){return new FormData(form).get(name)??''}
 
-async function api(path,options={}){const opts={credentials:'same-origin',...options,headers:{'Content-Type':'application/json',...(options.headers||{})}};const res=await fetch(path,opts);let data=null;const ct=res.headers.get('content-type')||'';if(ct.includes('application/json')){try{data=await res.json()}catch{}}if(!res.ok){const err=new Error(data?.error||`HTTP ${res.status}`);err.status=res.status;throw err}return data}
+async function api(path,options={}){const opts={credentials:'same-origin',...options,headers:{'Content-Type':'application/json',...(options.headers||{})}};const res=await fetch(path,opts);let data=null;const ct=res.headers.get('content-type')||'';if(ct.includes('application/json')){try{data=await res.json()}catch{}}if(!res.ok){const err=new Error(data?.error||`HTTP ${res.status}`);err.status=res.status;err.serverError=Boolean(data&&typeof data.error==='string');throw err}return data}
 
 async function boot(){bind();try{await loadOverview();showApp()}catch(e){showLogin();if(e.status!==401){$('#login-error').textContent=e.message;$('#login-error').classList.remove('hidden')}}}
 function showLogin(){$('#login').classList.remove('hidden');$('#app').classList.add('hidden');setTimeout(()=>$('#login-pass').focus(),20)}

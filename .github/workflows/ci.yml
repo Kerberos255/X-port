@@ -18,8 +18,11 @@ jobs:
         with:
           go-version: '1.27.3'
           cache: false
-      - name: Frontend assets
-        run: bash scripts/verify-web-assets.sh
+      - name: Frontend assets and interrupted account requests
+        run: |
+          bash scripts/verify-web-assets.sh
+          node scripts/verify-account-recovery.cjs
+
       - name: Frontend browser regression
         run: bash scripts/verify-web-browser.sh
       - name: Install CJK font for screenshots
