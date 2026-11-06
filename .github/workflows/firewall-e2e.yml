@@ -10,6 +10,7 @@ on:
       - 'scripts/verify-firewall-container-e2e.sh'
       - 'scripts/verify-web-upgrade-e2e.sh'
       - 'scripts/verify-firewall-distros.sh'
+      - 'scripts/testdata/firewall_cancel_harness.go'
       - 'scripts/testdata/upgrade_harness.go'
   workflow_dispatch:
 
@@ -64,5 +65,7 @@ jobs:
           cache: false
       - name: Build X-port
         run: CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o "$RUNNER_TEMP/xport-cross-e2e" ./cmd/xport
+      - name: Build timer cancellation test adapter
+        run: go build -trimpath -o "$RUNNER_TEMP/firewall-cancel-harness" ./scripts/testdata/firewall_cancel_harness.go
       - name: Verify ${{ matrix.distro }} firewall and foreign rules in isolated netns
-        run: sudo bash scripts/verify-firewall-distros.sh "$RUNNER_TEMP/xport-cross-e2e" "${{ matrix.distro }}"
+        run: sudo bash scripts/verify-firewall-distros.sh "$RUNNER_TEMP/xport-cross-e2e" "${{ matrix.distro }}" "$RUNNER_TEMP/firewall-cancel-harness"
