@@ -63,3 +63,32 @@ func CancelFirewallRestore(ctx context.Context,unit string)error{
  if err!=nil{return fmt.Errorf("cannot cancel firewall recovery: %w: %s",err,strings.TrimSpace(string(out)))}
  return nil
 }
+
+// ScheduleFirewallDropUndo runs a native firewalld rich-rule inverse after
+// 120s. It does not depend on the X-port binary remaining installed.
+// undo="remove" recovers from an unconfirmed DROP addition (reopening a
+// potentially locked-out panel); undo="add" recovers from a DROP removal.
+func ScheduleFirewallDropUndo(ctx context.Context,undo string,port int,proto,zone string)(string,int64,error){
+ if undo!="add"&&undo!="remove"{return "",0,errors.New("invalid DROP recovery action")}
+ if !firewall.ValidRule(port,proto)||!firewall.ValidZone(zone){return "",0,errors.New("invalid DROP recovery rule")}
+ rich,err:=firewall.RichDropText(port,proto)
+ if err!=nil{return "",0,err}
+ executable,err:=exec.LookPath("firewall-cmd")
+ if err!=nil{return "",0,fmt.Errorf("firewall-cmd recovery unavailable: %w",err)}
+ if !filepath.IsAbs(executable){return "",0,errors.New("invalid firewalld executable")}
+ script:="set -eu\n\"$1\" \"--zone=$2\" \"$3$4\"\n\"$1\" --permanent \"--zone=$2\" \"$3$4\""
+ op:="--add-rich-rule="
+ if undo=="remove"{op="--remove-rich-rule="}
+ bytes:=make([]byte,12)
+ if _,err:=rand.Read(bytes);err!=nil{return "",0,err}
+ unit:="xport-fw-restore-"+hex.EncodeToString(bytes)
+ cctx,cancel:=context.WithTimeout(ctx,12*time.Second);defer cancel()
+ argv:=[]string{
+  "--quiet","--unit="+unit,"--on-active=120s",
+  "--property=Type=exec","--property=NoNewPrivileges=yes",
+  "/bin/sh","-c",script,"xport-rich-recovery",executable,zone,op,rich,
+ }
+ out,err:=exec.CommandContext(cctx,"systemd-run",argv...).CombinedOutput()
+ if err!=nil{return "",0,fmt.Errorf("cannot schedule rich recovery: %w: %s",err,strings.TrimSpace(string(out)))}
+ return unit,time.Now().Add(FirewallRestoreAfter).UnixMilli(),nil
+}
