@@ -223,3 +223,166 @@ func (s *Server) firewallPurpose(w http.ResponseWriter,r *http.Request){
  if err:=s.store.SetSetting("firewall_purpose:"+in.ID,purpose);err!=nil{writeError(w,500,"could not save purpose");return}
  writeJSON(w,200,map[string]string{"purpose":purpose})
 }
+
+type firewallControlRequest struct{
+ Action string `json:"action"`
+ ID string `json:"id"`
+ Port int `json:"port"`
+ Protocol string `json:"protocol"`
+ Zone string `json:"zone"`
+}
+// firewallControl is deliberately separate from the legacy add/remove API.
+// It only accepts narrow firewalld rules, with pre-armed external recovery
+// for any operation that can remove connectivity.
+func (s *Server) firewallControl(w http.ResponseWriter,r *http.Request){
+ var in firewallControlRequest
+ if decodeJSONLimit(w,r,&in,4<<10)!=nil{return}
+ if !firewall.ValidRule(in.Port,in.Protocol)||!firewall.ValidZone(in.Zone){
+  writeError(w,400,"invalid firewall port/protocol/zone");return
+ }
+ switch in.Action {
+ case "add-drop","remove-drop","pause-allow","resume-allow":
+ default:writeError(w,400,"unsupported firewall control action");return
+ }
+ allowID:=firewall.RuleID("firewalld",in.Zone,in.Port,in.Protocol)
+ dropID:=fmt.Sprintf("firewalld:%s:rich:%d/%s:deny:both",in.Zone,in.Port,in.Protocol)
+ id:=allowID
+ if in.Action=="add-drop"||in.Action=="remove-drop"{id=dropID}
+ if id!=in.ID{writeError(w,409,"rule changed or stale selection");return}
+ s.firewallMu.Lock();defer s.firewallMu.Unlock()
+ ctx,cancel:=context.WithTimeout(r.Context(),100*time.Second);defer cancel()
+ snap,err:=ops.InspectFirewall(ctx,s.store.Dir())
+ if err!=nil{writeError(w,502,"cannot inspect firewall before rule change");return}
+ if !snap.Writable||snap.Backend!="firewalld"{
+  writeError(w,409,"firewalld read-only; cannot change policies");return
+ }
+ if snap.OpaqueRichZones[in.Zone]{
+  writeError(w,409,"zone contains complex rich rules; edit through original manager");return
+ }
+ zoneOK:=false
+ for _,z:=range snap.Zones{if z==in.Zone{zoneOK=true;break}}
+ if !zoneOK{writeError(w,409,"unknown firewalld zone");return}
+ for _,key:=range []string{allowID,dropID}{
+  if err:=s.ensureNoPending(key);err!=nil{writeError(w,409,err.Error());return}
+ }
+ target:=firewall.Rule{}
+ matching:=0
+ // Never operate on a rule that is mixed with a contradictory policy,
+ // or another zone's similarly named port.
+ for _,rr:=range snap.Rules{
+  if rr.Port!=in.Port||rr.Protocol!=in.Protocol{continue}
+  if rr.Zone!=in.Zone{
+   writeError(w,409,"same port is configured in another zone; use original manager");return
+  }
+  matching++
+  if rr.ID==id{target=rr}
+  if rr.Conflict{
+   writeError(w,409,"overlapping firewall policies require manual reconciliation");return
+  }
+ }
+ if matching>1{writeError(w,409,"ambiguous firewall rules");return}
+ if in.Port==22||in.Port==s.firewallGuardPort(){
+  writeError(w,403,"SSH and panel management ports are protected");return
+ }
+ ownedValue,_,err:=s.store.Setting("firewall_owned:"+id)
+ if err!=nil{writeError(w,500,"cannot check rule ownership");return}
+ if in.Action!="add-drop"&&ownedValue!="v1"{
+  writeError(w,403,"only X-port owned rules can be controlled");return
+ }
+ // A DROP rule is not a harmless inverse of ALLOW. Never add one to a
+ // listening port, including a panel, SSH or a Docker-proxy process.
+ if in.Action=="add-drop"||in.Action=="pause-allow"{
+  listeners,err:=ops.FirewallListeners(ctx,s.store.Dir())
+  if err!=nil{writeError(w,409,"cannot verify live listeners; unsafe change blocked");return}
+  if listeners[in.Port]{
+   if in.Action=="add-drop"{
+    writeError(w,409,"active listener detected; DROP creation blocked");return
+   }
+   // Pause a live Xray rule only when it unambiguously belongs to one
+   // enabled Xray account. Other listening services stay protected.
+   accounts,err:=s.store.Accounts()
+   if err!=nil{writeError(w,500,"cannot verify account ownership");return}
+   key:=fmt.Sprintf("%s/%d",in.Protocol,in.Port)
+   candidates:=accountFirewallMatches(accounts)[key]
+   if len(candidates)!=1||!candidates[0].Enabled{
+    writeError(w,409,"non-Xray or ambiguous listening port protected");return
+   }
+  }
+ }
+ if in.Action=="resume-allow"{
+  raw,ok,err:=s.store.Setting(firewallPausedKey(id))
+  if err!=nil{writeError(w,500,"cannot load paused rule");return}
+  if !ok||raw==""{writeError(w,409,"no paused rule to resume");return}
+  var paused firewall.Rule
+  if json.Unmarshal([]byte(raw),&paused)!=nil||paused.ID!=id||
+     paused.Kind!="port"||paused.Action!="allow"||paused.Port!=in.Port||
+     paused.Protocol!=in.Protocol||paused.Zone!=in.Zone||paused.Backend!="firewalld"{
+   writeError(w,409,"paused rule snapshot invalid");return
+  }
+  if matching!=0{writeError(w,409,"rule already exists or was changed externally");return}
+  if err:=ops.ApplyFirewall(ctx,s.store.Dir(),"add",in.Port,in.Protocol,in.Zone);err!=nil{
+   writeError(w,409,"resume failed: "+err.Error());return
+  }
+  if err:=s.store.SetSetting(firewallPausedKey(id),"");err!=nil{
+   rbctx,done:=context.WithTimeout(context.Background(),35*time.Second)
+   rollback:=ops.ApplyFirewall(rbctx,s.store.Dir(),"remove",in.Port,in.Protocol,in.Zone);done()
+   writeError(w,500,fmt.Sprintf("resume metadata failed; rollback: %v",rollback));return
+  }
+  s.firewallAudit("resume-allow",id)
+  writeJSON(w,200,map[string]bool{"ok":true});return
+ }
+ switch in.Action{
+ case "add-drop":
+  if matching!=0{writeError(w,409,"port is already governed by another policy");return}
+  target=firewall.Rule{ID:id,Port:in.Port,Protocol:in.Protocol,Zone:in.Zone,
+   Backend:"firewalld",Kind:"rich",Action:"deny",Family:"both"}
+ case "remove-drop":
+  if matching!=1||target.ID!=id||target.Kind!="rich"||target.Action!="deny"||
+     target.Family!="both"||!target.Runtime||!target.Permanent{
+   writeError(w,409,"DROP rule changed or is not a complete dual-family policy");return
+  }
+ case "pause-allow":
+  if matching!=1||target.ID!=id||target.Kind!="port"||target.Action!="allow"||
+     !target.Runtime||!target.Permanent{
+   writeError(w,409,"allow rule changed or runtime/permanent differ");return
+  }
+  raw,_,err:=s.store.Setting(firewallPausedKey(id))
+  if err!=nil{writeError(w,500,"cannot inspect paused metadata");return}
+  if raw!=""{writeError(w,409,"rule already has paused metadata");return}
+ }
+ var unit string
+ var deadline int64
+ var kind string
+ switch in.Action{
+ case "add-drop":
+  unit,deadline,err=ops.ScheduleFirewallDropUndo(ctx,"remove",in.Port,in.Protocol,in.Zone)
+  kind="add-drop"
+ case "remove-drop":
+  unit,deadline,err=ops.ScheduleFirewallDropUndo(ctx,"add",in.Port,in.Protocol,in.Zone)
+  kind="remove-drop"
+ case "pause-allow":
+  unit,deadline,err=ops.ScheduleFirewallRestore(ctx,"firewalld",in.Port,in.Protocol,in.Zone)
+  kind="pause-allow"
+ }
+ if err!=nil{writeError(w,409,"cannot arm native 120-second recovery: "+err.Error());return}
+ if kind=="pause-allow"{
+  err=ops.ApplyFirewall(ctx,s.store.Dir(),"remove",in.Port,in.Protocol,in.Zone)
+ }else if kind=="add-drop"{
+  err=ops.ApplySimpleDrop(ctx,s.store.Dir(),"add",in.Port,in.Protocol,in.Zone)
+ }else{
+  err=ops.ApplySimpleDrop(ctx,s.store.Dir(),"remove",in.Port,in.Protocol,in.Zone)
+ }
+ if err!=nil{
+  // Even a failed permanent update might have changed the runtime rule.
+  // Leave the independent timer armed rather than assuming full rollback.
+  writeError(w,409,"policy operation failed; recovery remains armed: "+err.Error());return
+ }
+ pending,err:=s.firewallPendingSaveKind(id,unit,deadline,kind,target)
+ if err!=nil{
+  writeError(w,500,"rule changed but pending confirmation could not be saved; recovery remains armed");return
+ }
+ s.firewallAudit(kind+"-pending",id)
+ writeJSON(w,http.StatusAccepted,map[string]any{
+  "ok":true,"pending":true,"id":id,"token":pending.Token,"deadline":pending.Deadline,"kind":kind,
+ })
+}
