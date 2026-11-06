@@ -14,7 +14,7 @@ curl -fLsS --connect-timeout 20 --max-time 100 \
 export PANEL_NON_INTERACTIVE=true PANEL_LANG=en PANEL_INSTALL_DIR=/opt \
  PANEL_PORT=19090 PANEL_ENTRANCE=ciPanelEntry PANEL_USERNAME=ciPanelAdmin \
  PANEL_INSTALL_DOCKER=n PANEL_CONFIGURE_ACCELERATOR=n PANEL_REPLACE_DAEMON_JSON=n
-PANEL_PASSWORD="$(python3 -c 'import secrets;print(secrets.token_hex(16))')"
+PANEL_PASSWORD="$(python3 -c 'import secrets;print(secrets.token_hex(14))')"
 export PANEL_PASSWORD
 echo "[panel-coexist] Installing official 1Panel V2 in disposable VM; Docker installation disabled"
 if ! timeout 360 bash /run/ci-panel-installer.sh >/run/ci-panel-install.log 2>&1; then
