@@ -137,6 +137,51 @@ if [[ "$runtime_query" != no || "$permanent_query" != no ]]; then
  exit 1
 fi
 echo "[selinux-vm] Web rule removal confirmed"
+# Validate an actual 120-second Web recovery while the panel binary
+# is temporarily absent. Run once in the standalone SELinux guest, not the
+# second VM which also installs 1Panel.
+if [[ ! -f /run/xport-ci-seed/panel-test.sh ]]; then
+ STAGE=restore-without-panel-binary
+ echo "[selinux-vm] Testing unattended timer after panel binary replacement"
+ restore_port=53334
+ payload="$(printf '{"action":"add","port":%s,"protocol":"tcp","zone":"%s"}' "$restore_port" "$ZONE")"
+ code="$(curl -sS -b /run/xport-ci.cookie -H "Origin: $BASE" \
+  -H 'Content-Type: application/json' -o /run/timer-add.json -w '%{http_code}' \
+  -d "$payload" "$BASE/api/firewall/rules")"
+ [[ "$code" == 200 ]] || { cat /run/timer-add.json; exit 1; }
+ payload="$(printf '{"action":"remove","port":%s,"protocol":"tcp","zone":"%s"}' "$restore_port" "$ZONE")"
+ code="$(curl -sS -b /run/xport-ci.cookie -H "Origin: $BASE" \
+  -H 'Content-Type: application/json' -o /run/timer-remove.json -w '%{http_code}' \
+  -d "$payload" "$BASE/api/firewall/rules")"
+ [[ "$code" == 202 ]] || { cat /run/timer-remove.json; exit 1; }
+ test "$(firewall-cmd --zone="$ZONE" --query-port="$restore_port"/tcp || true)" = no
+ test "$(firewall-cmd --permanent --zone="$ZONE" --query-port="$restore_port"/tcp || true)" = no
+ timer_unit="$(python3 -c 'import json; print(json.load(open("/run/timer-remove.json"))["id"])')"
+ # The precise timer unit is intentionally not a public Web API field.
+ # Read it from the authenticated panel's pending state within the VM.
+ python3 - <<'PY'
+import json
+with open('/run/timer-remove.json') as f: d=json.load(f)
+assert d['pending'] and len(d['token']) == 32
+PY
+ mv /usr/local/bin/xport /usr/local/bin/xport.timer-test
+ restored=0
+ for i in $(seq 1 135); do
+  runtime="$(firewall-cmd --zone="$ZONE" --query-port="$restore_port"/tcp || true)"
+  if [[ "$runtime" == yes ]]; then
+   permanent="$(firewall-cmd --permanent --zone="$ZONE" --query-port="$restore_port"/tcp || true)"
+   if [[ "$permanent" == yes ]]; then restored=1; break; fi
+  fi
+  sleep 1
+ done
+ mv /usr/local/bin/xport.timer-test /usr/local/bin/xport
+ if [[ "$restored" != 1 ]]; then
+  echo "[selinux-vm] Timed recovery failed when the X-port binary was unavailable"
+  journalctl -u 'xport-fw-restore-*' --no-pager -n 30 || true
+  exit 1
+ fi
+ echo "[selinux-vm] Real 120-second recovery succeeded with X-port binary absent"
+fi
 echo "XPORT_SELINUX_E2E_OK"
 if [[ -f /run/xport-ci-seed/panel-test.sh ]]; then
  STAGE=panel-coexist
