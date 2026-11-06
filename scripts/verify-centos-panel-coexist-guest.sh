@@ -119,7 +119,7 @@ if [[ "$code" != 202 ]]; then
  echo "[panel-coexist] Controlled external edit failed: HTTP $code"
  cat /run/panel-edit-accepted.json; exit 1
 fi
-firewall-cmd --zone="$ZONE" --query-port=19178/tcp | grep -Fxq no
+test "$(firewall-cmd --zone="$ZONE" --query-port=19178/tcp || true)" = no
 firewall-cmd --zone="$ZONE" --query-port=19179/tcp | grep -Fxq yes
 python3 - <<'PY'
 import json
@@ -183,7 +183,7 @@ code="$(curl -sS -b /run/xport-ci.cookie -H "Origin: $BASE" \
  -H 'Content-Type: application/json' -o /run/external-watchdog-start.json -w '%{http_code}' \
  -d @/run/external-watchdog-request.json "$BASE/api/firewall/edit")"
 if [[ "$code" != 202 ]]; then cat /run/external-watchdog-start.json; exit 1; fi
-firewall-cmd --zone="$ZONE" --query-port=19181/tcp | grep -Fxq no
+test "$(firewall-cmd --zone="$ZONE" --query-port=19181/tcp || true)" = no
 firewall-cmd --zone="$ZONE" --query-port=19182/tcp | grep -Fxq yes
 # Keep the installed panel service running; the watchdog's native worker
 # still must not depend on the X-port executable.
