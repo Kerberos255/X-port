@@ -52,7 +52,7 @@ STAGE=panel-init
 DATA=/var/lib/xport-selinux-ci
 PORT=28612
 mkdir -p "$DATA"
-printf 'selinux-ci-pass-12345\n' | xport init --data "$DATA" --admin-user ci-admin --listen "127.0.0.1:$PORT"
+printf 'selinux-ci-pass-12345\n' | /usr/local/bin/xport init --data "$DATA" --admin-user ci-admin --listen "127.0.0.1:$PORT"
 STAGE=systemd-panel
 echo "[selinux-vm] Starting systemd panel under legacy sandbox"
 systemd-run --unit=xport --property=Type=exec \
