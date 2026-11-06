@@ -300,3 +300,13 @@ html[data-theme="light"] #fw-add-dialog .fw-form-hint{color:#795212;background:#
  .sidebar #nav button{font-size:0;justify-content:center;min-width:0;white-space:nowrap}
  .sidebar #nav button span{font-size:16px;flex-shrink:0}
 }
+
+#fw-policy-dialog .fw-external-confirm{display:flex;align-items:flex-start;gap:9px;
+ margin-top:14px;padding:11px 12px;border:1px solid rgba(96,199,170,.24);
+ background:rgba(96,199,170,.06);border-radius:9px;font-size:12px;line-height:1.65;
+ color:#bad9cf;cursor:pointer}
+#fw-policy-dialog .fw-external-confirm[hidden]{display:none}
+#fw-policy-dialog .fw-external-confirm input{width:16px;min-width:16px;height:16px;
+ margin-top:2px;accent-color:#16a085;cursor:pointer}
+html[data-theme="light"] #fw-policy-dialog .fw-external-confirm{
+ border-color:#c9e6dd;background:#f0fbf7;color:#365e54}
