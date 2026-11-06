@@ -52,6 +52,20 @@ docker exec "$UF" ufw status verbose
 echo "[UFW] Kernel rules in isolated container (diagnostics)"
 docker exec "$UF" nft -a list ruleset > "$TMP/ufw-nft.txt"
 sed -n "1,110p" "$TMP/ufw-nft.txt"
+docker exec "$UF" nft -j list ruleset > "$TMP/ufw-json.txt"
+python3 - "$TMP/ufw-json.txt" <<'PY'
+import json,sys
+with open(sys.argv[1]) as f: d=json.load(f)
+for item in d.get("nftables",[]):
+    c=item.get("chain")
+    if c and c.get("hook") in ("input","prerouting","ingress"):
+        print("UFW_BASE_CHAIN",c.get("family"),c.get("table"),c.get("name"),c.get("hook"))
+        if c.get("name")=="INPUT":
+            for entry in d.get("nftables",[]):
+                r=entry.get("rule")
+                if r and r.get("family")==c.get("family") and r.get("table")==c.get("table") and r.get("chain")==c.get("name"):
+                    print("UFW_INPUT_RULE", [list(expr.keys()) for expr in r.get("expr",[])])
+PY
 check_snapshot "$UF" ufw true 54321 no
 docker exec "$UF" /usr/local/bin/xport firewall-apply add 54321 tcp ""
 check_snapshot "$UF" ufw true 54321 yes
