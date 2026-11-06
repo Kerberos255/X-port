@@ -84,3 +84,11 @@ html[data-theme="light"] #fw-add-dialog{color:#263c55;background:#fff}
 }
 
 @media(max-width:700px){#nav{grid-template-columns:repeat(5,minmax(0,1fr))}#nav button{min-width:0;font-size:9px;padding:8px 4px}}
+
+/* Keep action controls on one line in the narrow end columns. */
+#page-firewall #fw-add{min-width:102px;white-space:nowrap}
+#page-firewall .fw-table th:nth-child(7){width:18%}
+#page-firewall .fw-table th:nth-child(8){width:8%}
+#page-firewall .fw-table td:last-child .btn{min-width:43px;white-space:nowrap;padding:7px 9px}
+#page-firewall .fw-table td{font-size:12.5px}
+@media(max-width:700px){#page-firewall .fw-table td:last-child .btn{min-width:46px}#page-firewall #fw-add{min-width:92px}}
