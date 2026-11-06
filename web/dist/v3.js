@@ -2,27 +2,45 @@ let xportOnlineConnections={}
 let xportOnlineTimer=null
 
 function isTransientNetworkErrorV3(err){
- return !err?.status && /NetworkError|Failed to fetch|Load failed|network request/i.test(String(err?.message||err||''))
+ // Reverse proxies may turn a short disconnect into HTTP 502/503/504.
+ // Never replay the write; only inspect its final state after reconnecting.
+ if([502,503,504].includes(Number(err?.status)))return !err?.serverError
+ return !err?.status && /NetworkError|Failed to fetch|Load failed|network request|connection refused|connection reset|ERR_CONNECTION_REFUSED|ECONNREFUSED/i.test(String(err?.message||err||''))
 }
 function sleepV3(ms){return new Promise(r=>setTimeout(r,ms))}
 async function waitForPanelV3(timeoutMs=12000){
  const deadline=Date.now()+timeoutMs
  while(Date.now()<deadline){
-  try{await api('/api/health');return true}catch{}
+  try{if((await api('/api/health'))?.ok)return true}catch{}
   await sleepV3(650)
  }
  return false
 }
-async function mutationWithRecoveryV3(run,verify){
+async function waitForXrayV3(timeoutMs=6500){
+ const deadline=Date.now()+timeoutMs
+ while(Date.now()<deadline){
+  try{if((await api('/api/overview'))?.system?.xrayActive)return true}catch(e){if(e?.status===401)throw e}
+  await sleepV3(750)
+ }
+ return false
+}
+async function mutationWithRecoveryV3(run,verify,requireXray=true){
  try{return {value:await run(),recovered:false}}
  catch(err){
   if(!isTransientNetworkErrorV3(err))throw err
-  toast('Xray 正在应用配置，等待连接恢复…')
-  if(!await waitForPanelV3())throw err
-  try{if(await verify())return {value:null,recovered:true}}catch{}
-  throw err
+  toast('连接暂时中断，正在核实操作结果…')
+  if(!await waitForPanelV3())throw new Error('面板仍无法连接，操作结果未确认；请恢复连接后刷新')
+  let applied=false
+  try{applied=Boolean(await verify())}catch{}
+  if(applied){
+   if(requireXray && !await waitForXrayV3())throw new Error('操作状态已更新，但 Xray 未恢复；请检查核心服务')
+   return {value:null,recovered:true}
+  }
+  throw new Error('连接已恢复，但操作未确认成功；请刷新后检查账号状态')
  }
 }
+
+
 
 async function loadOnlineConnectionsV3(render=true){
  if(state.page!=='accounts')return
@@ -155,13 +173,31 @@ function openCloneModalV3(id){
  $('#clone-cancel').onclick=closeModal;$('#clone-form').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.currentTarget),name=String(f.get('name')||''),port=Number(f.get('port')||0),before=new Set(state.accounts.map(x=>Number(x.id)));try{await mutationWithRecoveryV3(()=>api(`/api/accounts/${id}/clone`,{method:'POST',body:JSON.stringify({name,port})}),async()=>{const d=await api('/api/accounts');return(d.accounts||[]).some(x=>!before.has(Number(x.id))&&x.name===name&&Number(x.port)===port)});closeModal();await loadAccounts();await loadOverview();await loadOnlineConnectionsV3(false);toast('账号已克隆')}catch(x){toast(x.message,true)}}
 }
 async function resetTrafficV3(id){
- const a=state.accounts.find(x=>x.id===id);if(!confirm(`清零「${a?.name||id}」的本期上下行流量？\n累计总流量不会清零。`))return
- try{await mutationWithRecoveryV3(()=>api(`/api/accounts/${id}/traffic/reset`,{method:'POST',body:'{}'}),async()=>{const d=await api('/api/accounts');const cur=(d.accounts||[]).find(x=>Number(x.id)===id);return cur&&Number(cur.upBytes||0)===0&&Number(cur.downBytes||0)===0});await loadAccounts();await loadOverview();toast('本期流量已清零')}catch(e){toast(e.message,true)}
+  const a=state.accounts.find(x=>x.id===id);if(!confirm(`清零「${a?.name||id}」的本期上下行流量？\n累计总流量不会清零。`))return
+  try{await mutationWithRecoveryV3(()=>api(`/api/accounts/${id}/traffic/reset`,{method:'POST',body:'{}'}),async()=>{const d=await api('/api/accounts');const cur=(d.accounts||[]).find(x=>Number(x.id)===id);return cur&&Number(cur.upBytes||0)===0&&Number(cur.downBytes||0)===0},false);await loadAccounts();await loadOverview();toast('本期流量已清零')}catch(e){toast(e.message,true)}
+}
+async function refreshAccountsAfterDeleteV3(){
+  for(let attempt=0;attempt<5;attempt++){
+   try{const d=await api('/api/accounts');state.accounts=d.accounts||[];renderAccountsV3();return true}catch{}
+   await sleepV3(700)
+  }
+  return false
 }
 async function deleteAccountV3(id){
- const a=state.accounts.find(x=>x.id===id);if(!confirm(`删除账号「${a?.name||id}」？\n对应 inbound 会从 Xray 配置移除。`))return
- try{await mutationWithRecoveryV3(()=>api(`/api/accounts/${id}`,{method:'DELETE'}),async()=>{const d=await api('/api/accounts');return!(d.accounts||[]).some(x=>Number(x.id)===id)});await loadAccounts();await loadOverview();await loadOnlineConnectionsV3(false);toast('账号已删除')}catch(e){toast(e.message,true)}
+  const a=state.accounts.find(x=>x.id===id);if(!confirm(`删除账号「${a?.name||id}」？\n对应 inbound 会从 Xray 配置移除。`))return
+  try{
+   await mutationWithRecoveryV3(()=>api(`/api/accounts/${id}`,{method:'DELETE'}),async()=>{const d=await api('/api/accounts');return!(d.accounts||[]).some(x=>Number(x.id)===id)})
+   const synced=await refreshAccountsAfterDeleteV3()
+   toast(synced?'账号已删除':'删除已完成，列表暂未刷新，请稍后重载')
+   void loadOverview(false,true).catch(()=>{})
+   void loadOnlineConnectionsV3(false)
+  }catch(e){
+   // Refresh after an ambiguous response, but never issue DELETE a second time.
+   await refreshAccountsAfterDeleteV3()
+   toast('删除结果未确认：'+e.message,true)
+  }
 }
+
 
 async function loadSettingsV3(){
  try{const d=await api('/api/settings'),f=$('#settings-form');for(const [k,v0] of Object.entries(d)){const el=f.elements.namedItem(k);if(!el)continue;let v=v0??'';if(k==='panelListen'&&/^:\d+$/.test(String(v)))v=String(v).slice(1);el.value=v}f.elements.currentPassword.value='';f.elements.newPassword.value='';const input=f.elements.namedItem('panelListen');if(input&&!input.parentElement.querySelector('.listen-hint'))input.insertAdjacentHTML('afterend','<small class="listen-hint">只填端口表示监听所有地址；需要限制地址时可填 127.0.0.1:8080。</small>')}catch(e){toast(e.message,true)}

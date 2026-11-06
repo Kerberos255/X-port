@@ -3,6 +3,10 @@ on:
   pull_request:
     paths:
       - '.github/workflows/firewall-e2e.yml'
+      - 'internal/xray/**'
+      - 'internal/service/**'
+      - 'web/dist/**'
+      - 'scripts/verify-centos-account-restarts-guest.sh'
       - 'internal/firewall/**'
       - 'internal/ops/firewall*.go'
       - 'internal/server/firewall*.go'
@@ -114,6 +118,22 @@ jobs:
           else
             echo "Host is not booted with SELinux; containers cannot prove enforcing-mode compatibility."
           fi
+
+  centos9-account-restarts:
+    # Independent VM: fault injection must not alter firewall timer state.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.27.3'
+          cache: false
+      - name: Build X-port for isolated account systemd E2E
+        run: CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o "$RUNNER_TEMP/xport-account-e2e" ./cmd/xport
+      - name: Boot separate CentOS Stream 9 Enforcing VM and exercise Xray restart limit
+        run: sudo bash scripts/verify-centos-selinux-vm.sh "$RUNNER_TEMP/xport-account-e2e" account
 
   centos9-selinux-enforcing:
     # An actual CentOS Stream VM, not a container sharing Ubuntu's SELinux-disabled kernel.

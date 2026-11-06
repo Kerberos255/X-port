@@ -79,6 +79,7 @@ curl -fsS "$BASE/" >/dev/null
 echo "[selinux-vm] X-port systemd service healthy"
 curl -fsS -c /run/xport-ci.cookie -H 'Content-Type: application/json' \
  -d '{"username":"ci-admin","password":"selinux-ci-pass-12345"}' "$BASE/api/login" >/dev/null
+
 STAGE=web-firewall-read
 echo "[selinux-vm] Inspecting Web firewall read with full failure diagnostics"
 read_code="$(curl -sS -b /run/xport-ci.cookie -o /run/xport-firewall.json -w '%{http_code}' "$BASE/api/firewall")"
@@ -201,6 +202,8 @@ import json
 with open('/run/timer-remove.json') as f: d=json.load(f)
 assert d['pending'] and len(d['token']) == 32
 PY
+ echo "[selinux-vm] Recovery timers immediately after scheduling:"
+ systemctl list-timers --all --no-pager 'xport-fw-restore-*' || true
  mv /usr/local/bin/xport /usr/local/bin/xport.timer-test
  restored=0
  for i in $(seq 1 135); do
@@ -213,6 +216,15 @@ PY
  done
  mv /usr/local/bin/xport.timer-test /usr/local/bin/xport
  if [[ "$restored" != 1 ]]; then
+  echo "[selinux-vm] Diagnostic: recovery timer and service status"
+  systemctl list-timers --all --no-pager 'xport-fw-restore-*' || true
+  systemctl list-units --all --no-pager 'xport-fw-restore-*' || true
+  systemctl --failed --no-pager || true
+  echo "[selinux-vm] Diagnostic: firewalld port state"
+  firewall-cmd --zone="$ZONE" --query-port="$restore_port"/tcp || true
+  firewall-cmd --permanent --zone="$ZONE" --query-port="$restore_port"/tcp || true
+  echo "[selinux-vm] Diagnostic: recovery service journals"
+  journalctl -b --no-pager --output=short-precise --since '-5 min' | grep -E 'xport-fw-restore|firewalld|53334' | tail -n 110 || true
   echo "[selinux-vm] Timed recovery failed when the X-port binary was unavailable"
   journalctl -u 'xport-fw-restore-*' --no-pager -n 30 || true
   exit 1

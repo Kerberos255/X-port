@@ -330,9 +330,8 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 503, "Xray manager is not configured")
 			return
 		}
-		s.manager.APIPort = in.XrayAPIPort
-		if err := s.manager.Apply(accounts); err != nil {
-			s.manager.APIPort = oldAPI
+		if err := s.manager.ApplyWithAPIPort(accounts, in.XrayAPIPort); err != nil {
+
 			writeError(w, 502, "Xray API port change failed: "+err.Error())
 			return
 		}
@@ -340,12 +339,15 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) {
 	values := map[string]string{"panel_listen": in.PanelListen, "panel_base_path": in.PanelBasePath, "panel_cert_file": in.PanelCertFile, "panel_key_file": in.PanelKeyFile, "panel_domain": in.PanelDomain, "xray_api_port": strconv.Itoa(in.XrayAPIPort), "port_min": strconv.Itoa(in.PortMin), "port_max": strconv.Itoa(in.PortMax), "default_reality_sni": strings.TrimSpace(in.DefaultRealitySNI), "default_reality_dest": strings.TrimSpace(in.DefaultRealityDest)}
 	if err := s.store.ApplySettings(values, currentUser, in.AdminUsername, newHash); err != nil {
 		if apiChanged {
-			s.manager.APIPort = oldAPI
-			_ = s.manager.Apply(accounts)
+			if rollbackErr := s.manager.ApplyWithAPIPort(accounts, oldAPI); rollbackErr != nil {
+				writeError(w, 502, fmt.Sprintf("settings save failed: %v; Xray API port rollback also failed: %v", err, rollbackErr))
+				return
+			}
 		}
 		writeError(w, 400, err.Error())
 		return
 	}
+
 	if adminChanging {
 		s.sessions.Clear()
 		token, err := s.sessions.Create(in.AdminUsername)
