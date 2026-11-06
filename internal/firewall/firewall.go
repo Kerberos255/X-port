@@ -33,42 +33,8 @@ type Snapshot struct {
  Rules []Rule `json:"rules"`
  Notice string `json:"notice"`
 }
-var zoneRE=regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}// Package firewall reads the system firewall and manages only simple, explicit port rules.
-// Native nftables rules remain read-only to preserve other rule owners.
-package firewall
+var zoneRE=regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`)
 
-import (
- "context"
- "errors"
- "fmt"
- "os/exec"
- "regexp"
- "sort"
- "strconv"
- "strings"
- "time"
-)
-
-type Rule struct {
- ID string `json:"id"`
- Port int `json:"port"`
- Protocol string `json:"protocol"`
- Zone string `json:"zone,omitempty"`
- Backend string `json:"backend"`
- Runtime bool `json:"runtime"`
- Permanent bool `json:"permanent"`
- Access string `json:"access"`
-}
-type Snapshot struct {
- Backend string `json:"backend"`
- Active bool `json:"active"`
- DefaultZone string `json:"defaultZone,omitempty"`
- Zones []string `json:"zones"`
- Services map[string][]string `json:"services,omitempty"`
- Rules []Rule `json:"rules"`
- Notice string `json:"notice"`
-}
-)
 var ruleRE=regexp.MustCompile(`^([1-9][0-9]{0,4})/(tcp|udp)$`)
 
 func command(ctx context.Context, name string, args ...string)(string,error){
