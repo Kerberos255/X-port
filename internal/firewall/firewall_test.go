@@ -80,12 +80,29 @@ func TestNativePreroutingChainClassification(t *testing.T) {
   {"unknown prerouting type",`{"nftables":[{"chain":{"family":"ip","table":"custom","name":"PRE","hook":"prerouting"}}]}`,true},
   {"external input filter",`{"nftables":[{"chain":{"family":"inet","table":"custom","name":"input","type":"filter","hook":"input"}}]}`,true},
   {"external ingress",`{"nftables":[{"chain":{"family":"netdev","table":"custom","name":"ingress","type":"filter","hook":"ingress"}}]}`,true},
+  {"foreign ipv4 firewalld-named table",`{"nftables":[{"chain":{"family":"ip","table":"firewalld","name":"filter_INPUT","type":"filter","hook":"input"}}]}`,true},
+  {"foreign ipv6 firewalld-named table",`{"nftables":[{"chain":{"family":"ip6","table":"firewalld","name":"filter_INPUT","type":"filter","hook":"input"}}]}`,true},
+  {"external nat INPUT",`{"nftables":[{"chain":{"family":"ip","table":"nat","name":"INPUT","type":"nat","hook":"input"}}]}`,true},
+  {"external filter with same prerouting hook",`{"nftables":[{"chain":{"family":"ip","table":"nat","name":"PRE","type":"filter","hook":"prerouting"}}]}`,true},
+  {"firewalld internals only",`{"nftables":[{"chain":{"family":"inet","table":"firewalld","name":"filter_INPUT","type":"filter","hook":"input"}}]}`,false},
+
  }
  for _,tc:=range cases{t.Run(tc.name,func(t *testing.T){
   blocker,err:=independentInputChainBlocker(tc.rule,false)
   if err!=nil{t.Fatal(err)}
   if (blocker!="")!=tc.blocked{t.Fatalf("blocker=%q expected blocked=%v",blocker,tc.blocked)}
  })}
+ // A NAT chain by itself does not authorize writes when an unrelated input
+ // filter also participates. This must remain fail-closed.
+ mixed:=`{"nftables":[
+ {"chain":{"family":"ip","table":"nat","name":"PREROUTING","type":"nat","hook":"prerouting"}},
+ {"chain":{"family":"ip6","table":"nat","name":"PREROUTING","type":"nat","hook":"prerouting"}},
+ {"chain":{"family":"inet","table":"other","name":"INPUT","type":"filter","hook":"input"}}
+ ]}`
+ blocker,err:=independentInputChainBlocker(mixed,false)
+ if err!=nil||!strings.Contains(blocker,"inet/other/INPUT"){
+  t.Fatalf("independent INPUT hidden by NAT coexistence: blocker=%q err=%v",blocker,err)
+ }
  // Fixture matches observed firewalld + IPv4/IPv6 NAT base-chain layout.
  combined:=`{"nftables":[
  {"chain":{"family":"ip","table":"nat","name":"PREROUTING","type":"nat","hook":"prerouting","prio":-100}},
