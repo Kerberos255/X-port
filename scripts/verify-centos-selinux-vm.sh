@@ -4,9 +4,11 @@ set -Eeuo pipefail
 BIN="$1"
 MODE="${2:-selinux}"
 SSH_PORT="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')"
-if [[ "$MODE" != "selinux" && "$MODE" != "panel" ]]; then echo "Unknown VM test mode" >&2; exit 1; fi
+if [[ "$MODE" != "selinux" && "$MODE" != "panel" && "$MODE" != "account" ]]; then echo "Unknown VM test mode" >&2; exit 1; fi
 SUCCESS_MARKER=XPORT_SELINUX_E2E_OK
 if [[ "$MODE" == panel ]]; then SUCCESS_MARKER=XPORT_PANEL_COEXIST_OK; fi
+if [[ "$MODE" == account ]]; then SUCCESS_MARKER=XPORT_ACCOUNT_SYSTEMD_E2E_OK; fi
+
 test -f "$BIN"
 test -c /dev/kvm || { echo "Real KVM unavailable; Enforcing cannot be validated by a container" >&2; exit 1; }
 TMP="$(mktemp -d -t xport-centos-vm.XXXXXXXX)"
@@ -28,8 +30,13 @@ test -n "$SUM" || { echo "Official CentOS SHA256 checksum missing" >&2; exit 1; 
 echo "$SUM  $TMP/centos.qcow2" | sha256sum -c -
 qemu-img info "$TMP/centos.qcow2"
 cp "$BIN" "$TMP/xport"
-cp scripts/verify-centos-selinux-guest.sh "$TMP/guest-test.sh"
+if [[ "$MODE" == account ]]; then
+ cp scripts/verify-centos-account-restarts-guest.sh "$TMP/guest-test.sh"
+else
+ cp scripts/verify-centos-selinux-guest.sh "$TMP/guest-test.sh"
+fi
 if [[ "$MODE" == panel ]]; then cp scripts/verify-centos-panel-coexist-guest.sh "$TMP/panel-test.sh"; fi
+
 ssh-keygen -q -t ed25519 -N "" -f "$TMP/ci-key"
 PUB="$(cat "$TMP/ci-key.pub")"
 cat > "$TMP/user-data" <<YAML
@@ -53,8 +60,8 @@ YAML
 cp scripts/verify-centos-helper-matrix.sh "$TMP/helper-matrix.sh"
 cp scripts/verify-centos-go-helper-diag.sh "$TMP/go-helper-matrix.sh"
 if [[ -n "${GO_HELPER_DIAG:-}" ]]; then cp "$GO_HELPER_DIAG" "$TMP/go-helper-diag"; chmod 0755 "$TMP/go-helper-diag"; fi
-cp scripts/verify-centos-account-restarts-guest.sh "$TMP/account-restart-test.sh"
-ISO_FILES=( "user-data=$TMP/user-data" "meta-data=$TMP/meta-data" "xport=$TMP/xport" "guest-test.sh=$TMP/guest-test.sh" "helper-matrix.sh=$TMP/helper-matrix.sh" "go-helper-matrix.sh=$TMP/go-helper-matrix.sh" "account-restart-test.sh=$TMP/account-restart-test.sh" )
+ISO_FILES=( "user-data=$TMP/user-data" "meta-data=$TMP/meta-data" "xport=$TMP/xport" "guest-test.sh=$TMP/guest-test.sh" "helper-matrix.sh=$TMP/helper-matrix.sh" "go-helper-matrix.sh=$TMP/go-helper-matrix.sh" )
+
 if [[ -n "${GO_HELPER_DIAG:-}" ]]; then ISO_FILES+=( "go-helper-diag=$TMP/go-helper-diag" ); fi
 if [[ "$MODE" == panel ]]; then ISO_FILES+=( "panel-test.sh=$TMP/panel-test.sh" ); fi
 genisoimage -quiet -output "$TMP/seed.iso" -volid cidata -joliet -rock -graft-points "${ISO_FILES[@]}"
@@ -91,10 +98,10 @@ timeout --signal=TERM 650 ssh "${SSH_OPTS[@]}" xportci@127.0.0.1 \
  2>&1 | tee "$TMP/guest.log"
 GUEST_RC=${PIPESTATUS[0]}
 set -e
-if ! grep -Fq "$SUCCESS_MARKER" "$TMP/guest.log"; then
+if { [[ "$MODE" == account && "$GUEST_RC" != 0 ]]; } || ! grep -Fxq "$SUCCESS_MARKER" "$TMP/guest.log"; then
  echo "[selinux-vm] Guest test failed or timed out, ssh=$GUEST_RC" >&2
  tail -n 90 "$TMP/guest.log" >&2 || true
  tail -n 50 "$TMP/console.log" >&2 || true
  exit 1
 fi
-echo "[selinux-vm] $SUCCESS_MARKER: real CentOS Enforcing firewall Web E2E passed"
+echo "[selinux-vm] $SUCCESS_MARKER: isolated CentOS Enforcing $MODE E2E passed"

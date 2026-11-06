@@ -2,6 +2,12 @@
 set -Eeuo pipefail
 # Run only in a disposable CentOS Stream 9 KVM guest.
 test "$(getenforce)" = Enforcing
+test "$(cat /sys/fs/selinux/enforce)" = 1
+. /etc/os-release
+test "$ID" = centos && test "$VERSION_ID" = 9
+command -v curl >/dev/null && command -v python3 >/dev/null
+install -D -m 0755 /run/xport-ci-seed/xport /usr/local/bin/xport
+restorecon /usr/local/bin/xport || true
 systemctl show xport-xray.service -p LoadState --value | grep -Fxq not-found
 
 DATA=/var/lib/xport-restart-ci
