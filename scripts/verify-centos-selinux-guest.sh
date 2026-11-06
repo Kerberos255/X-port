@@ -187,6 +187,7 @@ echo "[selinux-vm] Web rule removal confirmed"
 # Exercise the independent authenticated rule control endpoint while SELinux
 # remains Enforcing. None of these ports are used for remote administration.
 STAGE=web-policy-control
+echo "[selinux-vm] CI diagnostic: capture authenticated API, privileged helper, and raw firewalld rich-rule snapshots"
 control_request(){
  local payload="$1" output="$2" expected="$3" code
  code="$(curl -sS -b /run/xport-ci.cookie -H "Origin: $BASE" \
