@@ -112,6 +112,34 @@ with open("/run/xport-firewall.json") as f:d=json.load(f)
 assert d["backend"]=="firewalld" and d["writable"] is True,d
 print("[selinux-vm] Web firewall read passed in Enforcing")
 PY
+STAGE=foreign-input-fail-closed
+echo "[selinux-vm] Verifying separate INPUT filter blocks Web writes without changing rules"
+nft add table inet xport_ci_external
+nft 'add chain inet xport_ci_external INPUT { type filter hook input priority -200; policy accept; }'
+curl -fsS -b /run/xport-ci.cookie "$BASE/api/firewall" >/run/foreign-input.json
+python3 - <<'PY'
+import json
+d=json.load(open("/run/foreign-input.json"))
+assert d["backend"]=="firewalld" and d["writable"] is False,d
+assert "xport_ci_external" in d["unsafeReason"],d
+PY
+reject_code="$(curl -sS -b /run/xport-ci.cookie -H "Origin: $BASE" \
+ -H 'Content-Type: application/json' -o /run/foreign-input-reject.json -w '%{http_code}' \
+ -d "{\"action\":\"add\",\"port\":53335,\"protocol\":\"tcp\",\"zone\":\"$ZONE\"}" "$BASE/api/firewall/rules")"
+if [[ "$reject_code" != 409 ]]; then
+ echo "[selinux-vm] Foreign INPUT must reject writes: HTTP $reject_code"
+ cat /run/foreign-input-reject.json; exit 1
+fi
+[[ "$(firewall-cmd --zone="$ZONE" --query-port=53335/tcp || true)" == no ]]
+[[ "$(firewall-cmd --permanent --zone="$ZONE" --query-port=53335/tcp || true)" == no ]]
+nft delete table inet xport_ci_external
+curl -fsS -b /run/xport-ci.cookie "$BASE/api/firewall" >/run/after-foreign-input.json
+python3 - <<'PY'
+import json
+d=json.load(open("/run/after-foreign-input.json"))
+assert d["backend"]=="firewalld" and d["writable"] is True,d
+PY
+echo "[selinux-vm] Foreign INPUT blocked writes; NAT-only coexistence restored write access"
 STAGE=web-firewall-add
 echo "[selinux-vm] Testing authenticated Web rule add"
 code="$(curl -sS -b /run/xport-ci.cookie -H "Origin: $BASE" \
