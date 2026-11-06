@@ -43,6 +43,15 @@ firewall-cmd --state
 firewall-cmd --state | grep -Fxq running
 ZONE="$(firewall-cmd --get-default-zone | tr -d '\r\n')"
 echo "[selinux-vm] Active firewall zone: $ZONE"
+# Mirror hosts that have standalone IPv4/IPv6 NAT PREROUTING chains.
+# These must not be mistaken for competing packet input filters.
+STAGE=nat-coexistence
+nft add table ip xport_ci_nat
+nft 'add chain ip xport_ci_nat PREROUTING { type nat hook prerouting priority -100; policy accept; }'
+nft add table ip6 xport_ci_nat
+nft 'add chain ip6 xport_ci_nat PREROUTING { type nat hook prerouting priority -100; policy accept; }'
+nft -j list ruleset | python3 -c 'import json,sys; cs=[x["chain"] for x in json.load(sys.stdin)["nftables"] if "chain" in x]; assert sum(c.get("table")=="xport_ci_nat" and c.get("type")=="nat" and c.get("hook")=="prerouting" for c in cs)==2'
+echo "[selinux-vm] Independent IPv4/IPv6 NAT chains installed; input filtering remains firewalld-owned"
 STAGE=binary-install
 echo "[selinux-vm] Installing test X-port binary"
 install -D -m 0755 /run/xport-ci-seed/xport /usr/local/bin/xport
