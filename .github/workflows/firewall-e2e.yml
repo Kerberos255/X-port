@@ -8,6 +8,8 @@ on:
       - 'internal/server/firewall*.go'
       - 'cmd/xport/manager.go'
       - 'scripts/verify-firewall-container-e2e.sh'
+      - 'scripts/verify-web-upgrade-e2e.sh'
+      - 'scripts/testdata/upgrade_harness.go'
   workflow_dispatch:
 
 permissions:
@@ -27,3 +29,17 @@ jobs:
         run: CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o "$RUNNER_TEMP/xport-fw-e2e" ./cmd/xport
       - name: Run UFW, firewalld, and 120-second restore in isolated network namespaces
         run: sudo bash scripts/verify-firewall-container-e2e.sh "$RUNNER_TEMP/xport-fw-e2e"
+
+  upgrade-supervisor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.27.3'
+          cache: false
+      - name: Upgrade real v0.2.8 service using local verified candidate, then test rollback
+        run: bash scripts/verify-web-upgrade-e2e.sh
