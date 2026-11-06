@@ -147,7 +147,7 @@ func (s *Server) firewallRead(w http.ResponseWriter,r *http.Request){
    Managed:settings["firewall_owned:"+rr.ID]=="v1",Xray:xray,
    AccountID:account.ID,AccountName:account.Name,AccountEnabled:account.Enabled,
    AccountAmbiguous:ambiguous,Usage:usage,Revision:firewallRuleRevision(rr),
-    CanToggle:settings["firewall_owned:"+rr.ID]=="v1"&&!rr.Conflict&&
+    CanToggle:snap.Backend=="firewalld"&&!snap.OpaqueRichZones[rr.Zone]&&settings["firewall_owned:"+rr.ID]=="v1"&&!rr.Conflict&&
       rr.Port!=22&&rr.Port!=s.firewallGuardPort()&&
       (rr.Kind=="port"||rr.Kind=="rich")&&
       (!protected||(xray&&!ambiguous&&account.Enabled)),
@@ -189,7 +189,7 @@ func (s *Server) firewallRead(w http.ResponseWriter,r *http.Request){
    Protected:paused.Port==22||paused.Port==s.firewallGuardPort(),
    Managed:true,Xray:len(account)>0,AccountID:accountID,AccountName:name,
    AccountEnabled:enabled,AccountAmbiguous:len(account)>1,Usage:usage,
-   Paused:true,Revision:firewallRuleRevision(paused),CanToggle:!conflicting&&paused.Port!=22&&paused.Port!=s.firewallGuardPort(),
+   Paused:true,Revision:firewallRuleRevision(paused),CanToggle:snap.Backend=="firewalld"&&!snap.OpaqueRichZones[paused.Zone]&&!conflicting&&paused.Port!=22&&paused.Port!=s.firewallGuardPort(),
   })
  }
  writeJSON(w,200,firewallView{Snapshot:snap,Rules:rules,Pending:pendingFromSettings(settings)})
@@ -398,6 +398,11 @@ func (s *Server) firewallControl(w http.ResponseWriter,r *http.Request){
  switch in.Action{
  case "add-drop":
   if matching!=0{writeError(w,409,"port is already governed by another policy");return}
+  for _,checkID:=range []string{allowID,dropID}{
+   prior,_,err:=s.store.Setting(firewallPausedKey(checkID))
+   if err!=nil{writeError(w,500,"cannot inspect existing paused rule");return}
+   if prior!=""{writeError(w,409,"port has paused rule metadata; resume or clear it first");return}
+  }
   target=firewall.Rule{ID:id,Port:in.Port,Protocol:in.Protocol,Zone:in.Zone,
    Backend:"firewalld",Kind:"rich",Action:"deny",Family:"both"}
  case "remove-drop","pause-drop":
