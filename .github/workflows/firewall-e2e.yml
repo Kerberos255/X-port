@@ -12,6 +12,7 @@ on:
       - 'scripts/verify-web-update-http.sh'
       - 'scripts/verify-centos-selinux-vm.sh'
       - 'scripts/verify-centos-selinux-guest.sh'
+      - 'scripts/verify-centos-helper-matrix.sh'
       - 'scripts/verify-centos-panel-coexist-guest.sh'
       - 'scripts/verify-firewall-distros.sh'
       - 'scripts/testdata/cancel_timer/main.go'

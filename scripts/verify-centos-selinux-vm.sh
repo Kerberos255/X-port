@@ -50,7 +50,8 @@ cat > "$TMP/meta-data" <<'YAML'
 instance-id: xport-centos-selinux-ci
 local-hostname: xport-centos-ci
 YAML
-ISO_FILES=( "user-data=$TMP/user-data" "meta-data=$TMP/meta-data" "xport=$TMP/xport" "guest-test.sh=$TMP/guest-test.sh" )
+cp scripts/verify-centos-helper-matrix.sh "$TMP/helper-matrix.sh"
+ISO_FILES=( "user-data=$TMP/user-data" "meta-data=$TMP/meta-data" "xport=$TMP/xport" "guest-test.sh=$TMP/guest-test.sh" "helper-matrix.sh=$TMP/helper-matrix.sh" )
 if [[ "$MODE" == panel ]]; then ISO_FILES+=( "panel-test.sh=$TMP/panel-test.sh" ); fi
 genisoimage -quiet -output "$TMP/seed.iso" -volid cidata -joliet -rock -graft-points "${ISO_FILES[@]}"
 echo "[selinux-vm] Booting official CentOS guest with KVM"

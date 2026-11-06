@@ -81,6 +81,8 @@ if [[ "$read_code" != 200 ]]; then
  echo
  echo "[selinux-vm] Systemd helper launched under root:"
  systemd-run --wait --collect --pipe --unit=xport-ci-read-direct --property=Type=exec --property=NoNewPrivileges=yes /usr/local/bin/xport firewall-inspect || true
+ echo "[selinux-vm] Reproducing nested helper behavior in equivalent sandbox:"
+ bash /run/xport-ci-seed/helper-matrix.sh || true
  echo "[selinux-vm] Web process systemd and SELinux context:"
  systemctl show xport.service -p NoNewPrivileges -p RestrictAddressFamilies -p PrivateDevices -p PrivateTmp || true
  ps -eZ | grep -E 'xport|systemd-run' || true
