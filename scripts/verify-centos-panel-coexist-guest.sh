@@ -22,16 +22,28 @@ if ! timeout 360 bash /run/ci-panel-installer.sh >/run/ci-panel-install.log 2>&1
  tail -n 30 /run/ci-panel-install.log || true
  exit 1
 fi
-for i in $(seq 1 40); do
- if systemctl is-active --quiet 1panel-core && systemctl is-active --quiet 1panel-agent; then break; fi
+# Account for slow first-boot database migration in a shared CI runner.
+# All three services and the actual management port must become healthy.
+for i in $(seq 1 180); do
+ if systemctl is-active --quiet 1panel-core &&
+    systemctl is-active --quiet 1panel-agent &&
+    ss -H -ltn 'sport = :19090' | grep -q LISTEN; then break; fi
  sleep .5
 done
-systemctl is-active --quiet 1panel-core
-systemctl is-active --quiet 1panel-agent
-systemctl is-active --quiet xport.service
+for unit in 1panel-core 1panel-agent xport.service; do
+ if ! systemctl is-active --quiet "$unit"; then
+  echo "[panel-coexist] Service did not become active: $unit"
+  systemctl show "$unit" -p ActiveState -p SubState -p Result --no-pager || true
+  exit 1
+ fi
+done
 test "$(getenforce)" = Enforcing
-# A healthy service does not guarantee that the configured Web port listens.
-ss -H -ltn 'sport = :19090' | grep -q LISTEN
+# A healthy service does not guarantee that its configured Web port listens.
+if ! ss -H -ltn 'sport = :19090' | grep -q LISTEN; then
+ echo "[panel-coexist] Official installer completed but management port is not listening"
+ ss -H -ltn '( sport = :19090 )' || true
+ exit 1
+fi
 curl -fsS "$BASE/" >/dev/null
 echo "[panel-coexist] Both panels running in CentOS SELinux Enforcing guest"
 
