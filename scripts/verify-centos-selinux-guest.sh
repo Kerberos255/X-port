@@ -81,6 +81,11 @@ if [[ "$read_code" != 200 ]]; then
  echo
  echo "[selinux-vm] Systemd helper launched under root:"
  systemd-run --wait --collect --pipe --unit=xport-ci-read-direct --property=Type=exec --property=NoNewPrivileges=yes /usr/local/bin/xport firewall-inspect || true
+ echo "[selinux-vm] Web process systemd and SELinux context:"
+ systemctl show xport.service -p NoNewPrivileges -p RestrictAddressFamilies -p PrivateDevices -p PrivateTmp || true
+ ps -eZ | grep -E 'xport|systemd-run' || true
+ echo "[selinux-vm] Web service recent journal:"
+ journalctl -u xport.service --no-pager -n 28 --output=cat || true
  echo "[selinux-vm] Recent systemd helper service logs:"
  journalctl -u 'xport-firewall-*' -n 65 --no-pager --output=cat || true
  echo "[selinux-vm] SELinux AVC audit log (if audit available):"

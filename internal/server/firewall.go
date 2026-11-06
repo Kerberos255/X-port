@@ -3,6 +3,7 @@ package server
 import (
  "context"
  "fmt"
+ "log"
  "net"
  "net/http"
  "strconv"
@@ -35,7 +36,7 @@ func (s *Server) firewallGuardPort() int {
 }
 func (s *Server) firewallRead(w http.ResponseWriter,r *http.Request){
  ctx,cancel:=context.WithTimeout(r.Context(),15*time.Second);defer cancel()
- snap,err:=ops.InspectFirewall(ctx);if err!=nil{writeError(w,502,"failed to inspect firewall rules");return}
+ snap,err:=ops.InspectFirewall(ctx);if err!=nil{log.Printf("firewall inspection unavailable: %v",err);writeError(w,502,"failed to inspect firewall rules");return}
  w.Header().Set("Cache-Control","no-store")
  accounts,err:=s.store.Accounts();if err!=nil{writeError(w,500,"database error");return}
  settings,err:=s.store.Settings();if err!=nil{writeError(w,500,"database error");return}
