@@ -130,6 +130,15 @@ cat > "$TMP/__driver.js" <<'JS'
     }
     throw new Error(`timeout waiting for ${selector} to contain ${part}`)
   }
+  async function waitForTextContains(selector,part,timeout=3500) {
+    const end=Date.now()+timeout
+    while(Date.now()<end) {
+      const node=document.querySelector(selector)
+      if(node && String(node.textContent||'').includes(part)) return node
+      await sleep(25)
+    }
+    throw new Error('timeout waiting for text '+selector+' to contain '+part)
+  }
   function assertContained(container, node, label) {
     const outer = container.getBoundingClientRect()
     const inner = node.getBoundingClientRect()
@@ -241,7 +250,7 @@ cat > "$TMP/__driver.js" <<'JS'
       fwInput.value='浏览器回归备注'
       const fwSave=await waitFor('#fw-rows button[data-fw-act="save"]')
       fwSave.click()
-      await waitForValueContains('#fw-rows button[data-fw-id="firewalld:public:2053/tcp"][data-fw-key="note"] span','浏览器回归备注')
+      await waitForTextContains('#fw-rows button[data-fw-id="firewalld:public:2053/tcp"][data-fw-key="note"] span','浏览器回归备注')
       if(document.querySelector('#nav [data-page="firewall"]')?.classList.contains('active')!==true) throw new Error('firewall navigation not active')
       mark('pass', `clonePort=${portInput.value};legacyHits=0;fallbackDest=${dest};layout=contained;globalXray=ok`)
     } catch (err) {

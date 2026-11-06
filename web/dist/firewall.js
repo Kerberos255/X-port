@@ -102,6 +102,7 @@
       ['用途',r.purpose],['备注',r.note||'未填写'],['来源',source(r)],['访问来源',r.access],['运行时规则',r.runtime?'存在':'不存在'],['永久规则',r.permanent?'存在':'不存在']
     ].map(([name,val])=>'<div style="display:flex;justify-content:space-between;gap:12px;border-bottom:1px solid var(--line);padding:10px 0"><span>'+html(name)+'</span><b>'+html(val)+'</b></div>').join('')
     el('fw-detail-remove').hidden = !editable() || r.protected
+    el('fw-detail-dialog').returnValue = ''
     el('fw-detail-dialog').showModal()
   }
   function openAdd() {
@@ -111,6 +112,7 @@
     zone.innerHTML = isUfw ? '<option value="">UFW（默认）</option>' : (state.data?.zones||[]).map(z=>'<option value="'+html(z)+'">'+html(z)+'</option>').join('')
     zone.disabled=isUfw
     if(!isUfw)zone.value=state.data.defaultZone
+    el('fw-add-dialog').returnValue = ''
     el('fw-add-dialog').showModal()
     el('fw-add-port').focus()
   }
@@ -146,7 +148,9 @@
     finally{el('fw-load-raw').disabled=false}
   })
   el('fw-add-dialog').addEventListener('close',async()=>{
-    if(el('fw-add-dialog').returnValue!=='apply')return
+    const action = el('fw-add-dialog').returnValue
+    el('fw-add-dialog').returnValue = ''
+    if(action!=='apply')return
     const port=Number(el('fw-add-port').value)
     const protocol=el('fw-add-proto').value,zone=el('fw-add-zone').value
     if(!Number.isInteger(port)||port<1||port>65535)return toast('端口必须是 1–65535 的整数',true)
@@ -156,7 +160,9 @@
   })
   el('fw-detail-dialog').addEventListener('close',async()=>{
     const r=state.detail
-    if(el('fw-detail-dialog').returnValue!=='remove'||!r)return
+    const action = el('fw-detail-dialog').returnValue
+    el('fw-detail-dialog').returnValue = ''
+    if(action!=='remove'||!r)return
     if(!window.confirm('确认删除 '+r.port+'/'+r.protocol+' 的简单端口放行规则吗？此操作可能导致现有连接中断。'))return
     try{await request('/api/firewall/rules','POST',{action:'remove',port:r.port,protocol:r.protocol,zone:r.zone||''});toast('规则已删除');await refresh()}
     catch(err){toast(err.message,true)}
