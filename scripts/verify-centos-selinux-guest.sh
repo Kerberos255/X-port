@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 exec >/dev/ttyS0 2>&1
+STAGE=preflight
 fail(){
- echo "XPORT_SELINUX_E2E_FAILED line $1"
- journalctl -u xport.service -n 35 --no-pager || true
- journalctl -u firewalld.service -n 20 --no-pager || true
+ local rc="$1"
+ echo "XPORT_SELINUX_E2E_FAILED stage=$STAGE rc=$rc"
+ journalctl -u xport.service -n 20 --no-pager || true
+ journalctl -u firewalld.service -n 12 --no-pager || true
+ sync
  systemctl poweroff --no-block || true
 }
-trap 'fail $LINENO' ERR
+trap 'rc=$?; fail "$rc"' ERR
 
 echo "[selinux-vm] CentOS Stream 9 guest ready"
 . /etc/os-release
@@ -17,20 +20,41 @@ if [[ "$(getenforce)" == "Permissive" ]]; then setenforce 1; fi
 test "$(getenforce)" = "Enforcing"
 test "$(cat /sys/fs/selinux/enforce)" = 1
 echo "[selinux-vm] SELinux Enforcing active, context $(id -Z)"
-dnf -y -q install firewalld nftables iproute curl >/tmp/xport-dnf.log 2>&1 || {
- cat /tmp/xport-dnf.log
- exit 1
-}
+STAGE=os-packages
+echo "[selinux-vm] Checking required firewall tools"
+missing=0
+for name in firewall-cmd nft ss curl python3; do
+ if ! command -v "$name" >/dev/null 2>&1; then echo "[selinux-vm] missing $name"; missing=1; fi
+done
+if [[ "$missing" == 1 ]]; then
+ echo "[selinux-vm] Installing missing tools (bounded)"
+ if ! timeout 150 dnf -y -q install firewalld nftables iproute curl python3 >/tmp/xport-dnf.log 2>&1; then
+  cat /tmp/xport-dnf.log
+  echo "XPORT_SELINUX_E2E_FAILED stage=os-packages"
+  systemctl poweroff --no-block || true
+  exit 1
+ fi
+fi
+echo "[selinux-vm] Required OS packages ready"
+STAGE=firewalld-start
 systemctl enable --now firewalld
+echo "[selinux-vm] firewalld systemd service started"
+firewall-cmd --state
 firewall-cmd --state | grep -Fxq running
 ZONE="$(firewall-cmd --get-default-zone | tr -d '\r\n')"
+echo "[selinux-vm] Active firewall zone: $ZONE"
+STAGE=binary-install
+echo "[selinux-vm] Installing test X-port binary"
 install -D -m 0755 /run/xport-ci-seed/xport /usr/local/bin/xport
 restorecon -v /usr/local/bin/xport || true
 echo "[selinux-vm] Binary SELinux label $(ls -Z /usr/local/bin/xport)"
+STAGE=panel-init
 DATA=/var/lib/xport-selinux-ci
 PORT=28612
 mkdir -p "$DATA"
 printf 'selinux-ci-pass-12345\n' | xport init --data "$DATA" --admin-user ci-admin --listen "127.0.0.1:$PORT"
+STAGE=systemd-panel
+echo "[selinux-vm] Starting systemd panel under legacy sandbox"
 systemd-run --unit=xport --property=Type=exec \
  --property=ProtectSystem=strict --property=PrivateTmp=yes \
  --property=NoNewPrivileges=yes --property=PrivateDevices=yes \
@@ -46,6 +70,7 @@ curl -fsS "$BASE/" >/dev/null
 echo "[selinux-vm] X-port systemd service healthy"
 curl -fsS -c /run/xport-ci.cookie -H 'Content-Type: application/json' \
  -d '{"username":"ci-admin","password":"selinux-ci-pass-12345"}' "$BASE/api/login" >/dev/null
+STAGE=web-firewall-read
 curl -fsS -b /run/xport-ci.cookie "$BASE/api/firewall" > /run/xport-firewall.json
 python3 - <<'PY'
 import json
@@ -53,6 +78,7 @@ with open("/run/xport-firewall.json") as f:d=json.load(f)
 assert d["backend"]=="firewalld" and d["writable"] is True,d
 print("[selinux-vm] Web firewall read passed in Enforcing")
 PY
+STAGE=web-firewall-add
 echo "[selinux-vm] Testing authenticated Web rule add"
 code="$(curl -sS -b /run/xport-ci.cookie -H "Origin: $BASE" \
  -H 'Content-Type: application/json' -o /run/add.json -w '%{http_code}' \
@@ -62,6 +88,7 @@ firewall-cmd --zone="$ZONE" --query-port=53333/tcp | grep -Fxq yes
 firewall-cmd --permanent --zone="$ZONE" --query-port=53333/tcp | grep -Fxq yes
 echo "[selinux-vm] Web rule added, both runtime/permanent"
 
+STAGE=web-firewall-remove
 echo "[selinux-vm] Testing authenticated Web remove and confirmation"
 code="$(curl -sS -b /run/xport-ci.cookie -H "Origin: $BASE" \
  -H 'Content-Type: application/json' -o /run/remove.json -w '%{http_code}' \

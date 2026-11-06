@@ -40,7 +40,27 @@ timeout --signal=TERM 740 qemu-system-x86_64 -enable-kvm -cpu host -m 3072 -smp 
  -drive file="$TMP/centos.qcow2",format=qcow2,if=virtio,cache=none \
  -drive file="$TMP/seed.iso",media=cdrom,readonly=on \
  -netdev user,id=net0 -device virtio-net-pci,netdev=net0 -no-reboot \
- >/dev/null 2>"$TMP/qemu.stderr"
+ >/dev/null 2>"$TMP/qemu.stderr" &
+QPID="$!"
+for i in $(seq 1 150); do
+ if grep -q XPORT_SELINUX_E2E_OK "$TMP/console.log" 2>/dev/null; then
+  echo "[selinux-vm] Guest reported successful Enforcing-mode firewall E2E"
+  kill "$QPID" 2>/dev/null || true
+  break
+ fi
+ if grep -q XPORT_SELINUX_E2E_FAILED "$TMP/console.log" 2>/dev/null; then
+  echo "[selinux-vm] Guest reported failure; stopping test VM" >&2
+  kill "$QPID" 2>/dev/null || true
+  break
+ fi
+ if ! kill -0 "$QPID" 2>/dev/null; then break; fi
+ if (( i % 6 == 0 )); then
+  echo "[selinux-vm] VM active, serial tail:"
+  tail -n 3 "$TMP/console.log" || true
+ fi
+ sleep 5
+done
+wait "$QPID"
 RC=$?
 set -e
 grep -E '\[selinux-vm\]|XPORT_SELINUX_E2E_(OK|FAILED)' "$TMP/console.log" | tail -n 80 || true
