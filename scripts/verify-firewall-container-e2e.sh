@@ -96,6 +96,24 @@ docker exec "$FW" nft add table ip xport_ci_nat
 docker exec "$FW" nft 'add chain ip xport_ci_nat PREROUTING { type nat hook prerouting priority -100; policy accept; }'
 docker exec "$FW" nft add table ip6 xport_ci_nat
 docker exec "$FW" nft 'add chain ip6 xport_ci_nat PREROUTING { type nat hook prerouting priority -100; policy accept; }'
+# Include a real DNAT entry: merely creating an empty chain is too weak a fixture.
+# This affects only the container namespace and does not match a panel port.
+docker exec "$FW" nft add rule ip xport_ci_nat PREROUTING tcp dport 15432 dnat to 127.0.0.1:15433
+check_snapshot "$FW" firewalld true 54322 no
+
+# A separate filter INPUT hook MUST remain a hard stop even alongside the
+# benign NAT hooks. A blocked Web/CLI operation must leave both rule sets
+# completely unchanged. Removing the foreign filter should restore writes.
+docker exec "$FW" nft add table inet xport_ci_external
+docker exec "$FW" nft 'add chain inet xport_ci_external INPUT { type filter hook input priority -200; policy accept; }'
+check_snapshot "$FW" firewalld false 54323 no
+if docker exec "$FW" /usr/local/bin/xport firewall-apply add 54323 tcp public; then
+ echo "[firewalld] Unsafe native INPUT chain did not block rule mutation" >&2
+ exit 1
+fi
+[[ "$(docker exec "$FW" firewall-cmd --zone=public --query-port=54323/tcp || true)" == no ]]
+[[ "$(docker exec "$FW" firewall-cmd --permanent --zone=public --query-port=54323/tcp || true)" == no ]]
+docker exec "$FW" nft delete table inet xport_ci_external
 check_snapshot "$FW" firewalld true 54322 no
 docker exec "$FW" /usr/local/bin/xport firewall-apply add 54322 tcp public
 check_snapshot "$FW" firewalld true 54322 yes
