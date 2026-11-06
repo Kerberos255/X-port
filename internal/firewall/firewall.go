@@ -104,6 +104,7 @@ type nftChain struct {
  Family string `json:"family"`
  Table string `json:"table"`
  Name string `json:"name"`
+ Type string `json:"type"`
  Hook string `json:"hook"`
 }
 type nftRule struct {
@@ -142,32 +143,40 @@ func ufwManagedInput(c nftChain, objects []map[string]json.RawMessage) bool {
  for _,present:=range required{if !present{return false}}
  return true
 }
-func independentInputChainsWithUFW(data string, ufwActive bool)(bool,error){
+func independentInputChainBlocker(data string, ufwActive bool)(string,error){
  var tree struct{Nftables []map[string]json.RawMessage `json:"nftables"`}
- if err:=json.Unmarshal([]byte(data),&tree);err!=nil{return false,err}
- if len(tree.Nftables)==0{return false,errors.New("nftables ruleset response is empty")}
+ if err:=json.Unmarshal([]byte(data),&tree);err!=nil{return "",err}
+ if len(tree.Nftables)==0{return "",errors.New("nftables ruleset response is empty")}
  for _,obj:=range tree.Nftables{
   raw:=obj["chain"];if len(raw)==0{continue}
   var c nftChain
-  if json.Unmarshal(raw,&c)!=nil{return true,nil}
+  if json.Unmarshal(raw,&c)!=nil{return "unparseable chain",nil}
   switch c.Hook {
   case "input","prerouting","ingress":
   default:continue
   }
   if c.Table=="firewalld"{continue}
+  // An ordinary NAT PREROUTING chain alters addresses/ports, but does not
+  // represent an independent input filter. Keep unknown or non-NAT chains
+  // fail-closed; NAT can still affect effective reachability.
+  if c.Hook=="prerouting"&&c.Type=="nat"{continue}
   if ufwActive&&c.Hook=="input"&&ufwManagedInput(c,tree.Nftables){continue}
-  return true,nil
+  return fmt.Sprintf("%s/%s/%s (type=%s, hook=%s)",c.Family,c.Table,c.Name,c.Type,c.Hook),nil
  }
- return false,nil
+ return "",nil
+}
+func independentInputChainsWithUFW(data string, ufwActive bool)(bool,error){
+ blocker,err:=independentInputChainBlocker(data,ufwActive)
+ return blocker!="",err
 }
 func independentInputChains(data string)(bool,error){
  return independentInputChainsWithUFW(data,false)
 }
-func nativeInputs(ctx context.Context, ufwActive bool)(bool,error){
- if !hasTool("nft"){return false,errors.New("nftables inspector is unavailable")}
+func nativeInputBlocker(ctx context.Context, ufwActive bool)(string,error){
+ if !hasTool("nft"){return "",errors.New("nftables inspector is unavailable")}
  out,err:=command(ctx,"nft","-j","list","ruleset")
- if err!=nil{return false,err}
- return independentInputChainsWithUFW(out,ufwActive)
+ if err!=nil{return "",err}
+ return independentInputChainBlocker(out,ufwActive)
 }
 func Inspect(ctx context.Context)(Snapshot,error){
 	f,u:=runningManagers(ctx)
@@ -191,10 +200,10 @@ func Inspect(ctx context.Context)(Snapshot,error){
 	}
 	snap.Writable=f||u
 	if f||u{
-		if independent,err:=nativeInputs(ctx,u);err!=nil{
-			snap.Writable=false;snap.UnsafeReason="无法确认底层 nftables 输入链："+err.Error()
-		}else if independent{
-			snap.Writable=false;snap.UnsafeReason="检测到独立 nftables input 链，不能保证规则生效顺序"
+		if blocker,err:=nativeInputBlocker(ctx,u);err!=nil{
+			snap.Writable=false;snap.UnsafeReason="无法确认底层 nftables 规则链："+err.Error()
+		}else if blocker!=""{
+			snap.Writable=false;snap.UnsafeReason="检测到独立 nftables 流量处理链 "+blocker+"，无法确认规则顺序"
 		}
 	}
 	switch snap.Backend{
