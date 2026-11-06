@@ -318,31 +318,54 @@ func ufwPortLine(line string)(port int,proto string,broad,v6,ok bool){
 
 // ListeningPorts lists all host TCP/UDP listening endpoints. If the
 // host cannot report them, removal fails closed to protect remote access.
+// ListeningSockets reports local listening endpoints per transport, rather
+// than treating TCP and UDP on the same numeric port as one service.
+func ListeningSockets(ctx context.Context)(map[string]bool,error){
+ if !hasTool("ss"){return nil,errors.New("ss command unavailable")}
+ out,err:=command(ctx,"ss","-H","-lnut")
+ if err!=nil{return nil,err}
+ return parseListeningSockets(out)
+}
+func parseListeningSockets(out string)(map[string]bool,error){
+ sockets:=make(map[string]bool)
+ for _,line:=range strings.Split(out,"\n"){
+  fields:=strings.Fields(line)
+  if len(fields)==0{continue}
+  protocol:=strings.ToLower(fields[0])
+  switch protocol {
+  case "tcp","tcp6": protocol="tcp"
+  case "udp","udp6": protocol="udp"
+  default: return nil,fmt.Errorf("unrecognized ss transport: %q",fields[0])
+  }
+  // ss -H -lnut: Netid State Recv-Q Send-Q LocalAddress:Port Peer.
+  // Never scan subsequent fields: the peer column may contain a port.
+  if len(fields)<5{return nil,errors.New("truncated ss socket row")}
+  local:=fields[4]
+  _,p,err:=net.SplitHostPort(local)
+  if err!=nil{
+   colon:=strings.LastIndex(local,":")
+   if colon<0{return nil,fmt.Errorf("unrecognized ss local endpoint")}
+   p=local[colon+1:]
+  }
+  port,err:=strconv.Atoi(p)
+  if err!=nil||!ValidRule(port,protocol){return nil,fmt.Errorf("invalid ss listening port")}
+  sockets[fmt.Sprintf("%s/%d",protocol,port)]=true
+ }
+ return sockets,nil
+}
+// ListeningPorts is deliberately conservative for mutation guards: any
+// listening transport on the same numeric port prevents accidental removal.
 func ListeningPorts(ctx context.Context)(map[int]bool,error){
-	if !hasTool("ss"){return nil,errors.New("ss command unavailable")}
-	out,err:=command(ctx,"ss","-H","-lnut")
-	if err!=nil{return nil,err}
-	ports:=map[int]bool{}
-	for _,line:=range strings.Split(out,"\n"){
-		fields:=strings.Fields(line)
-		if len(fields)<4{continue}
-		// ss output may start with "tcp"/"udp" (Netid) or directly with
-		// LISTEN. Find the first endpoint containing a numeric local port.
-		for _,local:=range fields[3:]{
-			if !strings.Contains(local,":"){continue}
-			_,port,err:=net.SplitHostPort(local)
-			if err!=nil{
-				i:=strings.LastIndex(local,":")
-				if i<0{continue}
-				port=local[i+1:]
-			}
-			if n,err:=strconv.Atoi(port);err==nil&&n>0&&n<=65535{
-				ports[n]=true
-				break
-			}
-		}
-	}
-	return ports,nil
+ sockets,err:=ListeningSockets(ctx)
+ if err!=nil{return nil,err}
+ ports:=make(map[int]bool)
+ for key:=range sockets{
+  index:=strings.IndexByte(key,'/')
+  if index<0{continue}
+  n,err:=strconv.Atoi(key[index+1:])
+  if err==nil{ports[n]=true}
+ }
+ return ports,nil
 }
 
  // Restore is a narrowly-scoped emergency re-open operation. It is called
