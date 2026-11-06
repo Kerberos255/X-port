@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"net"
 	"os/exec"
 	"regexp"
@@ -46,6 +47,7 @@ var portRE = regexp.MustCompile(`^([1-9][0-9]{0,4})/(tcp|udp)$`)
 func command(ctx context.Context, name string, args ...string) (string,error) {
 	cctx,cancel:=context.WithTimeout(ctx,5*time.Second);defer cancel()
 	cmd:=exec.CommandContext(cctx,name,args...)
+ cmd.Env=append(os.Environ(),"LC_ALL=C","LANG=C")
 	out,err:=cmd.CombinedOutput()
 	if len(out)>256<<10{return "",fmt.Errorf("%s output too large",name)}
 	if err!=nil {
@@ -259,12 +261,21 @@ func ListeningPorts(ctx context.Context)(map[int]bool,error){
 	for _,line:=range strings.Split(out,"\n"){
 		fields:=strings.Fields(line)
 		if len(fields)<4{continue}
-		local:=fields[3]
-		_,port,err:=net.SplitHostPort(local)
-		if err!=nil {
-			i:=strings.LastIndex(local,":");if i<0{continue};port=local[i+1:]
+		// ss output may start with "tcp"/"udp" (Netid) or directly with
+		// LISTEN. Find the first endpoint containing a numeric local port.
+		for _,local:=range fields[3:]{
+			if !strings.Contains(local,":"){continue}
+			_,port,err:=net.SplitHostPort(local)
+			if err!=nil{
+				i:=strings.LastIndex(local,":")
+				if i<0{continue}
+				port=local[i+1:]
+			}
+			if n,err:=strconv.Atoi(port);err==nil&&n>0&&n<=65535{
+				ports[n]=true
+				break
+			}
 		}
-		if n,err:=strconv.Atoi(port);err==nil&&n>0&&n<=65535{ports[n]=true}
 	}
 	return ports,nil
 }
