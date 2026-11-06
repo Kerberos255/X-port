@@ -324,6 +324,9 @@ func Change(ctx context.Context,action string,p int,proto,zone string)error{
 	snap,err:=Inspect(ctx);if err!=nil{return err}
 	if !snap.Writable{return fmt.Errorf("firewall is read-only: %s",snap.UnsafeReason)}
 	r,exists:=containsRule(snap,p,proto,zone)
+ if snap.Backend=="firewalld"&&snap.OpaqueRichZones[zone]{
+  return errors.New("zone contains unsupported rich rules; normal port changes blocked")
+ }
  if exists&&(r.Kind=="rich"||r.Action!="allow"||r.Conflict){return errors.New("ambiguous or conflicting port/rich rules; use original manager")}
 	switch snap.Backend {
 	case "firewalld":
