@@ -74,8 +74,18 @@ func (s *Server) firewallRead(w http.ResponseWriter,r *http.Request){
  accounts,err:=s.store.Accounts();if err!=nil{writeError(w,500,"database error");return}
  settings,err:=s.store.Settings();if err!=nil{writeError(w,500,"database error");return}
  bySocket:=accountFirewallMatches(accounts)
- listening,listeningError:=ops.FirewallListeners(ctx,s.store.Dir())
+ // One socket snapshot drives both protocol-specific usage and the
+ // conservative port-level protection label. Avoid two systemd helper calls
+ // that could disagree if a listener starts or stops between queries.
  sockets,socketError:=ops.FirewallSockets(ctx,s.store.Dir())
+ listeningError:=socketError
+ listening:=make(map[int]bool)
+ for key:=range sockets{
+  slash:=strings.IndexByte(key,'/')
+  if slash<0{continue}
+  port,err:=strconv.Atoi(key[slash+1:])
+  if err==nil&&port>0&&port<=65535{listening[port]=true}
+ }
  rules:=make([]firewallViewRule,0,len(snap.Rules))
  for _,rr:=range snap.Rules {
   purpose,xray:="未识别",false
