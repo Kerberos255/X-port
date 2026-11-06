@@ -21,6 +21,10 @@ type firewallViewRule struct {
  Protected bool `json:"protected"`
  Managed bool `json:"managed"`
  Xray bool `json:"xray"`
+ AccountID int64 `json:"accountId,omitempty"`
+ AccountName string `json:"accountName,omitempty"`
+ AccountEnabled bool `json:"accountEnabled"`
+ Usage string `json:"usage"`
 }
 type firewallView struct {
  firewall.Snapshot
@@ -40,20 +44,27 @@ func (s *Server) firewallRead(w http.ResponseWriter,r *http.Request){
  w.Header().Set("Cache-Control","no-store")
  accounts,err:=s.store.Accounts();if err!=nil{writeError(w,500,"database error");return}
  settings,err:=s.store.Settings();if err!=nil{writeError(w,500,"database error");return}
- byPort:=make(map[int]string,len(accounts))
- for _,a:=range accounts{byPort[a.Port]="Xray · "+strings.ToUpper(a.Protocol)}
+ type accountUse struct {name,protocol string;id int64;enabled bool}
+ byPort:=make(map[int]accountUse,len(accounts))
+ for _,a:=range accounts {byPort[a.Port]=accountUse{name:a.Name,protocol:strings.ToUpper(a.Protocol),id:a.ID,enabled:a.Enabled}}
  listening,listeningError:=ops.FirewallListeners(ctx,s.store.Dir())
  rules:=make([]firewallViewRule,0,len(snap.Rules))
  for _,rr:=range snap.Rules {
   purpose,xray:="未识别",false
-  if val,ok:=byPort[rr.Port];ok {purpose,xray=val,true}
+  account,matched:=byPort[rr.Port]
+  if matched{purpose,xray="Xray · "+account.protocol,true}
   source:="unknown"
   if xray{source="xray"}
   protected:=rr.Port==22||rr.Port==s.firewallGuardPort()||listeningError!=nil||listening[rr.Port]
+  usage:="unknown"
+  if listeningError==nil{
+   usage="unused"
+   if listening[rr.Port]{usage="used"}
+  }
   if !xray&&rr.Port==22{purpose="SSH（常见端口，未核实）";source="assumed"}
   if !xray&&rr.Port==s.firewallGuardPort(){purpose="X-port 管理面板";source="panel"}
   if custom:=settings["firewall_purpose:"+rr.ID];custom!=""{purpose=custom;source="manual"}
-  rules=append(rules,firewallViewRule{Rule:rr,Purpose:purpose,PurposeSource:source,Note:settings["firewall_note:"+rr.ID],Protected:protected,Managed:settings["firewall_owned:"+rr.ID]=="v1",Xray:xray})
+  rules=append(rules,firewallViewRule{Rule:rr,Purpose:purpose,PurposeSource:source,Note:settings["firewall_note:"+rr.ID],Protected:protected,Managed:settings["firewall_owned:"+rr.ID]=="v1",Xray:xray,AccountID:account.id,AccountName:account.name,AccountEnabled:account.enabled,Usage:usage})
  }
  writeJSON(w,200,firewallView{Snapshot:snap,Rules:rules,Pending:pendingFromSettings(settings)})
 }
