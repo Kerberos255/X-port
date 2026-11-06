@@ -88,3 +88,11 @@ func FirewallListeners(ctx context.Context, dataDir string)(map[int]bool,error){
  if err=json.Unmarshal([]byte(out),&ports);err!=nil{return nil,fmt.Errorf("invalid listening port data: %w",err)}
  return ports,nil
 }
+func FirewallSockets(ctx context.Context, dataDir string)(map[string]bool,error){
+ out,err:=firewallHelper(ctx,dataDir,"firewall-sockets")
+ if err!=nil{return nil,err}
+ var sockets map[string]bool
+ if err=json.Unmarshal([]byte(out),&sockets);err!=nil{return nil,fmt.Errorf("invalid listening socket data: %w",err)}
+ if sockets==nil{return nil,errors.New("empty listening socket reply")}
+ return sockets,nil
+}
