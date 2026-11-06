@@ -136,7 +136,10 @@ test "$(account_name)" = restart-ci-3
 test "$(sha256sum "$DATA/config.json" | awk '{print $1}')" = "$CHECKSUM"
 rm "$FAIL_FLAG"
 systemctl stop "$XRAY_UNIT" >/dev/null 2>&1 || true
-systemctl reset-failed "$XRAY_UNIT"
+# After a fully failed transient test start, systemd may garbage-collect
+# the unit object. A new start will reload the on-disk unit; do not fail
+# cleanup solely because reset-failed sees a not-loaded unit.
+systemctl reset-failed "$XRAY_UNIT" >/dev/null 2>&1 || true
 systemctl start "$XRAY_UNIT"
 assert_active
 echo '[restart-e2e] Rollback preserved config and DB when core could not recover'
