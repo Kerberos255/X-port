@@ -92,3 +92,31 @@ func ScheduleFirewallDropUndo(ctx context.Context,undo string,port int,proto,zon
  if err!=nil{return "",0,fmt.Errorf("cannot schedule rich recovery: %w: %s",err,strings.TrimSpace(string(out)))}
  return unit,time.Now().Add(FirewallRestoreAfter).UnixMilli(),nil
 }
+
+// ScheduleFirewallEditUndo restores an external allowance's old port before
+// removing the newly-added port. It is binary-independent and only handles
+// validated firewalld simple allow-port rules. Neither side's metadata is
+// changed by this watchdog.
+func ScheduleFirewallEditUndo(ctx context.Context,oldPort int,oldProto string,newPort int,newProto,zone string)(string,int64,error){
+ if !firewall.ValidRule(oldPort,oldProto)||!firewall.ValidRule(newPort,newProto)||!firewall.ValidZone(zone){
+  return "",0,errors.New("invalid external rule edit")
+ }
+ if oldPort==newPort&&oldProto==newProto{return "",0,errors.New("identical external rule")}
+ executable,err:=exec.LookPath("firewall-cmd")
+ if err!=nil{return "",0,fmt.Errorf("external rule recovery utility unavailable: %w",err)}
+ if !filepath.IsAbs(executable){return "",0,errors.New("invalid firewalld executable")}
+ script:="set -eu\n\"$1\" \"--zone=$2\" \"--add-port=$3/$4\"\n\"$1\" --permanent \"--zone=$2\" \"--add-port=$3/$4\"\n\"$1\" \"--zone=$2\" \"--remove-port=$5/$6\"\n\"$1\" --permanent \"--zone=$2\" \"--remove-port=$5/$6\""
+ bytes:=make([]byte,12)
+ if _,err:=rand.Read(bytes);err!=nil{return "",0,err}
+ unit:="xport-fw-restore-"+hex.EncodeToString(bytes)
+ cctx,cancel:=context.WithTimeout(ctx,12*time.Second);defer cancel()
+ argv:=[]string{
+  "--quiet","--unit="+unit,"--on-active=120s",
+  "--property=Type=exec","--property=NoNewPrivileges=yes",
+  "/bin/sh","-c",script,"xport-external-recovery",
+  executable,zone,strconv.Itoa(oldPort),oldProto,strconv.Itoa(newPort),newProto,
+ }
+ out,err:=exec.CommandContext(cctx,"systemd-run",argv...).CombinedOutput()
+ if err!=nil{return "",0,fmt.Errorf("cannot schedule external rule recovery: %w: %s",err,strings.TrimSpace(string(out)))}
+ return unit,time.Now().Add(FirewallRestoreAfter).UnixMilli(),nil
+}
