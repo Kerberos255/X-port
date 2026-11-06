@@ -22,6 +22,10 @@ func TestExternalFirewallRuleCannotBeDeletedThroughWeb(t *testing.T) {
  t.Setenv("XPORT_TEST_APPLY_MARKER",marker)
  script:=strings.Join([]string{
   "#!/bin/sh",
+  "out=''",
+  "for arg do case \"$arg\" in --property=StandardOutput=file:*) out=${arg#--property=StandardOutput=file:};; esac; done",
+  "test -n \"$out\" || exit 96",
+  "exec 1>\"$out\"",
   "case \" $* \" in",
   "  *\" firewall-inspect\"*)",
   "    printf '{\"backend\":\"firewalld\",\"active\":true,\"writable\":true,\"zones\":[\"public\"],\"rules\":[{\"id\":\"firewalld:public:53114/tcp\",\"port\":53114,\"protocol\":\"tcp\",\"zone\":\"public\",\"backend\":\"firewalld\",\"runtime\":true,\"permanent\":true}]}'",

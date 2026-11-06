@@ -5,7 +5,7 @@ func TestFirewallHelperRejectsInvalidArguments(t *testing.T){
  for _,tc:=range []struct{action string;port int;proto,zone string}{
   {"evil",80,"tcp","public"},{"add",0,"tcp","public"},{"add",22,"icmp","public"},{"add",80,"tcp","bad zone"},
  }{
-  if err:=ApplyFirewall(context.Background(),tc.action,tc.port,tc.proto,tc.zone);err==nil{t.Errorf("accepted invalid args %+v",tc)}
+  if err:=ApplyFirewall(context.Background(),t.TempDir(),tc.action,tc.port,tc.proto,tc.zone);err==nil{t.Errorf("accepted invalid args %+v",tc)}
  }
 }
 
@@ -46,4 +46,35 @@ func TestFirewallRestoreCannotConfirmExpiredTimer(t *testing.T){
  if err:=os.WriteFile(filepath.Join(dir,"systemctl"),[]byte("#!/bin/sh\nexit 3\n"),0755);err!=nil{t.Fatal(err)}
  t.Setenv("PATH",dir)
  if err:=CancelFirewallRestore(context.Background(),"xport-fw-restore-0123456789abcdef01234567");err==nil{t.Fatal("expired timer must not confirm")}
+}
+
+func TestFirewallHelperUsesPrivateOutputFileWithoutPipe(t *testing.T){
+ work:=t.TempDir()
+ bin:=filepath.Join(work,"bin")
+ dataDir:=filepath.Join(work,"data")
+ if err:=os.MkdirAll(bin,0700);err!=nil{t.Fatal(err)}
+ if err:=os.MkdirAll(dataDir,0700);err!=nil{t.Fatal(err)}
+ script:=`#!/bin/sh
+out=''
+for arg do
+ case "$arg" in
+  --pipe) exit 87;;
+  --property=StandardOutput=file:*) out=${arg#--property=StandardOutput=file:};;
+esac
+done
+test -n "$out" || exit 91
+case " $* " in
+ *" firewall-inspect"*) printf '{"backend":"firewalld","active":true,"writable":true,"rules":[]}' > "$out";;
+ *" firewall-listeners"*) printf '{"443":true}' > "$out";;
+ *) exit 98;;
+esac
+`
+ if err:=os.WriteFile(filepath.Join(bin,"systemd-run"),[]byte(script),0755);err!=nil{t.Fatal(err)}
+ t.Setenv("PATH",bin)
+ snap,err:=InspectFirewall(context.Background(),dataDir)
+ if err!=nil||snap.Backend!="firewalld"||!snap.Writable{t.Fatalf("inspect=%+v err=%v",snap,err)}
+ ports,err:=FirewallListeners(context.Background(),dataDir)
+ if err!=nil||!ports[443]{t.Fatalf("ports=%v err=%v",ports,err)}
+ left,err:=filepath.Glob(filepath.Join(dataDir,".xport-fw-result-*"))
+ if err!=nil||len(left)!=0{t.Fatalf("helper result files not removed: %v %v",left,err)}
 }

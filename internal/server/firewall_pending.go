@@ -28,7 +28,7 @@ func newFirewallToken()(string,error){
 }
 func (s *Server) firewallPendingSave(id,unit string,deadline int64)(firewallPending,error){
  token,err:=newFirewallToken();if err!=nil{return firewallPending{},err}
- entry:=firewallPending{ID:id,Token:token,Unit:unit,Deadline:deadline}
+ entry:=firewallPending{ID:id,Token:[REDACTED],Unit:unit,Deadline:deadline}
  raw,err:=json.Marshal(entry);if err!=nil{return firewallPending{},err}
  err=s.store.SetSetting(firewallPendingKey(id),string(raw))
  return entry,err
@@ -57,11 +57,11 @@ func (s *Server) firewallRuleConfirm(w http.ResponseWriter,r *http.Request){
  }
  if time.Now().UnixMilli()>=p.Deadline{writeError(w,409,"confirmation expired; automatic restoration may have started");return}
  ctx,cancel:=context.WithTimeout(r.Context(),35*time.Second);defer cancel()
- snap,err:=ops.InspectFirewall(ctx)
+ snap,err:=ops.InspectFirewall(ctx,s.store.Dir())
  if err!=nil{writeError(w,502,"cannot verify removal before confirmation");return}
  for _,rule:=range snap.Rules{if rule.ID==p.ID{writeError(w,409,"rule already restored; confirmation rejected");return}}
  if err:=ops.CancelFirewallRestore(ctx,p.Unit);err!=nil{writeError(w,409,err.Error());return}
- verified,err:=ops.InspectFirewall(ctx)
+ verified,err:=ops.InspectFirewall(ctx,s.store.Dir())
  if err!=nil{writeError(w,502,"recovery timer cancelled, but final rule state could not be verified");return}
  for _,rule:=range verified.Rules{
   if rule.ID==p.ID{writeError(w,409,"rule restored during confirmation; refresh before retrying");return}

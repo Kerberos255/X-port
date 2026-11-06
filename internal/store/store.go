@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -11,9 +12,11 @@ import (
 	"github.com/Kerberos255/X-port/internal/model"
 )
 
-type Store struct{ db *sql.DB }
+type Store struct{ db *sql.DB; dir string }
 
 func Open(path string) (*Store, error) {
+	dir, err := filepath.Abs(filepath.Dir(path))
+	if err != nil { return nil, err }
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, err
@@ -23,13 +26,17 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
-	s := &Store{db: db}
+	s := &Store{db: db, dir: dir}
 	if err := s.migrate(); err != nil {
 		db.Close()
 		return nil, err
 	}
 	return s, nil
 }
+
+// Dir is the absolute parent of the panel database, writable under the
+// existing systemd ReadWritePaths sandbox configuration.
+func (s *Store) Dir() string { return s.dir }
 
 func (s *Store) Close() error { return s.db.Close() }
 func (s *Store) Ping() error  { return s.db.Ping() }
