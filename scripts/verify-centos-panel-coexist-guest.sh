@@ -30,6 +30,8 @@ systemctl is-active --quiet 1panel-core
 systemctl is-active --quiet 1panel-agent
 systemctl is-active --quiet xport.service
 test "$(getenforce)" = Enforcing
+# A healthy service does not guarantee that the configured Web port listens.
+ss -H -ltn 'sport = :19090' | grep -q LISTEN
 curl -fsS "$BASE/" >/dev/null
 echo "[panel-coexist] Both panels running in CentOS SELinux Enforcing guest"
 
