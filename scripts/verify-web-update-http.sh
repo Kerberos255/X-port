@@ -9,7 +9,7 @@ ROOT="$(pwd)"
 TMP="$(mktemp -d -t xport-http-upgrade-ci.XXXXXXXX)"
 UNIT="xport"
 MOCK_PID=""
-trap 'rc=$?; echo "[http-upgrade] failure at line ${BASH_LINENO[0]} (exit $rc)" >&2' ERR
+trap 'rc=$?; echo "[http-upgrade] failure at line $LINENO (exit $rc)" >&2' ERR
 cleanup() {
   sudo systemctl stop "$UNIT.service" >/dev/null 2>&1 || true
   sudo systemctl reset-failed "$UNIT.service" >/dev/null 2>&1 || true
@@ -85,11 +85,13 @@ for _ in $(seq 1 50); do
  sleep .1
 done
 curl -fsS "http://127.0.0.1:$MOCK_PORT/releases" >/dev/null
+echo "[http-upgrade] Mock Release ready"
 export XPORT_CI_PASSWORD
 XPORT_CI_PASSWORD="$(openssl rand -hex 24)"
 printf '%s\n' "$XPORT_CI_PASSWORD" | sudo "$TMP/live/xport" init \
   --data "$TMP/data" --admin-user ci-admin --listen "127.0.0.1:$WEB_PORT"
-sudo systemd-run --quiet --unit="$UNIT" --property=Type=exec \
+echo "[http-upgrade] Initialized legacy X-port database"
+sudo systemd-run --unit="$UNIT" --property=Type=exec \
   --property=NoNewPrivileges=yes --property=ProtectSystem=strict \
   --property=PrivateTmp=yes \
   --property="ReadWritePaths=$TMP/data $TMP/live" \
