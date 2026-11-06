@@ -9,6 +9,7 @@ ROOT="$(pwd)"
 TMP="$(mktemp -d -t xport-http-upgrade-ci.XXXXXXXX)"
 UNIT="xport"
 MOCK_PID=""
+trap 'rc=$?; echo "[http-upgrade] failure at line ${BASH_LINENO[0]} (exit $rc)" >&2' ERR
 cleanup() {
   sudo systemctl stop "$UNIT.service" >/dev/null 2>&1 || true
   sudo systemctl reset-failed "$UNIT.service" >/dev/null 2>&1 || true
@@ -50,6 +51,7 @@ with open(overlay,"w",encoding="utf-8") as f:json.dump({"Replace":{os.path.abspa
 PY
 CGO_ENABLED=0 go -C "$TMP/old-src" build -overlay "$TMP/old-overlay.json" -trimpath -o "$TMP/live/xport" ./cmd/xport
 [[ "$("$TMP/live/xport" version)" == 0.2.8 ]]
+echo "[http-upgrade] Old v0.2.8 binary built"
 printf 'package buildinfo\nconst Current = "0.2.9"\n' > "$TMP/test-version.go"
 python3 - "$ROOT/internal/buildinfo/version.go" "$TMP/test-version.go" "$TMP/new-overlay.json" <<'PY'
 import json,os,sys
@@ -57,6 +59,7 @@ with open(sys.argv[3],"w",encoding="utf-8") as f:json.dump({"Replace":{os.path.a
 PY
 CGO_ENABLED=0 go build -overlay "$TMP/new-overlay.json" -trimpath -o "$TMP/candidate" ./cmd/xport
 [[ "$("$TMP/candidate" version)" == 0.2.9 ]]
+echo "[http-upgrade] New candidate binary built"
 cat > "$TMP/mock-release.py" <<'PY'
 import hashlib,http.server,json,os
 with open(os.environ["XPORT_CI_MOCK_ASSET"],"rb") as f: asset=f.read()
@@ -92,12 +95,14 @@ sudo systemd-run --quiet --unit="$UNIT" --property=Type=exec \
   --property="ReadWritePaths=$TMP/data $TMP/live" \
   --property="RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6" \
   "$TMP/live/xport" serve --data "$TMP/data" --listen "127.0.0.1:$WEB_PORT"
+echo "[http-upgrade] Old systemd service started"
 BASE="http://127.0.0.1:$WEB_PORT"
 for _ in $(seq 1 80); do
  if curl -fsS "$BASE/" >/dev/null 2>&1; then break; fi
  sleep .25
 done
 curl -fsS "$BASE/" >/dev/null
+echo "[http-upgrade] Old service ready; authenticating"
 payload="$(python3 - <<'PY'
 import json,os
 print(json.dumps({"username":"ci-admin","password":os.environ["XPORT_CI_PASSWORD"]}))

@@ -128,6 +128,23 @@ PY
   echo "[centos9] X-port timer cancellation prevented recovery"
 fi
 
+if [[ "$DISTRO" == centos9 ]]; then
+  echo "[centos9] A second manager's ordinary firewalld rule must remain visible"
+  docker exec "$NAME" firewall-cmd --zone="$ZONE" --add-port=53124/tcp
+  docker exec "$NAME" firewall-cmd --permanent --zone="$ZONE" --add-port=53124/tcp
+  docker exec "$NAME" /usr/local/bin/xport firewall-inspect > /tmp/xport-ci-centos-external.json
+  python3 - <<'PY'
+import json
+with open("/tmp/xport-ci-centos-external.json",encoding="utf-8") as f: d=json.load(f)
+rules=[r for r in d["rules"] if r["port"]==53124 and r["protocol"]=="tcp"]
+assert len(rules)==1 and rules[0]["runtime"] and rules[0]["permanent"],d
+print("External manager simple firewalld rule remains visible")
+PY
+  # Only the other manager removes its own port.
+  docker exec "$NAME" firewall-cmd --zone="$ZONE" --remove-port=53124/tcp
+  docker exec "$NAME" firewall-cmd --permanent --zone="$ZONE" --remove-port=53124/tcp
+fi
+
 # An independent nftables input chain must disable Web mutation, regardless
 # of the selected manager or Linux distribution.
 docker exec "$NAME" nft add table inet xport_ci_custom

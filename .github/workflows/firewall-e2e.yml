@@ -86,3 +86,25 @@ jobs:
           cache: false
       - name: Authenticate and POST actual legacy Web upgrade with local test Release
         run: bash scripts/verify-web-update-http.sh
+
+  selinux-vm-preflight:
+    # Probe for a real CentOS SELinux-enforcing VM, rather than treating a
+    # privileged container on an AppArmor Ubuntu host as an SELinux test.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - name: Check KVM device and SELinux virtualization prerequisites
+        run: |
+          echo "Host kernel: $(uname -a)"
+          if test -c /dev/kvm; then
+            ls -l /dev/kvm
+            echo "KVM is available; a CentOS enforcing VM may be possible."
+          else
+            echo "KVM device unavailable on this runner: full CentOS SELinux Enforcing requires a dedicated VM runner."
+          fi
+          if test -e /sys/fs/selinux/enforce; then
+            echo "Host SELinux status: $(cat /sys/fs/selinux/enforce)"
+          else
+            echo "Host is not booted with SELinux; containers cannot prove enforcing-mode compatibility."
+          fi
