@@ -164,6 +164,10 @@ cat > "$TMP/__preview.js" <<'JS'
         panel.scrollIntoView({block:'center', inline:'nearest'})
       }
       await sleep(700)
+      if (preview === 'firewall' && innerWidth <= 700 &&
+          document.documentElement.scrollWidth > innerWidth + 2) {
+        throw new Error('mobile horizontal overflow: '+document.documentElement.scrollWidth+' > '+innerWidth)
+      }
       document.documentElement.dataset.previewReady = preview
     } catch (err) {
       document.documentElement.dataset.previewError = String(err && err.message || err)
@@ -207,5 +211,15 @@ capture firewall-light firewall-light
   --window-size=390,844 --force-device-scale-factor=1 --virtual-time-budget=6500 \
   --screenshot="$OUT/firewall-mobile.png" "http://127.0.0.1:$PORT/?preview=firewall" >/dev/null 2>"$TMP/firewall-mobile.log"
 [[ -s "$OUT/firewall-mobile.png" ]] || { cat "$TMP/firewall-mobile.log" >&2; exit 1; }
+# A screenshot alone cannot detect horizontal overflow or failed JS.
+"$BROWSER" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage \
+  --window-size=390,844 --force-device-scale-factor=1 --virtual-time-budget=6500 \
+  --dump-dom "http://127.0.0.1:$PORT/?preview=firewall" >"$TMP/firewall-mobile-dom.html" 2>"$TMP/firewall-mobile-dom.log"
+grep -Fq 'data-preview-ready="firewall"' "$TMP/firewall-mobile-dom.html" || {
+  grep -o 'data-preview-error="[^"]*"' "$TMP/firewall-mobile-dom.html" || true
+  cat "$TMP/firewall-mobile-dom.log" >&2
+  echo "Mobile preview did not pass layout checks" >&2
+  exit 1
+}
 printf 'GitHub runner UI screenshots:\n'
 ls -lh "$OUT"/*.png
