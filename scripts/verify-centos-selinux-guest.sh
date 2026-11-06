@@ -218,12 +218,33 @@ firewall-cmd --zone="$ZONE" --list-rich-rules | grep -F 'port="53342"'
 firewall-cmd --permanent --zone="$ZONE" --list-rich-rules | grep -F 'port="53342"'
 confirm_control /run/control-drop-add.json
 curl -fsS -b /run/xport-ci.cookie "$BASE/api/firewall" >/run/control-drop-list.json
-python3 - <<'PY'
+if ! python3 - <<'PY'
 import json
 d=json.load(open("/run/control-drop-list.json"))
 r=[r for r in d["rules"] if r["port"]==53342 and r["protocol"]=="tcp"]
 assert len(r)==1 and r[0]["action"]=="deny" and r[0]["managed"],r
 PY
+then
+ echo "[selinux-vm] DROP read mismatch: comparing authenticated API vs root helper and firewalld"
+ python3 - <<'PY'
+import json
+d=json.load(open("/run/control-drop-list.json"))
+print("WEB:",json.dumps({"backend":d.get("backend"),"writable":d.get("writable"),"unsafeReason":d.get("unsafeReason"),
+ "opaqueRichZones":d.get("opaqueRichZones"),"rules":d.get("rules")},ensure_ascii=False)[:5000])
+PY
+ /usr/local/bin/xport firewall-inspect > /run/control-drop-root-snapshot.json || true
+ python3 - <<'PY'
+import json
+try:
+ d=json.load(open("/run/control-drop-root-snapshot.json"))
+ print("ROOT:",json.dumps({"backend":d.get("backend"),"writable":d.get("writable"),"unsafeReason":d.get("unsafeReason"),
+  "opaqueRichZones":d.get("opaqueRichZones"),"rules":d.get("rules")},ensure_ascii=False)[:5000])
+except Exception as exc: print("ROOT ERROR:",str(exc))
+PY
+ firewall-cmd --zone="$ZONE" --list-rich-rules || true
+ firewall-cmd --permanent --zone="$ZONE" --list-rich-rules || true
+ exit 1
+fi
 control_request "$(printf '{"action":"pause-drop","id":"%s","port":53342,"protocol":"tcp","zone":"%s"}' "$drop_id" "$ZONE")" /run/control-drop-pause.json 202
 test -z "$(firewall-cmd --zone="$ZONE" --list-rich-rules | grep -F 'port="53342"' || true)"
 confirm_control /run/control-drop-pause.json
