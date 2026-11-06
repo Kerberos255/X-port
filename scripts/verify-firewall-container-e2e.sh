@@ -90,6 +90,12 @@ if [[ "$active" != 1 ]]; then
   docker exec "$FW" cat /tmp/firewalld.log >&2
   exit 1
 fi
+# Real kernel fixture: IPv4/IPv6 NAT PREROUTING must coexist with
+# firewalld INPUT while retaining write access to simple port rules.
+docker exec "$FW" nft add table ip xport_ci_nat
+docker exec "$FW" nft 'add chain ip xport_ci_nat PREROUTING { type nat hook prerouting priority -100; policy accept; }'
+docker exec "$FW" nft add table ip6 xport_ci_nat
+docker exec "$FW" nft 'add chain ip6 xport_ci_nat PREROUTING { type nat hook prerouting priority -100; policy accept; }'
 check_snapshot "$FW" firewalld true 54322 no
 docker exec "$FW" /usr/local/bin/xport firewall-apply add 54322 tcp public
 check_snapshot "$FW" firewalld true 54322 yes
