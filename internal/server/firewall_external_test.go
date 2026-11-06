@@ -174,9 +174,19 @@ func TestAccountFirewallTransportAndPortCollisions(t *testing.T){
   {ID:3,Name:"second TCP",Port:10401,Protocol:"trojan",StreamSettingsJSON:`{"network":"tcp"}`},
   {ID:4,Name:"unrecognized transport",Port:20000,Protocol:"vless",StreamSettingsJSON:`{"network":"future-protocol"}`},
   {ID:5,Name:"malformed transport",Port:20001,Protocol:"vless",StreamSettingsJSON:"{"},
+  {ID:6,Name:"SS both",Port:20002,Protocol:"shadowsocks",SettingsJSON:`{"network":"tcp,udp"}`},
+  {ID:7,Name:"Socks UDP on",Port:20003,Protocol:"socks",SettingsJSON:`{"udp":true}`},
+  {ID:8,Name:"SS unknown",Port:20004,Protocol:"shadowsocks",SettingsJSON:`{"network":"future"}`},
  }
  got:=accountFirewallMatches(accounts)
  if len(got["tcp/10401"])!=2||len(got["udp/10401"])!=1{t.Fatalf("wrong network mapping: %+v",got)}
  if got["udp/10401"][0].ID!=2{t.Fatalf("wrong UDP account: %+v",got["udp/10401"])}
  if got["tcp/20000"]!=nil||got["tcp/20001"]!=nil{t.Fatalf("unknown transport was guessed: %+v",got)}
+ for _,port:=range []int{20002,20003}{
+  for _,proto:=range []string{"tcp","udp"}{
+   key:=fmt.Sprintf("%s/%d",proto,port)
+   if len(got[key])!=1{t.Fatalf("multi-transport account missing %s: %+v",key,got)}
+  }
+ }
+ if got["tcp/20004"]!=nil||got["udp/20004"]!=nil{t.Fatalf("unknown SS network guessed: %+v",got)}
 }
