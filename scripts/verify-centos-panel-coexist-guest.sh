@@ -67,6 +67,39 @@ if [[ "$code" != 403 && "$code" != 409 ]]; then
 fi
 firewall-cmd --zone="$ZONE" --query-port=19090/tcp | grep -Fxq yes
 firewall-cmd --permanent --zone="$ZONE" --query-port=19090/tcp | grep -Fxq yes
+# Simulate a separate management panel editing a non-management rule
+# through the shared firewalld backend. This does NOT claim to drive the
+# other panel's UI; it tests interoperability at the source of truth.
+firewall-cmd --zone="$ZONE" --add-port=19177/tcp
+firewall-cmd --permanent --zone="$ZONE" --add-port=19177/tcp
+curl -fsS -b /run/xport-ci.cookie "$BASE/api/firewall" >/run/panel-before-external-edit.json
+python3 - <<'PY'
+import json
+d=json.load(open("/run/panel-before-external-edit.json"))
+r=[x for x in d["rules"] if x["port"]==19177 and x["protocol"]=="tcp"]
+assert len(r)==1 and r[0]["managed"] is False, r
+PY
+firewall-cmd --zone="$ZONE" --remove-port=19177/tcp
+firewall-cmd --permanent --zone="$ZONE" --remove-port=19177/tcp
+firewall-cmd --zone="$ZONE" --add-port=19178/tcp
+firewall-cmd --permanent --zone="$ZONE" --add-port=19178/tcp
+firewall-cmd --reload
+curl -fsS -b /run/xport-ci.cookie "$BASE/api/firewall" >/run/panel-after-external-edit.json
+python3 - <<'PY'
+import json
+d=json.load(open("/run/panel-after-external-edit.json"))
+assert all(x["port"]!=19177 for x in d["rules"]), d
+r=[x for x in d["rules"] if x["port"]==19178 and x["protocol"]=="tcp"]
+assert len(r)==1 and r[0]["managed"] is False,r
+print("[panel-coexist] External edits and firewalld reload reflected without ownership takeover")
+PY
+code="$(curl -sS -b /run/xport-ci.cookie -H "Origin: $BASE" \
+  -H 'Content-Type: application/json' -o /run/panel-edited-remove.json -w '%{http_code}' \
+  -d "{\"action\":\"remove\",\"port\":19178,\"protocol\":\"tcp\",\"zone\":\"$ZONE\"}" "$BASE/api/firewall/rules")"
+test "$code" = 403
+firewall-cmd --zone="$ZONE" --query-port=19178/tcp | grep -Fxq yes
+firewall-cmd --permanent --zone="$ZONE" --query-port=19178/tcp | grep -Fxq yes
+firewall-cmd --zone="$ZONE" --query-port=19090/tcp | grep -Fxq yes
 systemctl is-active --quiet 1panel-core
 systemctl is-active --quiet xport.service
 test "$(getenforce)" = Enforcing
