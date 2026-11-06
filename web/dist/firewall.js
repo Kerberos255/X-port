@@ -154,6 +154,20 @@
     el('fw-detail-dialog').returnValue = ''
     el('fw-detail-dialog').showModal()
   }
+  async function openLinkedAccount(rawId){
+    const id=Number(rawId)
+    const nav=document.querySelector('#nav [data-page="accounts"]')
+    if(!Number.isSafeInteger(id)||id<=0||!nav)return toast('账号关联已失效，请刷新防火墙页面',true)
+    nav.click()
+    // Navigation asynchronously reloads account data. Resolve the specific
+    // account by immutable ID, never by display name or an old row index.
+    await loadAccounts()
+    const row=document.querySelector('#accounts-list .account-row[data-id="'+id+'"]')
+    const edit=row?.querySelector('button[data-act="edit"]')
+    if(!edit)return toast('未找到关联账号，可能已被删除或迁移',true)
+    row.scrollIntoView({block:'nearest'})
+    edit.click()
+  }
   function openRuleEditor(id){
     const r=rules().find(row=>row.id===id)
     if(!r)return
@@ -200,7 +214,7 @@
       }).catch(err=>toast(err.message,true))
       return
     }
-    if(act==='account'){document.querySelector('#nav [data-page="accounts"]')?.click();return}
+    if(act==='account'){void openLinkedAccount(button.dataset.fwAccount);return}
     if(act==='toggle'){toast('预览阶段：规则启停正在验证断线恢复与规则冲突，暂不执行系统修改。');return}
     if(act==='configure'){openRuleEditor(id);return}
     if(act==='edit'){state.editing={id,key:button.dataset.fwKey};render()}
