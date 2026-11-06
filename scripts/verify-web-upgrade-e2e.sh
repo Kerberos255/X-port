@@ -60,7 +60,7 @@ health || { echo "old Web service failed startup" >&2; sudo systemctl status "$U
 [[ "$(sudo systemctl show "$UNIT.service" -p RestrictAddressFamilies --value)" != *AF_NETLINK* ]] || exit 1
 
 echo "[upgrade] Stage verified candidate and schedule real external systemd restart"
-"$TMP/upgrade-harness" 0.2.8 0.2.9 "$TMP/live/xport" "$TMP/candidate" "$UNIT.service"
+sudo "$TMP/upgrade-harness" 0.2.8 0.2.9 "$TMP/live/xport" "$TMP/candidate" "$UNIT.service"
 updated=0
 for _ in $(seq 1 80); do
   if [[ "$("$TMP/live/xport" version)" == 0.2.9 ]] && health && sudo systemctl is-active --quiet "$UNIT.service"; then
@@ -98,7 +98,7 @@ if [ "$1" = version ]; then echo 0.2.10; exit 0; fi
 exit 13
 SH
 chmod 755 "$TMP/invalid-candidate"
-"$TMP/upgrade-harness" 0.2.9 0.2.10 "$TMP/live/xport" "$TMP/invalid-candidate" "$UNIT.service"
+sudo "$TMP/upgrade-harness" 0.2.9 0.2.10 "$TMP/live/xport" "$TMP/invalid-candidate" "$UNIT.service"
 rolled_back=0
 for _ in $(seq 1 90); do
   if [[ "$("$TMP/live/xport" version)" == 0.2.9 ]] && health && sudo systemctl is-active --quiet "$UNIT.service"; then
