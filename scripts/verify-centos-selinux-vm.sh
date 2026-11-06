@@ -15,7 +15,8 @@ URL="https://cloud.centos.org/centos/9-stream/x86_64/images/CentOS-Stream-Generi
 echo "[selinux-vm] Downloading official CentOS Stream 9 QCOW2 and checking checksum"
 curl -fLsS --retry 3 --connect-timeout 25 --max-time 540 "$URL" -o "$TMP/centos.qcow2"
 curl -fLsS --retry 3 --connect-timeout 25 "$URL.SHA256SUM" -o "$TMP/checksum"
-SUM="$(awk 'NR==1{print $1}' "$TMP/checksum")"
+SUM="$(grep -Eo '[A-Fa-f0-9]{64}' "$TMP/checksum" | head -n1)"
+test -n "$SUM" || { echo "Official CentOS SHA256 checksum missing" >&2; exit 1; }
 echo "$SUM  $TMP/centos.qcow2" | sha256sum -c -
 qemu-img info "$TMP/centos.qcow2"
 cp "$BIN" "$TMP/xport"
