@@ -235,13 +235,13 @@ cat > "$TMP/__driver.js" <<'JS'
       if (!globalConfig.routing || !Array.isArray(globalConfig.outbounds)) throw new Error('global Xray config editor did not load expected sections')
 
       document.querySelector('#nav [data-page="firewall"]').click()
-      const fwNoteButton=await waitFor('#fw-rows button[data-fw-act="edit"][data-fw-key="note"]')
+      const fwNoteButton=await waitFor('#fw-rows button[data-fw-id="firewalld:public:2053/tcp"][data-fw-key="note"]')
       fwNoteButton.click()
       const fwInput=await waitFor('.fw-edit-input')
       fwInput.value='浏览器回归备注'
       const fwSave=await waitFor('#fw-rows button[data-fw-act="save"]')
       fwSave.click()
-      await waitForValueContains('#fw-rows button[data-fw-key="note"] span','浏览器回归备注')
+      await waitForValueContains('#fw-rows button[data-fw-id="firewalld:public:2053/tcp"][data-fw-key="note"] span','浏览器回归备注')
       if(document.querySelector('#nav [data-page="firewall"]')?.classList.contains('active')!==true) throw new Error('firewall navigation not active')
       mark('pass', `clonePort=${portInput.value};legacyHits=0;fallbackDest=${dest};layout=contained;globalXray=ok`)
     } catch (err) {
