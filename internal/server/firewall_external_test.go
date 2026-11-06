@@ -103,7 +103,9 @@ func TestFirewallReadMapsAccountsAndListenerUsage(t *testing.T) {
   "    printf '%s' '{\"backend\":\"firewalld\",\"active\":true,\"writable\":true,\"zones\":[\"public\"],\"rules\":[{\"id\":\"firewalld:public:2053/tcp\",\"port\":2053,\"protocol\":\"tcp\",\"zone\":\"public\",\"backend\":\"firewalld\",\"runtime\":true,\"permanent\":true},{\"id\":\"firewalld:public:8443/tcp\",\"port\":8443,\"protocol\":\"tcp\",\"zone\":\"public\",\"backend\":\"firewalld\",\"runtime\":true,\"permanent\":true},{\"id\":\"firewalld:public:2053/udp\",\"port\":2053,\"protocol\":\"udp\",\"zone\":\"public\",\"backend\":\"firewalld\",\"runtime\":true,\"permanent\":true}]}'",
   "    ;;",
   "  *\" firewall-listeners\"*) printf '%s' '{\"2053\":true}' ;;",
-  "  *\" firewall-sockets\"*) printf '%s' '{\"tcp/2053\":true}' ;;",
+  "  *\" firewall-sockets\"*)",
+  "    if [ \"${XPORT_TEST_SOCKET_ERROR:-}\" = 1 ]; then exit 98; fi",
+  "    printf '%s' '{\"tcp/2053\":true}' ;;",
   "  *) exit 97 ;;",
   "esac",
  },"\n")+"\n"
@@ -147,6 +149,21 @@ func TestFirewallReadMapsAccountsAndListenerUsage(t *testing.T) {
   if !ok||rule.AccountID!=want.ID||rule.AccountName!=want.Name||
      rule.AccountEnabled!=want.Enabled||rule.Usage!=want.Usage||
      rule.Protected!=want.Protected{t.Fatalf("unexpected rule: %+v",rule)}
+ }
+
+ // An ss failure must never make ports appear idle and safe to remove.
+ t.Setenv("XPORT_TEST_SOCKET_ERROR","1")
+ unknown:=httptest.NewRecorder()
+ h.ServeHTTP(unknown,req)
+ if unknown.Code!=http.StatusOK{t.Fatalf("socket failure GET: %d %s",unknown.Code,unknown.Body.String())}
+ var fallback struct{Rules []struct{
+  Usage string `json:"usage"`
+  Protected bool `json:"protected"`
+ }}
+ if err:=json.Unmarshal(unknown.Body.Bytes(),&fallback);err!=nil{t.Fatal(err)}
+ if len(fallback.Rules)!=3{t.Fatalf("fallback rules: %+v",fallback.Rules)}
+ for _,item:=range fallback.Rules{
+  if item.Usage!="unknown"||!item.Protected{t.Fatalf("failed socket inspection must be unknown and protected: %+v",item)}
  }
 }
 
