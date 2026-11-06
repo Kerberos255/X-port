@@ -10,6 +10,8 @@ on:
       - 'scripts/verify-firewall-container-e2e.sh'
       - 'scripts/verify-web-upgrade-e2e.sh'
       - 'scripts/verify-web-update-http.sh'
+      - 'scripts/verify-centos-selinux-vm.sh'
+      - 'scripts/verify-centos-selinux-guest.sh'
       - 'scripts/verify-firewall-distros.sh'
       - 'scripts/testdata/cancel_timer/main.go'
       - 'scripts/testdata/upgrade_harness.go'
@@ -108,3 +110,19 @@ jobs:
           else
             echo "Host is not booted with SELinux; containers cannot prove enforcing-mode compatibility."
           fi
+
+  centos9-selinux-enforcing:
+    # An actual CentOS Stream VM, not a container sharing Ubuntu's SELinux-disabled kernel.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 24
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.27.3'
+          cache: false
+      - name: Build the candidate X-port binary
+        run: CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o "$RUNNER_TEMP/xport-selinux-e2e" ./cmd/xport
+      - name: Boot official CentOS Stream 9 under KVM and exercise Enforcing mode
+        run: sudo bash scripts/verify-centos-selinux-vm.sh "$RUNNER_TEMP/xport-selinux-e2e"

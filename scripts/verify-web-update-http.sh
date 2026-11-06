@@ -6,7 +6,7 @@ set -Eeuo pipefail
 # unit. Only the endpoint string in the *test-built* old binary is overlaid.
 # No production code, release tags, real networks or real firewall rules change.
 ROOT="$(pwd)"
-TMP="$(mktemp -d -t xport-http-upgrade-ci.XXXXXXXX)"
+TMP="$(mktemp -d -p "${RUNNER_TEMP:-$PWD}" xport-http-upgrade-ci.XXXXXXXX)"
 UNIT="xport"
 MOCK_PID=""
 trap 'rc=$?; echo "[http-upgrade] failure at line $LINENO (exit $rc)" >&2' ERR
