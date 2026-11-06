@@ -6,7 +6,7 @@ import (
  "encoding/hex"
  "errors"
  "fmt"
- "os"
+ "path/filepath"
  "os/exec"
  "regexp"
  "strconv"
@@ -26,15 +26,30 @@ func ScheduleFirewallRestore(ctx context.Context,backend string,port int,proto,z
  if backend!="firewalld"&&backend!="ufw"{return "",0,errors.New("unsupported backend")}
  if backend=="firewalld"&&!firewall.ValidZone(zone){return "",0,errors.New("invalid firewalld zone")}
  if backend=="ufw"&&zone!=""{return "",0,errors.New("UFW does not use zones")}
- exe,err:=os.Executable();if err!=nil{return "",0,err}
- if !validManagedPath(exe){return "",0,errors.New("invalid executable")}
+
+ // Recovery is intentionally independent of the installed X-port binary.
+ // The helper can be upgraded, rolled back, or removed while this timer waits.
+ utility:="firewall-cmd"
+ if backend=="ufw"{utility="ufw"}
+ executable,err:=exec.LookPath(utility)
+ if err!=nil{return "",0,fmt.Errorf("recovery utility unavailable: %w",err)}
+ if !filepath.IsAbs(executable){return "",0,errors.New("invalid recovery utility path")}
+ var script string
+ var worker []string
+ if backend=="firewalld"{
+  script="set -eu\n\"$1\" \"--zone=$2\" \"--add-port=$3/$4\"\n\"$1\" --permanent \"--zone=$2\" \"--add-port=$3/$4\""
+  worker=[]string{"/bin/sh","-c",script,"xport-recovery",executable,zone,strconv.Itoa(port),proto}
+ }else{
+  script="set -eu\n\"$1\" allow \"$2/$3\""
+  worker=[]string{"/bin/sh","-c",script,"xport-recovery",executable,strconv.Itoa(port),proto}
+ }
  bytes:=make([]byte,12);if _,err:=rand.Read(bytes);err!=nil{return "",0,err}
  unit:="xport-fw-restore-"+hex.EncodeToString(bytes)
  cctx,cancel:=context.WithTimeout(ctx,12*time.Second);defer cancel()
- cmd:=exec.CommandContext(cctx,"systemd-run","--quiet","--unit="+unit,
-  "--on-active=120s","--property=Type=exec","--property=NoNewPrivileges=yes",
-  exe,"firewall-restore",backend,strconv.Itoa(port),proto,zone)
- out,err:=cmd.CombinedOutput()
+ argv:=[]string{"--quiet","--unit="+unit,"--on-active=120s",
+  "--property=Type=exec","--property=NoNewPrivileges=yes"}
+ argv=append(argv,worker...)
+ out,err:=exec.CommandContext(cctx,"systemd-run",argv...).CombinedOutput()
  if err!=nil{return "",0,fmt.Errorf("could not schedule firewall restore: %w: %s",err,strings.TrimSpace(string(out)))}
  return unit,time.Now().Add(FirewallRestoreAfter).UnixMilli(),nil
 }
