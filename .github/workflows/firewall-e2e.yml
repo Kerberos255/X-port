@@ -9,6 +9,7 @@ on:
       - 'cmd/xport/manager.go'
       - 'scripts/verify-firewall-container-e2e.sh'
       - 'scripts/verify-web-upgrade-e2e.sh'
+      - 'scripts/verify-firewall-distros.sh'
       - 'scripts/testdata/upgrade_harness.go'
   workflow_dispatch:
 
@@ -17,6 +18,8 @@ permissions:
 
 jobs:
   isolated-firewalls:
+    # Never execute privileged Docker E2E for untrusted fork PRs.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 18
     steps:
@@ -31,6 +34,7 @@ jobs:
         run: sudo bash scripts/verify-firewall-container-e2e.sh "$RUNNER_TEMP/xport-fw-e2e"
 
   upgrade-supervisor:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 14
     steps:
@@ -43,3 +47,22 @@ jobs:
           cache: false
       - name: Upgrade real v0.2.8 service using local verified candidate, then test rollback
         run: bash scripts/verify-web-upgrade-e2e.sh
+
+  cross-distro:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        distro: [debian, rocky]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.27.3'
+          cache: false
+      - name: Build X-port
+        run: CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o "$RUNNER_TEMP/xport-cross-e2e" ./cmd/xport
+      - name: Verify ${{ matrix.distro }} firewall and foreign rules in isolated netns
+        run: sudo bash scripts/verify-firewall-distros.sh "$RUNNER_TEMP/xport-cross-e2e" "${{ matrix.distro }}"
