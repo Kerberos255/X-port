@@ -42,6 +42,7 @@ type Snapshot struct {
 	DefaultZone string `json:"defaultZone,omitempty"`
 	Zones []string `json:"zones"`
 	Services map[string][]string `json:"services,omitempty"`
+ OpaqueRichZones map[string]bool `json:"opaqueRichZones,omitempty"`
 	Rules []Rule `json:"rules"`
 	Notice string `json:"notice"`
 }
@@ -221,6 +222,7 @@ func Inspect(ctx context.Context)(Snapshot,error){
 		zones:=map[string]bool{def:true};for _,z:=range activeZones(act){zones[z]=true}
 		for z:=range zones{snap.Zones=append(snap.Zones,z)};sort.Strings(snap.Zones)
 		snap.Services=map[string][]string{}
+        snap.OpaqueRichZones=map[string]bool{}
 		for _,zone:=range snap.Zones{
 			rt,err:=command(ctx,"firewall-cmd","--zone="+zone,"--list-ports");if err!=nil{return snap,err}
 			pm,err:=command(ctx,"firewall-cmd","--permanent","--zone="+zone,"--list-ports");if err!=nil{return snap,err}
@@ -246,7 +248,10 @@ func Inspect(ctx context.Context)(Snapshot,error){
               }
               for _,line:=range strings.Split(richText,"\n"){
                 rich,ok:=parseSimpleRichRule(line,zone)
-                if !ok{continue}
+                if !ok{
+                 if strings.TrimSpace(line)!=""{snap.OpaqueRichZones[zone]=true}
+                 continue
+                }
                 item:=richEntries[rich.ID]
                 if item==nil{r:=rich;item=&r;richEntries[rich.ID]=item}
                 if batch{item.Permanent=true}else{item.Runtime=true}
@@ -362,10 +367,17 @@ func ChangeSimpleDrop(ctx context.Context,action string,port int,proto,zone stri
  if !ValidRule(port,proto)||!ValidZone(zone){return errors.New("invalid port/protocol/zone")}
  snap,err:=Inspect(ctx);if err!=nil{return err}
  if !snap.Writable||snap.Backend!="firewalld"{return errors.New("firewalld unavailable or read-only")}
+ if snap.OpaqueRichZones[zone]{return errors.New("zone contains unsupported rich rules; policy modification blocked")}
  zoneFound:=false;for _,z:=range snap.Zones{if z==zone{zoneFound=true;break}}
  if !zoneFound{return errors.New("unknown firewalld zone")}
  matching:=[]Rule{}
  for _,r:=range snap.Rules{
+  // Another active zone might already expose the same port. Changing one
+  // zone cannot be presented as an unambiguous global allow/deny policy.
+  if action=="add"&&r.Port==port&&r.Protocol==proto&&r.Zone!=zone{
+   return errors.New("same port is configured in another zone")
+  }
+
   if r.Port==port&&r.Protocol==proto&&r.Zone==zone{matching=append(matching,r)}
  }
  if action=="add"{
