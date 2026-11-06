@@ -174,6 +174,31 @@ printf 'udp UNCONN 0 0 [::]:2053 [::]:*\n'
  t.Setenv("PATH",dir)
  ports,err:=ListeningPorts(context.Background());if err!=nil{t.Fatal(err)}
  if !ports[8080]||!ports[2053]{t.Fatalf("ports=%v",ports)}
+ sockets,err:=ListeningSockets(context.Background());if err!=nil{t.Fatal(err)}
+ if !sockets["tcp/8080"]||!sockets["udp/2053"]{t.Fatalf("sockets=%v",sockets)}
+ if sockets["udp/8080"]||sockets["tcp/2053"]{t.Fatalf("transport confusion: %v",sockets)}
+}
+
+func TestListeningSocketsMustReadLocalEndpointNotPeer(t *testing.T){
+ cases:=[]struct{name,raw string;key string;wantErr bool}{
+  {"IPv4 TCP","tcp LISTEN 0 128 127.0.0.1:8443 127.0.0.1:2053","tcp/8443",false},
+  {"IPv6 TCP","tcp LISTEN 0 128 [::]:443 [::]:*","tcp/443",false},
+  {"IPv4 UDP","udp UNCONN 0 0 0.0.0.0:443 0.0.0.0:*","udp/443",false},
+  {"IPv6 UDP","udp UNCONN 0 0 [::]:2053 [::]:*","udp/2053",false},
+  {"no local socket","tcp LISTEN 0 128 BAD 127.0.0.1:80","",true},
+  {"malformed local port","udp UNCONN 0 0 127.0.0.1:NaN 127.0.0.1:5000","",true},
+  {"unexpected protocol","raw UNCONN 0 0 127.0.0.1:80 127.0.0.1:*","",true},
+  {"truncated row","tcp LISTEN 0 128","",true},
+  {"no sockets","","",false},
+ }
+ for _,tt:=range cases{t.Run(tt.name,func(t *testing.T){
+  result,err:=parseListeningSockets(tt.raw)
+  if (err!=nil)!=tt.wantErr{t.Fatalf("error=%v wantErr=%t",err,tt.wantErr)}
+  if err==nil&&tt.key!=""&&!result[tt.key]{t.Fatalf("missing %s: %v",tt.key,result)}
+ })}
+ mixed,err:=parseListeningSockets("tcp LISTEN 0 128 *:7443 *:*\nudp UNCONN 0 0 [::]:7443 [::]:*")
+ if err!=nil{t.Fatal(err)}
+ if !mixed["tcp/7443"]||!mixed["udp/7443"]||len(mixed)!=2{t.Fatalf("shared port must preserve both transports: %v",mixed)}
 }
 func TestNativeInputChainBlocksWrites(t *testing.T){
  dir:=t.TempDir()
