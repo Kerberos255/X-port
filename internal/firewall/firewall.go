@@ -96,24 +96,77 @@ func Detect(ctx context.Context)string{
 // independentInputChains distinguishes native firewall base chains from the
 // tables managed by firewalld itself. A foreign input hook makes safe editing
 // impossible without understanding all participating policies.
-func independentInputChains(data string)(bool,error){
-	var tree struct{Nftables []map[string]json.RawMessage `json:"nftables"`}
-	if err:=json.Unmarshal([]byte(data),&tree);err!=nil{return false,err}
-	for _,obj:=range tree.Nftables{
-		b:=obj["chain"];if len(b)==0{continue}
-		var c struct{Table string `json:"table"`; Hook string `json:"hook"`; Type string `json:"type"`}
-		if json.Unmarshal(b,&c)!=nil{continue}
-		if c.Hook!="input"&&c.Hook!="prerouting"&&c.Hook!="ingress"{continue}
-		if c.Table=="firewalld" {continue}
-		return true,nil
-	}
-	return false,nil
+// nftables userspace also shows iptables-nft chains created by UFW. A
+// recognized UFW filter/INPUT chain must not be mistaken for an independent
+// firewall. Accept only the standard UFW top-level jumps; any foreign rule
+// or another base chain is still a conflict and makes the WebUI read-only.
+type nftChain struct {
+ Family string `json:"family"`
+ Table string `json:"table"`
+ Name string `json:"name"`
+ Hook string `json:"hook"`
 }
-func nativeInputs(ctx context.Context)(bool,error){
-	if !hasTool("nft"){return false,nil}
-	out,err:=command(ctx,"nft","-j","list","ruleset")
-	if err!=nil{return false,err}
-	return independentInputChains(out)
+type nftRule struct {
+ Family string `json:"family"`
+ Table string `json:"table"`
+ Chain string `json:"chain"`
+ Expr []map[string]json.RawMessage `json:"expr"`
+}
+func ufwManagedInput(c nftChain, objects []map[string]json.RawMessage) bool {
+ if c.Name!="INPUT"||c.Table!="filter"||(c.Family!="ip"&&c.Family!="ip6"){return false}
+ required:=map[string]bool{"ufw-before-input":false,"ufw-after-input":false,"ufw-reject-input":false,"ufw-track-input":false}
+ rules:=0
+ for _,obj:=range objects{
+  raw:=obj["rule"];if len(raw)==0{continue}
+  var r nftRule
+  if json.Unmarshal(raw,&r)!=nil{return false}
+  if r.Family!=c.Family||r.Table!=c.Table||r.Chain!=c.Name{continue}
+  rules++
+  if len(r.Expr)==0{return false}
+  sawJump:=false
+  for _,item:=range r.Expr{
+   if len(item)!=1{return false}
+   for kind,data:=range item{
+    if kind=="counter"{continue}
+    if kind!="jump"{return false}
+    var target struct{Target string `json:"target"`}
+    if json.Unmarshal(data,&target)!=nil||!strings.HasPrefix(target.Target,"ufw-"){return false}
+    sawJump=true
+    if _,ok:=required[target.Target];ok{required[target.Target]=true}
+   }
+  }
+  if !sawJump{return false}
+ }
+ if rules==0{return false}
+ for _,present:=range required{if !present{return false}}
+ return true
+}
+func independentInputChainsWithUFW(data string, ufwActive bool)(bool,error){
+ var tree struct{Nftables []map[string]json.RawMessage `json:"nftables"`}
+ if err:=json.Unmarshal([]byte(data),&tree);err!=nil{return false,err}
+ if len(tree.Nftables)==0{return false,errors.New("nftables ruleset response is empty")}
+ for _,obj:=range tree.Nftables{
+  raw:=obj["chain"];if len(raw)==0{continue}
+  var c nftChain
+  if json.Unmarshal(raw,&c)!=nil{return true,nil}
+  switch c.Hook {
+  case "input","prerouting","ingress":
+  default:continue
+  }
+  if c.Table=="firewalld"{continue}
+  if ufwActive&&c.Hook=="input"&&ufwManagedInput(c,tree.Nftables){continue}
+  return true,nil
+ }
+ return false,nil
+}
+func independentInputChains(data string)(bool,error){
+ return independentInputChainsWithUFW(data,false)
+}
+func nativeInputs(ctx context.Context, ufwActive bool)(bool,error){
+ if !hasTool("nft"){return false,errors.New("nftables inspector is unavailable")}
+ out,err:=command(ctx,"nft","-j","list","ruleset")
+ if err!=nil{return false,err}
+ return independentInputChainsWithUFW(out,ufwActive)
 }
 func Inspect(ctx context.Context)(Snapshot,error){
 	f,u:=runningManagers(ctx)
@@ -137,7 +190,7 @@ func Inspect(ctx context.Context)(Snapshot,error){
 	}
 	snap.Writable=f||u
 	if f||u{
-		if independent,err:=nativeInputs(ctx);err!=nil{
+		if independent,err:=nativeInputs(ctx,u);err!=nil{
 			snap.Writable=false;snap.UnsafeReason="无法确认底层 nftables 输入链："+err.Error()
 		}else if independent{
 			snap.Writable=false;snap.UnsafeReason="检测到独立 nftables input 链，不能保证规则生效顺序"

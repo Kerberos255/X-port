@@ -2,6 +2,7 @@ package firewall
 
 import (
  "context"
+ "encoding/json"
  "os"
  "path/filepath"
  "strings"
@@ -122,4 +123,24 @@ echo '{"nftables":[{"chain":{"family":"inet","table":"independent","hook":"input
  snap,err:=Inspect(context.Background())
  if err!=nil{t.Fatal(err)}
  if snap.Writable||snap.UnsafeReason==""{t.Fatalf("independent input hook should block writes: %+v",snap)}
+}
+
+func TestUFWTopLevelOwnershipDetection(t *testing.T){
+ baseline:=`{"nftables":[{"chain":{"family":"ip","table":"filter","name":"INPUT","hook":"input"}},{"rule":{"family":"ip","table":"filter","chain":"INPUT","expr":[{"counter":{"packets":0,"bytes":0}},{"jump":{"target":"ufw-before-input"}}]}},{"rule":{"family":"ip","table":"filter","chain":"INPUT","expr":[{"counter":{"packets":0,"bytes":0}},{"jump":{"target":"ufw-after-input"}}]}},{"rule":{"family":"ip","table":"filter","chain":"INPUT","expr":[{"counter":{"packets":0,"bytes":0}},{"jump":{"target":"ufw-reject-input"}}]}},{"rule":{"family":"ip","table":"filter","chain":"INPUT","expr":[{"counter":{"packets":0,"bytes":0}},{"jump":{"target":"ufw-track-input"}}]}}]}`
+ conflict,err:=independentInputChainsWithUFW(baseline,true)
+ if err!=nil||conflict{t.Fatalf("UFW managed input incorrectly flagged: %v %v",conflict,err)}
+ conflict,err=independentInputChainsWithUFW(baseline,false)
+ if err!=nil||!conflict{t.Fatalf("same rules without UFW must be flagged: %v %v",conflict,err)}
+ var parsed struct{Nftables []map[string]json.RawMessage `json:"nftables"`}
+ if err:=json.Unmarshal([]byte(baseline),&parsed);err!=nil{t.Fatal(err)}
+ // A direct DROP inserted into UFW's top-level INPUT chain must not
+ // be treated as a manager-owned UFW jump.
+ foreign:=map[string]any{"rule":map[string]any{"family":"ip","table":"filter","chain":"INPUT","expr":[]any{map[string]any{"drop":nil}}}}
+ raw,err:=json.Marshal(foreign);if err!=nil{t.Fatal(err)}
+ var entry map[string]json.RawMessage
+ if err=json.Unmarshal(raw,&entry);err!=nil{t.Fatal(err)}
+ parsed.Nftables=append(parsed.Nftables,entry)
+ modified,err:=json.Marshal(parsed);if err!=nil{t.Fatal(err)}
+ conflict,err=independentInputChainsWithUFW(string(modified),true)
+ if err!=nil||!conflict{t.Fatalf("foreign DROP must disable writing: %v %v",conflict,err)}
 }
