@@ -389,7 +389,10 @@ func (s *Server) firewallControl(w http.ResponseWriter,r *http.Request){
   }
   if err:=s.store.SetSetting(firewallPausedKey(id),"");err!=nil{
    rbctx,done:=context.WithTimeout(context.Background(),35*time.Second)
-   rollback:=ops.ApplyFirewall(rbctx,s.store.Dir(),"remove",in.Port,in.Protocol,in.Zone);done()
+   var rollback error
+   if in.Action=="resume-drop"{rollback=ops.ApplySimpleDrop(rbctx,s.store.Dir(),"remove",in.Port,in.Protocol,in.Zone)
+   }else{rollback=ops.ApplyFirewall(rbctx,s.store.Dir(),"remove",in.Port,in.Protocol,in.Zone)}
+   done()
    writeError(w,500,fmt.Sprintf("resume metadata failed; rollback: %v",rollback));return
   }
   s.firewallAudit(in.Action,id)
