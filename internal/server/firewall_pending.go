@@ -64,7 +64,7 @@ func (s *Server) firewallRuleConfirm(w http.ResponseWriter,r *http.Request){
   writeError(w,403,"invalid pending action token");return
  }
  switch p.Kind{
- case "","remove-allow","add-drop","remove-drop","pause-allow":
+ case "","remove-allow","add-drop","remove-drop","pause-allow","pause-drop":
  default:writeError(w,409,"unrecognized pending action");return
  }
  if time.Now().UnixMilli()>=p.Deadline{writeError(w,409,"confirmation expired; automatic restoration may have started");return}
@@ -92,8 +92,12 @@ func (s *Server) firewallRuleConfirm(w http.ResponseWriter,r *http.Request){
  // Persist any resume metadata before disabling automatic recovery. If this
  // DB operation fails the timer remains armed and the old state is restored.
  stagedKey,stagedValue:="",""
- if p.Kind=="pause-allow"{
-  if p.Rule.ID!=p.ID||p.Rule.Kind!="port"||p.Rule.Action!="allow"{writeError(w,409,"invalid paused rule snapshot");return}
+ if p.Kind=="pause-allow"||p.Kind=="pause-drop"{
+  if p.Rule.ID!=p.ID||
+     (p.Kind=="pause-allow"&&(p.Rule.Kind!="port"||p.Rule.Action!="allow"))||
+     (p.Kind=="pause-drop"&&(p.Rule.Kind!="rich"||p.Rule.Action!="deny"||p.Rule.Family!="both")){
+   writeError(w,409,"invalid paused rule snapshot");return
+  }
   body,err:=json.Marshal(p.Rule)
   if err!=nil{writeError(w,500,"cannot encode paused rule");return}
   stagedKey,stagedValue=firewallPausedKey(p.ID),string(body)
@@ -112,7 +116,7 @@ func (s *Server) firewallRuleConfirm(w http.ResponseWriter,r *http.Request){
  if !correct(verified){writeError(w,409,"rule changed during confirmation; refresh before retrying");return}
  // Pausing retains ownership and note, whereas permanent deletion drops it.
  switch p.Kind{
- case "add-drop","pause-allow":
+ case "add-drop","pause-allow","pause-drop":
   if err:=s.store.SetSetting(firewallPendingKey(p.ID),"");err!=nil{writeError(w,500,"could not clear pending state");return}
   s.firewallAudit(p.Kind,p.ID)
  case "","remove-allow","remove-drop":
