@@ -112,6 +112,15 @@ with open("/run/xport-firewall.json") as f:d=json.load(f)
 assert d["backend"]=="firewalld" and d["writable"] is True,d
 print("[selinux-vm] Web firewall read passed in Enforcing")
 PY
+STAGE=listener-protocol-snapshot
+/usr/local/bin/xport firewall-sockets >/run/xport-ci-sockets.json
+python3 - <<'PY'
+import json
+data=json.load(open("/run/xport-ci-sockets.json"))
+assert data.get("tcp/28612") is True, data
+assert not data.get("udp/28612",False), data
+print("[selinux-vm] TCP panel listener is recognized independently from UDP")
+PY
 STAGE=foreign-input-fail-closed
 echo "[selinux-vm] Verifying separate INPUT filter blocks Web writes without changing rules"
 nft add table inet xport_ci_external
