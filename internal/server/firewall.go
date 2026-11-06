@@ -28,6 +28,9 @@ type firewallViewRule struct {
  AccountEnabled bool `json:"accountEnabled"`
  Usage string `json:"usage"`
  AccountAmbiguous bool `json:"accountAmbiguous,omitempty"`
+ Paused bool `json:"paused,omitempty"`
+ PausedDrift bool `json:"pausedDrift,omitempty"`
+ CanToggle bool `json:"canToggle"`
 }
 type firewallView struct {
  firewall.Snapshot
@@ -131,6 +134,49 @@ func (s *Server) firewallRead(w http.ResponseWriter,r *http.Request){
    Managed:settings["firewall_owned:"+rr.ID]=="v1",Xray:xray,
    AccountID:account.ID,AccountName:account.Name,AccountEnabled:account.Enabled,
    AccountAmbiguous:ambiguous,Usage:usage,
+    CanToggle:settings["firewall_owned:"+rr.ID]=="v1"&&!rr.Conflict&&
+      rr.Port!=22&&rr.Port!=s.firewallGuardPort()&&
+      (rr.Kind=="port"||rr.Kind=="rich")&&
+      (!protected||(xray&&!ambiguous&&account.Enabled)),
+  })
+ }
+ // Persistently paused allowances are not active firewalld rules.
+ // Reconstruct from saved metadata and mark any externally restored drift.
+ for key,raw:=range settings{
+  if !strings.HasPrefix(key,"firewall_paused:")||raw==""{continue}
+  var paused firewall.Rule
+  if json.Unmarshal([]byte(raw),&paused)!=nil||paused.ID==""||
+     key!=firewallPausedKey(paused.ID)||paused.Backend!="firewalld"||
+     paused.Kind!="port"||paused.Action!="allow"||
+     !firewall.ValidZone(paused.Zone)||!firewall.ValidRule(paused.Port,paused.Protocol)||
+     settings["firewall_owned:"+paused.ID]!="v1"{continue}
+  existing:=-1
+  conflicting:=false
+  for i,entry:=range rules{
+   if entry.ID==paused.ID{existing=i}
+   if entry.Port==paused.Port&&entry.Protocol==paused.Protocol&&entry.Zone==paused.Zone{
+    conflicting=true
+   }
+  }
+  if existing>=0{
+   rules[existing].PausedDrift=true
+   rules[existing].Conflict=true
+   rules[existing].CanToggle=false
+   continue
+  }
+  paused.Runtime=false;paused.Permanent=false
+  account:=bySocket[fmt.Sprintf("%s/%d",paused.Protocol,paused.Port)]
+  name:="";var accountID int64;enabled:=false
+  if len(account)==1{name=account[0].Name;accountID=account[0].ID;enabled=account[0].Enabled}
+  usage:="unknown"
+  if socketError==nil{usage="unused";if sockets[fmt.Sprintf("%s/%d",paused.Protocol,paused.Port)]{usage="used"}}
+  rules=append(rules,firewallViewRule{
+   Rule:paused,Purpose:settings["firewall_purpose:"+paused.ID],
+   PurposeSource:"manual",Note:settings["firewall_note:"+paused.ID],
+   Protected:paused.Port==22||paused.Port==s.firewallGuardPort(),
+   Managed:true,Xray:len(account)>0,AccountID:accountID,AccountName:name,
+   AccountEnabled:enabled,AccountAmbiguous:len(account)>1,Usage:usage,
+   Paused:true,CanToggle:!conflicting&&paused.Port!=22&&paused.Port!=s.firewallGuardPort(),
   })
  }
  writeJSON(w,200,firewallView{Snapshot:snap,Rules:rules,Pending:pendingFromSettings(settings)})
