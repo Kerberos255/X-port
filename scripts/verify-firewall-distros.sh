@@ -33,7 +33,7 @@ if [[ "$DISTRO" == debian ]]; then
   ZONE=""
 else
   docker exec "$NAME" sh -ec \
-    'dnf -y -q install firewalld dbus-daemon nftables >/tmp/install.log 2>&1 || { tail -n 40 /tmp/install.log; exit 1; }'
+    'dnf -y -q install firewalld dbus-daemon nftables iproute python3 >/tmp/install.log 2>&1 || { tail -n 40 /tmp/install.log; exit 1; }'
   docker exec "$NAME" sh -ec \
     'mkdir -p /run/dbus; dbus-daemon --system --fork; firewalld --nofork --nopid >/tmp/firewalld.log 2>&1 &'
   ready=0
@@ -71,6 +71,17 @@ docker exec "$NAME" /usr/local/bin/xport firewall-apply remove "$PORT" tcp "$ZON
 check true no
 
 if [[ "$DISTRO" == centos9 ]]; then
+  echo "[centos9] Verify actual listener detection for remote lockout protection"
+  docker exec "$NAME" sh -ec 'python3 -m http.server 53113 --bind 127.0.0.1 </dev/null >/tmp/xport-ci-listener.log 2>&1 & echo $! >/tmp/xport-ci-listener.pid'
+  sleep 1
+  docker exec "$NAME" /usr/local/bin/xport firewall-listeners > /tmp/xport-ci-centos-listeners.json
+  python3 - "$PORT" <<'PY'
+import json,sys
+with open("/tmp/xport-ci-centos-listeners.json",encoding="utf-8") as f: ports=json.load(f)
+assert ports.get(sys.argv[1]) is True,ports
+print("CentOS 9 host listener detected on test port")
+PY
+  docker exec "$NAME" sh -ec 'kill "$(cat /tmp/xport-ci-listener.pid)"'
   echo "[centos9] Runtime-only firewalld drift must block deletion"
   docker exec "$NAME" firewall-cmd --zone="$ZONE" --add-port="$PORT/tcp"
   docker exec "$NAME" /usr/local/bin/xport firewall-inspect > /tmp/xport-ci-c9-drift.json
