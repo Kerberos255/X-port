@@ -53,7 +53,8 @@ YAML
 cp scripts/verify-centos-helper-matrix.sh "$TMP/helper-matrix.sh"
 cp scripts/verify-centos-go-helper-diag.sh "$TMP/go-helper-matrix.sh"
 if [[ -n "${GO_HELPER_DIAG:-}" ]]; then cp "$GO_HELPER_DIAG" "$TMP/go-helper-diag"; chmod 0755 "$TMP/go-helper-diag"; fi
-ISO_FILES=( "user-data=$TMP/user-data" "meta-data=$TMP/meta-data" "xport=$TMP/xport" "guest-test.sh=$TMP/guest-test.sh" "helper-matrix.sh=$TMP/helper-matrix.sh" "go-helper-matrix.sh=$TMP/go-helper-matrix.sh" )
+cp scripts/verify-centos-account-restarts-guest.sh "$TMP/account-restart-test.sh"
+ISO_FILES=( "user-data=$TMP/user-data" "meta-data=$TMP/meta-data" "xport=$TMP/xport" "guest-test.sh=$TMP/guest-test.sh" "helper-matrix.sh=$TMP/helper-matrix.sh" "go-helper-matrix.sh=$TMP/go-helper-matrix.sh" "account-restart-test.sh=$TMP/account-restart-test.sh" )
 if [[ -n "${GO_HELPER_DIAG:-}" ]]; then ISO_FILES+=( "go-helper-diag=$TMP/go-helper-diag" ); fi
 if [[ "$MODE" == panel ]]; then ISO_FILES+=( "panel-test.sh=$TMP/panel-test.sh" ); fi
 genisoimage -quiet -output "$TMP/seed.iso" -volid cidata -joliet -rock -graft-points "${ISO_FILES[@]}"

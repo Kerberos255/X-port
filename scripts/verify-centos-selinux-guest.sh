@@ -79,6 +79,11 @@ curl -fsS "$BASE/" >/dev/null
 echo "[selinux-vm] X-port systemd service healthy"
 curl -fsS -c /run/xport-ci.cookie -H 'Content-Type: application/json' \
  -d '{"username":"ci-admin","password":"selinux-ci-pass-12345"}' "$BASE/api/login" >/dev/null
+if [[ ! -f /run/xport-ci-seed/panel-test.sh ]]; then
+ STAGE=account-systemd
+ echo '[selinux-vm] Running real systemd account restart and rollback regression'
+ bash /run/xport-ci-seed/account-restart-test.sh
+fi
 STAGE=web-firewall-read
 echo "[selinux-vm] Inspecting Web firewall read with full failure diagnostics"
 read_code="$(curl -sS -b /run/xport-ci.cookie -o /run/xport-firewall.json -w '%{http_code}' "$BASE/api/firewall")"

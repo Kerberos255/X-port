@@ -3,6 +3,10 @@ on:
   pull_request:
     paths:
       - '.github/workflows/firewall-e2e.yml'
+      - 'internal/xray/**'
+      - 'internal/service/**'
+      - 'web/dist/**'
+      - 'scripts/verify-centos-account-restarts-guest.sh'
       - 'internal/firewall/**'
       - 'internal/ops/firewall*.go'
       - 'internal/server/firewall*.go'
