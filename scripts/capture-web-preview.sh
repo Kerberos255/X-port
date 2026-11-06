@@ -180,6 +180,15 @@ cat > "$TMP/__preview.js" <<'JS'
         panel.scrollIntoView({block:'center', inline:'nearest'})
       }
       await sleep(700)
+      if (preview === 'firewall' && innerWidth > 700 && innerWidth <= 1050) {
+        const selected=document.querySelector('#nav button.active')
+        const label=document.querySelector('.sidebar .brand > div')
+        if (selected && parseFloat(getComputedStyle(selected).fontSize) > 1)
+          throw new Error('compact sidebar active label is visible and may wrap')
+        if (label && getComputedStyle(label).display !== 'none')
+          throw new Error('compact sidebar brand text not hidden')
+        if (!selected?.title) throw new Error('compact nav is missing accessible hover label')
+      }
       if (preview === 'firewall' &&
           document.documentElement.scrollWidth > innerWidth + 2) {
         throw new Error('mobile horizontal overflow: '+document.documentElement.scrollWidth+' > '+innerWidth)
