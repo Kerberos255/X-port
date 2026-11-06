@@ -22,11 +22,13 @@ func TestRenderCustomPaths(t *testing.T) {
 		"ExecStart=/opt/bin/xport serve --data /srv/xport-data --xray-binary /opt/xport/bin/xray --xray-config /srv/xport-data/xray/config.json --xray-service xport-xray.service",
 		"Nice=5",
 		"ReadWritePaths=/srv/xport-data /opt/xport /opt/bin",
+		"RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK",
 	} {
 		if !strings.Contains(panel, want) {
 			t.Fatalf("panel unit missing %q\n%s", want, panel)
 		}
 	}
+	if strings.Contains(xray, "RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK") { t.Fatal("Xray should not need AF_NETLINK") }
 	if strings.Contains(xray, "Nice=") {
 		t.Fatalf("Xray unit should keep the default scheduler priority\n%s", xray)
 	}
