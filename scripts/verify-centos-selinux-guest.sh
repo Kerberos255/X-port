@@ -71,7 +71,23 @@ echo "[selinux-vm] X-port systemd service healthy"
 curl -fsS -c /run/xport-ci.cookie -H 'Content-Type: application/json' \
  -d '{"username":"ci-admin","password":"selinux-ci-pass-12345"}' "$BASE/api/login" >/dev/null
 STAGE=web-firewall-read
-curl -fsS -b /run/xport-ci.cookie "$BASE/api/firewall" > /run/xport-firewall.json
+echo "[selinux-vm] Inspecting Web firewall read with full failure diagnostics"
+read_code="$(curl -sS -b /run/xport-ci.cookie -o /run/xport-firewall.json -w '%{http_code}' "$BASE/api/firewall")"
+if [[ "$read_code" != 200 ]]; then
+ echo "[selinux-vm] Web firewall returned HTTP $read_code"
+ cat /run/xport-firewall.json || true
+ echo "[selinux-vm] Direct firewall-inspect under root outside panel sandbox:"
+ /usr/local/bin/xport firewall-inspect | head -c 450 || true
+ echo
+ echo "[selinux-vm] Systemd helper launched under root:"
+ systemd-run --wait --collect --pipe --unit=xport-ci-read-direct --property=Type=exec --property=NoNewPrivileges=yes /usr/local/bin/xport firewall-inspect || true
+ echo "[selinux-vm] Recent systemd helper service logs:"
+ journalctl -u 'xport-firewall-*' -n 65 --no-pager --output=cat || true
+ echo "[selinux-vm] SELinux AVC audit log (if audit available):"
+ if command -v ausearch >/dev/null; then ausearch -m AVC,USER_AVC -ts recent 2>/dev/null | tail -n 35 || true; fi
+ echo "XPORT_SELINUX_E2E_FAILED stage=web-firewall-read http=$read_code"
+ exit 1
+fi
 python3 - <<'PY'
 import json
 with open("/run/xport-firewall.json") as f:d=json.load(f)
