@@ -88,6 +88,7 @@ printf '%s\n' "$XPORT_CI_PASSWORD" | sudo "$TMP/live/xport" init \
   --data "$TMP/data" --admin-user ci-admin --listen "127.0.0.1:$WEB_PORT"
 sudo systemd-run --quiet --unit="$UNIT" --property=Type=exec \
   --property=NoNewPrivileges=yes --property=ProtectSystem=strict \
+  --property=PrivateTmp=yes \
   --property="ReadWritePaths=$TMP/data $TMP/live" \
   --property="RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6" \
   "$TMP/live/xport" serve --data "$TMP/data" --listen "127.0.0.1:$WEB_PORT"
