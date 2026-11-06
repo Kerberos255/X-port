@@ -49,6 +49,9 @@ docker exec "$UF" env DEBIAN_FRONTEND=noninteractive sh -ec \
   'apt-get update -qq && apt-get install -y -qq --no-install-recommends ufw nftables iptables iproute2 python3 >/dev/null'
 docker exec "$UF" ufw --force enable
 docker exec "$UF" ufw status verbose
+echo "[UFW] Kernel rules in isolated container (diagnostics)"
+docker exec "$UF" nft -a list ruleset > "$TMP/ufw-nft.txt"
+sed -n "1,110p" "$TMP/ufw-nft.txt"
 check_snapshot "$UF" ufw true 54321 no
 docker exec "$UF" /usr/local/bin/xport firewall-apply add 54321 tcp ""
 check_snapshot "$UF" ufw true 54321 yes
