@@ -73,9 +73,9 @@ cat > "$TMP/__mock.js" <<'JS'
       notice:'预览：简单端口规则展示；底层链可能影响结果',rules:[
         {id:'firewalld:public:22/tcp',port:22,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'SSH（常见端口，未核实）',purposeSource:'assumed',note:'远程管理',protected:true,xray:false},
         {id:'firewalld:public:443/tcp',port:443,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'HTTPS',purposeSource:'manual',note:'网站入口',protected:false,xray:false},
-        {id:'firewalld:public:2053/tcp',port:2053,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'Xray · VLESS',purposeSource:'xray',note:fwNote,protected:false,managed:true,xray:true},
+        {id:'firewalld:public:2053/tcp',port:2053,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'Xray · VLESS',purposeSource:'xray',note:fwNote,protected:false,managed:true,xray:true,usage:'used',action:'allow',accountId:1,accountName:'Alpha inbound',accountEnabled:true},
         {id:'firewalld:public:8443/tcp',port:8443,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:false,access:'区域：public',purpose:'Xray · Trojan',purposeSource:'xray',note:'临时放行，需同步',protected:false,xray:true},
-        {id:'firewalld:public:51820/udp',port:51820,protocol:'udp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'未识别',purposeSource:'unknown',note:'WireGuard 站点互联',protected:false,xray:false}
+        {id:'firewalld:public:51820/udp',port:51820,protocol:'udp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'未识别',purposeSource:'unknown',note:'WireGuard 站点互联',protected:false,xray:false,usage:'unused',action:'deny'}
       ]})
     if (path === '/api/firewall/notes' && method === 'PUT') {
       fwNote = JSON.parse(init.body).note
@@ -83,7 +83,7 @@ cat > "$TMP/__mock.js" <<'JS'
     }
     if (path === '/api/firewall/purpose' && method === 'PUT') return json({purpose:JSON.parse(init.body).purpose})
     if (path === '/api/firewall/raw' && method === 'GET') return json({ruleset:'table inet firewalld {\\n chain INPUT { type filter hook input priority 10; }\\n}'})
-    if (path === '/api/firewall/rules' && method === 'POST') return json({ok:true})
+    if (path === '/api/firewall/rules' && method === 'POST') { globalThis.__fwMutationCalls=(globalThis.__fwMutationCalls||0)+1; return json({ok:true}) }
     if (path === '/api/xray/update' && method === 'GET') return json({current:'test',latest:'test',available:false})
     if (path === '/api/xray/geodata' && method === 'GET') return json({current:'test',latest:'test',available:false})
     if (path === '/api/settings') return json({panelListen:'127.0.0.1:8080',panelBasePath:'/',panelCertFile:'',panelKeyFile:'',panelDomain:'',panelTLS:false,xrayApiPort:10085,portMin:20000,portMax:60000,defaultRealitySni:'',defaultRealityDest:'',adminUsername:'admin'})
@@ -252,7 +252,23 @@ cat > "$TMP/__driver.js" <<'JS'
       fwSave.click()
       await waitForTextContains('#fw-rows button[data-fw-id="firewalld:public:2053/tcp"][data-fw-key="note"] span','浏览器回归备注')
       if(document.querySelector('#nav [data-page="firewall"]')?.classList.contains('active')!==true) throw new Error('firewall navigation not active')
-      const detailButton=document.querySelector('#fw-rows button[data-fw-act="detail"][data-fw-id="firewalld:public:2053/tcp"]')
+      const accountLink=document.querySelector('#fw-rows button.fw-account-link[data-fw-account="1"]')
+      if(!accountLink||!accountLink.textContent.includes('Alpha inbound')) throw new Error('Xray account linkage is not visible')
+      const accountRow=accountLink.closest('tr')
+      if(!accountRow.querySelector('.fw-usage.used')||!accountRow.querySelector('.fw-policy.allow')) throw new Error('account usage or allow badge missing')
+      const denyRow=document.querySelector('#fw-rows button[data-fw-act="detail"][data-fw-id="firewalld:public:51820/udp"]')?.closest('tr')
+      if(!denyRow?.querySelector('.fw-policy.deny')) throw new Error('deny strategy is not visible')
+      const toggle=accountRow.querySelector('button.fw-switch')
+      if(!toggle||toggle.getAttribute('aria-checked')!=='true') throw new Error('rule switch is not labelled')
+      const beforeCalls=globalThis.__fwMutationCalls||0
+      toggle.click()
+      if((globalThis.__fwMutationCalls||0)!==beforeCalls) throw new Error('preview toggle unexpectedly mutated firewall')
+      accountRow.querySelector('button[data-fw-act="configure"]').click()
+      const policyDialog=await waitFor('#fw-policy-dialog[open]')
+      if(policyDialog.querySelector('#fw-policy-port').value!=='2053'||!policyDialog.querySelector('#fw-policy-save').disabled)
+        throw new Error('policy editor preview must not allow real writes')
+      policyDialog.querySelector('button[value="cancel"]').click()
+            const detailButton=document.querySelector('#fw-rows button[data-fw-act="detail"][data-fw-id="firewalld:public:2053/tcp"]')
       if(!detailButton) throw new Error('firewall detail action missing')
       detailButton.click()
       const detail=await waitFor('#fw-detail-dialog[open]')
