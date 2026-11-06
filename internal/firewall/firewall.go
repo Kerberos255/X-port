@@ -63,8 +63,7 @@ func ParsePort(s string)(int,string,bool){
 }
 func activeZones(raw string)[]string{
 	var zones []string
-	for _,line:=range strings.Split(raw,"
-"){
+	for _,line:=range strings.Split(raw,"\n"){
 		if line==""||line[0]==' '||line[0]=='	'{continue}
 		parts:=strings.Fields(line)
 		if len(parts)>0&&ValidZone(parts[0]){zones=append(zones,parts[0])}
@@ -162,8 +161,7 @@ func Inspect(ctx context.Context)(Snapshot,error){
 	case "ufw":
 		out,err:=command(ctx,"ufw","status");if err!=nil{return snap,err}
 		seen:=map[string]*Rule{}
-		for _,line:=range strings.Split(out,"
-"){
+		for _,line:=range strings.Split(out,"\n"){
 			p,proto,broad,v6,ok:=ufwPortLine(line)
 			if !ok||!broad{continue}
 			key:=fmt.Sprintf("%d/%s",p,proto)
@@ -212,8 +210,7 @@ func Change(ctx context.Context,action string,p int,proto,zone string)error{
 	case "ufw":
 		if zone!=""{return errors.New("ufw does not use zones")}
 		status,err:=command(ctx,"ufw","status");if err!=nil{return err}
-		for _,line:=range strings.Split(status,"
-"){
+		for _,line:=range strings.Split(status,"\n"){
 			port,protocol,broad,_,ok:=ufwPortLine(line)
 			if ok&&port==p&&protocol==proto&&!broad{return errors.New("port overlaps another UFW rule; use UFW directly")}
 		}
@@ -252,8 +249,7 @@ func ListeningPorts(ctx context.Context)(map[int]bool,error){
 	out,err:=command(ctx,"ss","-H","-lnut")
 	if err!=nil{return nil,err}
 	ports:=map[int]bool{}
-	for _,line:=range strings.Split(out,"
-"){
+	for _,line:=range strings.Split(out,"\n"){
 		fields:=strings.Fields(line)
 		if len(fields)<4{continue}
 		local:=fields[3]
