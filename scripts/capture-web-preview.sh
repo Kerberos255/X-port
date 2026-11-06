@@ -180,7 +180,7 @@ cat > "$TMP/__preview.js" <<'JS'
         panel.scrollIntoView({block:'center', inline:'nearest'})
       }
       await sleep(700)
-      if (preview === 'firewall' && innerWidth <= 700 &&
+      if (preview === 'firewall' &&
           document.documentElement.scrollWidth > innerWidth + 2) {
         throw new Error('mobile horizontal overflow: '+document.documentElement.scrollWidth+' > '+innerWidth)
       }
@@ -240,5 +240,25 @@ grep -Fq 'data-preview-ready="firewall"' "$TMP/firewall-mobile-dom.html" || {
   echo "Mobile preview did not pass layout checks" >&2
   exit 1
 }
+# Verify both compact and tablet layouts are scroll-safe. The full rule
+# table may scroll within its container, but the document must not overflow.
+for size in 360x780 768x1024; do
+  width="${size%x*}"
+  height="${size#*x}"
+  "$BROWSER" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage \
+    --window-size="$width,$height" --force-device-scale-factor=1 --virtual-time-budget=6500 \
+    --screenshot="$OUT/firewall-$size.png" "http://127.0.0.1:$PORT/?preview=firewall" \
+    >/dev/null 2>"$TMP/firewall-$size.log"
+  [[ -s "$OUT/firewall-$size.png" ]] || { cat "$TMP/firewall-$size.log" >&2; exit 1; }
+  "$BROWSER" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage \
+    --window-size="$width,$height" --force-device-scale-factor=1 --virtual-time-budget=6500 \
+    --dump-dom "http://127.0.0.1:$PORT/?preview=firewall" \
+    >"$TMP/firewall-$size.html" 2>"$TMP/firewall-$size-dom.log"
+  grep -Fq 'data-preview-ready="firewall"' "$TMP/firewall-$size.html" || {
+    grep -o 'data-preview-error="[^"]*"' "$TMP/firewall-$size.html" || true
+    echo "Viewport regression failed: $size" >&2
+    exit 1
+  }
+done
 printf 'GitHub runner UI screenshots:\n'
 ls -lh "$OUT"/*.png
