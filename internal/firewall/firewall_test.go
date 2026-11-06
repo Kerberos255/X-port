@@ -69,6 +69,79 @@ func TestIndependentInputChains(t *testing.T){
   if err!=nil||conflict!=tt.conflict{t.Errorf("rules=%s, conflict=%v err=%v",tt.rules,conflict,err)}
  }
 }
+// A common host uses ip/ip6 NAT PREROUTING alongside firewalld's
+// filter_INPUT chain. A NAT hook alone must not disable port management.
+func TestNativePreroutingChainClassification(t *testing.T) {
+ cases:=[]struct{name,rule string;blocked bool}{
+  {"ipv4 NAT",`{"nftables":[{"chain":{"family":"ip","table":"nat","name":"PREROUTING","type":"nat","hook":"prerouting","prio":-100}}]}`,false},
+  {"ipv6 NAT",`{"nftables":[{"chain":{"family":"ip6","table":"nat","name":"PREROUTING","type":"nat","hook":"prerouting","prio":-100}}]}`,false},
+  {"external filter prerouting",`{"nftables":[{"chain":{"family":"inet","table":"custom","name":"early","type":"filter","hook":"prerouting","prio":-150}}]}`,true},
+  {"external mangle prerouting",`{"nftables":[{"chain":{"family":"ip","table":"mangle","name":"PRE","type":"filter","hook":"prerouting"}}]}`,true},
+  {"unknown prerouting type",`{"nftables":[{"chain":{"family":"ip","table":"custom","name":"PRE","hook":"prerouting"}}]}`,true},
+  {"external input filter",`{"nftables":[{"chain":{"family":"inet","table":"custom","name":"input","type":"filter","hook":"input"}}]}`,true},
+  {"external ingress",`{"nftables":[{"chain":{"family":"netdev","table":"custom","name":"ingress","type":"filter","hook":"ingress"}}]}`,true},
+  {"foreign ipv4 firewalld-named table",`{"nftables":[{"chain":{"family":"ip","table":"firewalld","name":"filter_INPUT","type":"filter","hook":"input"}}]}`,true},
+  {"foreign ipv6 firewalld-named table",`{"nftables":[{"chain":{"family":"ip6","table":"firewalld","name":"filter_INPUT","type":"filter","hook":"input"}}]}`,true},
+  {"external nat INPUT",`{"nftables":[{"chain":{"family":"ip","table":"nat","name":"INPUT","type":"nat","hook":"input"}}]}`,true},
+  {"external filter with same prerouting hook",`{"nftables":[{"chain":{"family":"ip","table":"nat","name":"PRE","type":"filter","hook":"prerouting"}}]}`,true},
+  {"firewalld internals only",`{"nftables":[{"chain":{"family":"inet","table":"firewalld","name":"filter_INPUT","type":"filter","hook":"input"}}]}`,false},
+
+ }
+ for _,tc:=range cases{t.Run(tc.name,func(t *testing.T){
+  blocker,err:=independentInputChainBlocker(tc.rule,false)
+  if err!=nil{t.Fatal(err)}
+  if (blocker!="")!=tc.blocked{t.Fatalf("blocker=%q expected blocked=%v",blocker,tc.blocked)}
+ })}
+ // A NAT chain by itself does not authorize writes when an unrelated input
+ // filter also participates. This must remain fail-closed.
+ mixed:=`{"nftables":[
+ {"chain":{"family":"ip","table":"nat","name":"PREROUTING","type":"nat","hook":"prerouting"}},
+ {"chain":{"family":"ip6","table":"nat","name":"PREROUTING","type":"nat","hook":"prerouting"}},
+ {"chain":{"family":"inet","table":"other","name":"INPUT","type":"filter","hook":"input"}}
+ ]}`
+ blocker,err:=independentInputChainBlocker(mixed,false)
+ if err!=nil||!strings.Contains(blocker,"inet/other/INPUT"){
+  t.Fatalf("independent INPUT hidden by NAT coexistence: blocker=%q err=%v",blocker,err)
+ }
+ // Fixture matches observed firewalld + IPv4/IPv6 NAT base-chain layout.
+ combined:=`{"nftables":[
+ {"chain":{"family":"ip","table":"nat","name":"PREROUTING","type":"nat","hook":"prerouting","prio":-100}},
+ {"chain":{"family":"ip6","table":"nat","name":"PREROUTING","type":"nat","hook":"prerouting","prio":-100}},
+ {"chain":{"family":"inet","table":"firewalld","name":"mangle_PREROUTING","type":"filter","hook":"prerouting","prio":-140}},
+ {"chain":{"family":"inet","table":"firewalld","name":"nat_PREROUTING","type":"nat","hook":"prerouting","prio":-90}},
+ {"chain":{"family":"inet","table":"firewalld","name":"filter_PREROUTING","type":"filter","hook":"prerouting","prio":10}},
+ {"chain":{"family":"inet","table":"firewalld","name":"filter_INPUT","type":"filter","hook":"input","prio":10}}
+ ]}`
+ blocked,err:=independentInputChainsWithUFW(combined,false)
+ if err!=nil||blocked{t.Fatalf("valid NAT coexistence blocked: %v %v",blocked,err)}
+}
+
+func TestFirewalldNATCoexistenceEnablesWrites(t *testing.T){
+ dir:=t.TempDir()
+ cmd:=`#!/bin/sh
+case "$1" in
+ --state) echo running;;
+ --get-default-zone) echo public;;
+ --get-active-zones) echo public;;
+ --permanent) echo '443/tcp';;
+ --zone=public) echo '443/tcp';;
+ *) exit 1;;
+esac
+`
+ nft:=`#!/bin/sh
+echo '{"nftables":[
+{"chain":{"family":"ip","table":"nat","name":"PREROUTING","type":"nat","hook":"prerouting"}},
+{"chain":{"family":"ip6","table":"nat","name":"PREROUTING","type":"nat","hook":"prerouting"}},
+{"chain":{"family":"inet","table":"firewalld","name":"filter_INPUT","type":"filter","hook":"input"}}]}'
+`
+ for n,s:=range map[string]string{"firewall-cmd":cmd,"nft":nft}{
+  if err:=os.WriteFile(filepath.Join(dir,n),[]byte(s),0755);err!=nil{t.Fatal(err)}
+ }
+ t.Setenv("PATH",dir)
+ snap,err:=Inspect(context.Background())
+ if err!=nil||!snap.Writable||snap.Backend!="firewalld"{t.Fatalf("NAT coexistence: %+v %v",snap,err)}
+}
+
 func TestMixedManagersDisableWrites(t *testing.T){
  dir:=t.TempDir()
  a:=`#!/bin/sh

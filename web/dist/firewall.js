@@ -14,6 +14,7 @@
   function status(r) { return r.runtime !== r.permanent ? '需检查' : (r.runtime ? '已配置' : '未生效') }
   function stateBadge(r) { return '<span class="fw-state '+(r.runtime !== r.permanent ? 'warn' : '')+'">'+status(r)+'</span>' }
   function source(r) { return (r.managed ? 'X-port · ' : '外部 · ') + (r.backend === 'firewalld' ? 'firewalld · '+r.zone : r.backend) }
+  function shortSource(r) { return (r.managed ? 'X-port · ' : '外部 · ') + r.backend }
   function shown() {
     return rules().filter(r => {
       if (state.filter === 'xray' && !r.xray) return false
@@ -35,12 +36,15 @@
     el('fw-backend').textContent = data ? ({firewalld:'firewalld',ufw:'UFW',nftables:'nftables（只读）',iptables:'iptables（只读）',none:'未检测到'}[data.backend] || data.backend) : '检测中'
     el('fw-zone').textContent = data?.defaultZone || (data?.backend === 'ufw' ? 'UFW 规则' : '—')
     el('fw-engine-state').textContent = !data ? '—' : (data.writable ? '● 可管理' : (data.active ? '只读 · 检查' : '只读 / 未启用'))
+    const diagnostic=el('fw-diagnostic')
+    diagnostic.hidden = !data?.unsafeReason
+    el('fw-diagnostic-reason').textContent = data?.unsafeReason || ''
     el('fw-total').textContent = rules().length
     el('fw-active').textContent = rules().filter(r=>r.runtime).length
     el('fw-xray-count').textContent = rules().filter(r=>r.xray).length
     el('fw-warn-count').textContent = rules().filter(r=>r.runtime !== r.permanent).length + (data?.unsafeReason ? 1 : 0)
     el('fw-add').disabled = !editable()
-    el('fw-notice').textContent = [data?.unsafeReason || '',data?.notice || '无法读取防火墙状态'].filter(Boolean).join(' · ')
+    el('fw-notice').textContent = data?.notice || '无法读取防火墙状态'
     const pending = Array.isArray(data?.pending) ? data.pending : []
     let pendingBox = el('fw-pending')
     if (!pendingBox) {
@@ -59,7 +63,7 @@
       '<td data-label="端口">'+html(r.port)+'</td>'+
       '<td data-label="用途">'+fieldButton(r,'purpose')+'</td>'+
       '<td data-label="协议">'+html(r.protocol.toUpperCase())+'</td>'+
-      '<td data-label="规则来源"><span class="fw-source">'+html(source(r))+'</span></td>'+
+      '<td data-label="规则来源"><span class="fw-source" title="'+html(source(r))+'">'+html(shortSource(r))+'</span></td>'+
       '<td data-label="访问来源">'+html(r.access || '未确认')+'</td>'+
       '<td data-label="状态">'+stateBadge(r)+'</td>'+
       '<td data-label="备注">'+fieldButton(r,'note')+'</td>'+
@@ -110,9 +114,22 @@
     if(!r)return
     state.detail=r
     el('fw-detail-title').textContent=r.port+' / '+r.protocol.toUpperCase()
-    el('fw-detail-body').innerHTML=[
-      ['用途',r.purpose],['备注',r.note||'未填写'],['来源',source(r)],['访问来源',r.access],['运行时规则',r.runtime?'存在':'不存在'],['永久规则',r.permanent?'存在':'不存在'],['规则归属',r.managed?'X-port 创建':'外部或未知（不可删除）'],['监听端口保护',r.protected?'启用':'未检测到本机监听'],['地址族',r.backend==='ufw'?(r.ipv4?'IPv4 ':'')+(r.ipv6?'IPv6':''):'由 firewalld Zone 决定']
-    ].map(([name,val])=>'<div style="display:flex;justify-content:space-between;gap:12px;border-bottom:1px solid var(--line);padding:10px 0"><span>'+html(name)+'</span><b>'+html(val)+'</b></div>').join('')
+    const badge=el('fw-detail-badge')
+    badge.textContent=status(r)
+    badge.classList.toggle('warn',r.runtime!==r.permanent)
+    el('fw-detail-summary').textContent=r.managed
+      ? '由 X-port 创建的端口规则；修改前仍需检查服务和网络连通性。'
+      : '由系统或其他管理器维护。可修改用途和备注，删除操作保留在原管理器中。'
+    const groups=[
+      ['基本信息',[['用途',label(r)],['备注',r.note||'未填写'],['规则来源',source(r)],['访问来源',r.access||'未确认']]],
+      ['规则状态',[['运行时',r.runtime?'已配置':'不存在'],['永久配置',r.permanent?'已配置':'不存在'],['地址族',r.backend==='ufw'?(r.ipv4?'IPv4 ':'')+(r.ipv6?'IPv6':''):'由 firewalld Zone 决定']]],
+      ['安全保护',[['规则归属',r.managed?'X-port 管理':'外部或未知（不可删除）'],['端口保护',r.protected?'已启用':'未检测到本机监听']]]
+    ]
+    el('fw-detail-body').innerHTML=groups.map(([heading,fields])=>
+      '<section class="fw-detail-section"><h3>'+html(heading)+'</h3><dl>'+
+      fields.map(([name,value])=>'<div class="fw-detail-row"><dt>'+html(name)+'</dt><dd>'+html(value)+'</dd></div>').join('')+
+      '</dl></section>'
+    ).join('')
     el('fw-detail-remove').hidden = !editable() || r.protected || !r.managed
     el('fw-detail-dialog').returnValue = ''
     el('fw-detail-dialog').showModal()

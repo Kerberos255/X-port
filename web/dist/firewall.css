@@ -96,3 +96,108 @@ html[data-theme="light"] #fw-add-dialog{color:#263c55;background:#fff}
 #page-firewall .fw-pending-item{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:11px 12px;margin-top:9px;border:1px solid rgba(231,185,102,.27);border-radius:9px;background:rgba(231,185,102,.045);color:var(--amber);font-size:11px}
 #page-firewall .fw-pending-item .btn{flex-shrink:0}
 @media(max-width:700px){#page-firewall .fw-pending-item{flex-wrap:wrap}}
+
+/* Legible labels and source tags in both themes. */
+#page-firewall .fw-table th{font-size:12px}
+#page-firewall .fw-table td{font-size:13px}
+#page-firewall .fw-tab{font-size:13px}
+#page-firewall .fw-filter button{font-size:12px}
+#page-firewall .fw-sub{font-size:12px}
+#page-firewall .fw-source{font-size:12px;color:#c0d5ed;font-weight:600}
+#page-firewall .fw-remark{font-size:13px;color:#dce8f6}
+#page-firewall .fw-remark small{font-size:13px}
+#page-firewall .fw-state{font-size:12px;color:#8de0bd}
+#page-firewall .fw-note,#page-firewall .fw-bottom{font-size:12px}
+#page-firewall .fw-search{font-size:13px}
+#page-firewall .fw-flag{font-size:12px}
+#page-firewall .fw-mini{font-size:12px}
+#page-firewall .fw-stat small{font-size:12px}
+html[data-theme="light"] #page-firewall .fw-source{color:#345573;background:#f4f8fd;border-color:#cbd8e7}
+html[data-theme="light"] #page-firewall .fw-remark{color:#28415e}
+html[data-theme="light"] #page-firewall .fw-remark small{color:#536e8a}
+html[data-theme="light"] #page-firewall .fw-state{color:#147b54}
+html[data-theme="light"] #page-firewall .fw-state.warn{color:#91570e}
+html[data-theme="light"] #page-firewall .fw-sub{color:#4d6480}
+html[data-theme="light"] #page-firewall .fw-note,
+html[data-theme="light"] #page-firewall .fw-bottom,
+html[data-theme="light"] #page-firewall .fw-table th{color:#475f79}
+html[data-theme="light"] #page-firewall .fw-table td{color:#263a52}
+html[data-theme="light"] #page-firewall .fw-remark:hover{background:#edf5fd}
+
+/* Put read-only diagnostics next to the backend status, not under the table. */
+#page-firewall .fw-diagnostic{display:flex;align-items:flex-start;gap:12px;margin:0 0 14px;
+ padding:12px 15px;border:1px solid rgba(233,191,112,.38);background:rgba(233,191,112,.075);
+ border-radius:11px;color:#f4d9a2}
+#page-firewall .fw-diagnostic[hidden]{display:none}
+#page-firewall .fw-diagnostic-icon{display:grid;place-items:center;flex:0 0 22px;width:22px;height:22px;
+ border-radius:50%;background:rgba(233,191,112,.16);font-size:14px;font-weight:800}
+#page-firewall .fw-diagnostic strong{display:block;font-size:13px}
+#page-firewall .fw-diagnostic p{font-size:12px;line-height:1.6;margin:4px 0 0;overflow-wrap:anywhere}
+html[data-theme="light"] #page-firewall .fw-diagnostic{color:#86510d;background:#fff8e8;border-color:#e7c988}
+html[data-theme="light"] #page-firewall .fw-diagnostic-icon{background:#fce9c6}
+
+/* Rule detail: balanced modal with distinct information groups. */
+#fw-detail-dialog{width:min(540px,calc(100% - 28px));max-height:min(84dvh,820px);overflow:auto;padding:0;
+ border:1px solid rgba(133,165,204,.3);border-radius:16px;color:#edf4ff;background:#121c2c;
+ box-shadow:0 30px 95px rgba(0,0,0,.42)}
+#fw-detail-dialog::backdrop{background:rgba(3,8,16,.65);backdrop-filter:blur(5px)}
+#fw-detail-dialog form{padding:24px}
+#fw-detail-dialog .fw-detail-heading{display:flex;align-items:center;justify-content:space-between;gap:14px}
+#fw-detail-dialog .fw-detail-kicker{display:block;color:#91a9c2;font-size:12px;letter-spacing:.04em;margin-bottom:5px}
+#fw-detail-dialog h2{font-size:23px;line-height:1.2;margin:0;font-variant-numeric:tabular-nums}
+#fw-detail-dialog .fw-detail-badge{border-radius:999px;padding:6px 10px;white-space:nowrap;
+ font-size:12px;font-weight:700;color:#88d9b4;background:rgba(91,207,160,.12)}
+#fw-detail-dialog .fw-detail-badge.warn{color:#ebbf77;background:rgba(233,191,112,.12)}
+#fw-detail-dialog .fw-detail-summary{margin:13px 0 19px;font-size:13px;line-height:1.6;color:#b4c4d7}
+#fw-detail-dialog .fw-detail-body{display:grid;gap:11px}
+#fw-detail-dialog .fw-detail-section{padding:13px 15px;border:1px solid var(--line);border-radius:11px;
+ background:rgba(110,153,199,.04);min-width:0}
+#fw-detail-dialog h3{font-size:12px;margin:0 0 7px;color:#9fb5d0;font-weight:750}
+#fw-detail-dialog dl{margin:0}
+#fw-detail-dialog .fw-detail-row{display:grid;grid-template-columns:minmax(90px,38%) minmax(0,1fr);
+ align-items:start;gap:12px;padding:8px 0;border-top:1px solid rgba(132,166,211,.10)}
+#fw-detail-dialog .fw-detail-row:first-child{border-top:0}
+#fw-detail-dialog dt{font-size:12px;color:#a3b5c9}
+#fw-detail-dialog dd{font-size:13px;margin:0;text-align:right;line-height:1.5;font-weight:600;
+ overflow-wrap:anywhere;color:#e8f0fc}
+#fw-detail-dialog .fw-detail-actions{display:flex;justify-content:flex-end;gap:9px;
+ margin-top:20px;padding-top:16px;border-top:1px solid var(--line)}
+#fw-detail-dialog .fw-detail-actions .btn{font-size:13px;min-width:80px}
+html[data-theme="light"] #fw-detail-dialog{color:#263b53;background:#fff;border-color:#d8e1ed}
+html[data-theme="light"] #fw-detail-dialog .fw-detail-kicker,
+html[data-theme="light"] #fw-detail-dialog h3,
+html[data-theme="light"] #fw-detail-dialog dt{color:#526b86}
+html[data-theme="light"] #fw-detail-dialog .fw-detail-summary{color:#536a84}
+html[data-theme="light"] #fw-detail-dialog .fw-detail-section{background:#f8fafd;border-color:#dfe7f0}
+html[data-theme="light"] #fw-detail-dialog dd{color:#243953}
+html[data-theme="light"] #fw-detail-dialog .fw-detail-badge{color:#176842;background:#e6f6ee}
+html[data-theme="light"] #fw-detail-dialog .fw-detail-badge.warn{color:#85540b;background:#fff1d7}
+html[data-theme="light"] #fw-detail-dialog .btn.ghost{color:#395672}
+
+@media(max-width:700px){
+ #page-firewall .fw-table td:before{font-size:11px}
+ #page-firewall #fw-add{font-size:12px}
+ #fw-detail-dialog form{padding:18px}
+ #fw-detail-dialog .fw-detail-row{grid-template-columns:minmax(80px,36%) minmax(0,1fr)}
+ #nav button,#nav button:not(.active){font-size:11px}
+}
+
+/* Source labels must never overlap the following access column. */
+#page-firewall .fw-table td:nth-child(4){overflow:hidden}
+#page-firewall .fw-source{display:inline-block;max-width:100%;overflow:hidden;
+ text-overflow:ellipsis;vertical-align:middle}
+
+/* Mobile: a single compact navigation row, including the theme switch. */
+@media(max-width:700px){
+ .sidebar{display:flex;flex-direction:row;align-items:center;gap:4px;min-height:0;padding:6px}
+ .sidebar #nav{flex:1 1 0;min-width:0;grid-template-columns:repeat(5,minmax(0,1fr));gap:2px}
+ .sidebar #nav button,.sidebar #nav button:not(.active){min-width:0;font-size:11px;padding:7px 2px}
+ .sidebar .side-foot{display:flex;flex:0 0 auto;flex-direction:row;align-items:center;
+  gap:0;margin:0;padding:0}
+ .sidebar .side-foot .node-badge,.sidebar .side-foot .theme-label{display:none}
+ .sidebar .side-foot .theme-toggle{display:flex;align-items:center;justify-content:center;
+  min-height:39px;height:39px;width:35px;padding:0;margin:0;border-radius:8px}
+ .sidebar .side-foot .theme-icon{font-size:17px;width:auto}
+ #page-firewall .fw-table tr,#page-firewall .fw-table td{min-width:0;max-width:100%}
+ #page-firewall .fw-source{max-width:100%;font-size:11px}
+}
