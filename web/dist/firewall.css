@@ -181,3 +181,23 @@ html[data-theme="light"] #fw-detail-dialog .btn.ghost{color:#395672}
  #fw-detail-dialog .fw-detail-row{grid-template-columns:minmax(80px,36%) minmax(0,1fr)}
  #nav button,#nav button:not(.active){font-size:11px}
 }
+
+/* Source labels must never overlap the following access column. */
+#page-firewall .fw-table td:nth-child(4){overflow:hidden}
+#page-firewall .fw-source{display:inline-block;max-width:100%;overflow:hidden;
+ text-overflow:ellipsis;vertical-align:middle}
+
+/* Mobile: a single compact navigation row, including the theme switch. */
+@media(max-width:700px){
+ .sidebar{display:flex;flex-direction:row;align-items:center;gap:4px;min-height:0;padding:6px}
+ .sidebar #nav{flex:1 1 0;min-width:0;grid-template-columns:repeat(5,minmax(0,1fr));gap:2px}
+ .sidebar #nav button,.sidebar #nav button:not(.active){min-width:0;font-size:11px;padding:7px 2px}
+ .sidebar .side-foot{display:flex;flex:0 0 auto;flex-direction:row;align-items:center;
+  gap:0;margin:0;padding:0}
+ .sidebar .side-foot .node-badge,.sidebar .side-foot .theme-label{display:none}
+ .sidebar .side-foot .theme-toggle{display:flex;align-items:center;justify-content:center;
+  min-height:39px;height:39px;width:35px;padding:0;margin:0;border-radius:8px}
+ .sidebar .side-foot .theme-icon{font-size:17px;width:auto}
+ #page-firewall .fw-table tr,#page-firewall .fw-table td{min-width:0;max-width:100%}
+ #page-firewall .fw-source{max-width:100%;font-size:11px}
+}
