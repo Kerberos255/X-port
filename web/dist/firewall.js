@@ -33,7 +33,7 @@
     const title=r.accountName ? html(r.accountName) : html(label(r))
     const subtitle=r.accountAmbiguous ? '多个账号匹配 · 请检查传输与端口'
       : r.accountName ? ('Xray · '+html(r.purpose||'账号')+(r.accountEnabled?'':' · 账号已停用'))
-      : (r.xray?'Xray · '+html(r.protocol.toUpperCase()):html(r.access||'系统端口')
+      : (r.xray?'Xray · '+html(r.protocol.toUpperCase()):html(r.access||'系统端口'))
     const linked = r.accountName && Number.isInteger(r.accountId) && r.accountId>0
     return '<div class="fw-account-cell">'+(linked?'<button type="button" class="fw-account-link" data-fw-act="account" data-fw-account="'+r.accountId+'" title="前往 Xray 账号管理">'+title+'</button>':'<strong>'+title+'</strong>')+'<small>'+subtitle+'</small></div>'
   }
