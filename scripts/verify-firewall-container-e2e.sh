@@ -121,6 +121,31 @@ docker exec "$FW" firewall-cmd --permanent --zone=public --query-port=54322/tcp 
 docker exec "$FW" /usr/local/bin/xport firewall-apply remove 54322 tcp public
 check_snapshot "$FW" firewalld true 54322 no
 echo "[firewalld] Real runtime/permanent add/remove passed in isolated netns"
+echo "[firewalld] Testing real dual-family DROP rich port rule in isolated netns"
+docker exec "$FW" /usr/local/bin/xport firewall-policy add 54324 tcp public
+docker exec "$FW" firewall-cmd --zone=public --list-rich-rules | grep -F 'port="54324"'
+docker exec "$FW" firewall-cmd --permanent --zone=public --list-rich-rules | grep -F 'port="54324"'
+docker exec "$FW" /usr/local/bin/xport firewall-inspect >"$TMP/deny-snapshot.json"
+python3 - "$TMP/deny-snapshot.json" <<'PY'
+import json,sys
+d=json.load(open(sys.argv[1]))
+r=[r for r in d["rules"] if r["port"]==54324 and r["protocol"]=="tcp"]
+assert len(r)==1 and r[0]["action"]=="deny" and r[0]["kind"]=="rich",r
+assert r[0]["family"]=="both" and r[0]["runtime"] and r[0]["permanent"],r
+print("[firewalld] Native rich rule is correctly identified as dual-family DROP")
+PY
+if docker exec "$FW" /usr/local/bin/xport firewall-apply add 54324 tcp public; then
+ echo "[firewalld] An allow rule was added on top of DROP" >&2; exit 1
+fi
+docker exec "$FW" /usr/local/bin/xport firewall-policy remove 54324 tcp public
+docker exec "$FW" /usr/local/bin/xport firewall-inspect >"$TMP/deny-removed.json"
+python3 - "$TMP/deny-removed.json" <<'PY'
+import json,sys
+d=json.load(open(sys.argv[1]))
+assert all(r["port"]!=54324 for r in d["rules"]),d
+PY
+echo "[firewalld] Real runtime/permanent DROP add/remove and conflict rejection passed"
+
 
 # A real host systemd timer restores only the container-local firewall.
 echo "[timer] Arm a real 120s external systemd recovery timer"
