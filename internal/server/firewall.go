@@ -35,28 +35,46 @@ type firewallView struct {
  Pending []firewallPending `json:"pending,omitempty"`
 }
 
-// Account association is by both port and actual Xray transport, never by
-// numeric port alone. Unknown/custom transports stay unassociated.
-func accountFirewallTransport(a model.Account) string {
+// Account association is by numeric port AND the actual Xray transport.
+// Unknown settings are not guessed into a potentially incorrect account.
+func accountFirewallTransports(a model.Account)[]string{
+ protocol:=strings.ToLower(strings.TrimSpace(a.Protocol))
+ if protocol=="shadowsocks"{
+  var settings struct{Network string `json:"network"`}
+  if json.Unmarshal([]byte(a.SettingsJSON),&settings)!=nil{return nil}
+  network:=strings.ToLower(strings.TrimSpace(settings.Network))
+  switch network{
+  case "tcp,udp","udp,tcp":return []string{"tcp","udp"}
+  case "tcp","udp":return []string{network}
+  default:return nil
+  }
+ }
+ if protocol=="socks"{
+  var settings struct{UDP bool `json:"udp"`}
+  if json.Unmarshal([]byte(a.SettingsJSON),&settings)!=nil{return nil}
+  if settings.UDP{return []string{"tcp","udp"}}
+  return []string{"tcp"}
+ }
  var stream struct{Network string `json:"network"`}
  if a.StreamSettingsJSON!="" {
-  if err:=json.Unmarshal([]byte(a.StreamSettingsJSON),&stream);err!=nil{return ""}
+  if err:=json.Unmarshal([]byte(a.StreamSettingsJSON),&stream);err!=nil{return nil}
  }
  network:=strings.ToLower(strings.TrimSpace(stream.Network))
  if network==""{network="tcp"}
  switch network{
- case "tcp","raw","ws","websocket","grpc","http","h2","httpupgrade","xhttp": return "tcp"
- case "mkcp","kcp","quic": return "udp"
- default: return ""
+ case "tcp","raw","ws","websocket","grpc","http","h2","httpupgrade","xhttp":return []string{"tcp"}
+ case "mkcp","kcp","quic":return []string{"udp"}
+ default:return nil
  }
 }
 func accountFirewallMatches(accounts []model.Account)map[string][]model.Account{
  found:=make(map[string][]model.Account)
  for _,a:=range accounts{
-  protocol:=accountFirewallTransport(a)
-  if protocol==""||!firewall.ValidRule(a.Port,protocol){continue}
-  key:=fmt.Sprintf("%s/%d",protocol,a.Port)
-  found[key]=append(found[key],a)
+  for _,protocol:=range accountFirewallTransports(a){
+   if !firewall.ValidRule(a.Port,protocol){continue}
+   key:=fmt.Sprintf("%s/%d",protocol,a.Port)
+   found[key]=append(found[key],a)
+  }
  }
  return found
 }
