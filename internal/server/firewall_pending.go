@@ -28,7 +28,7 @@ func newFirewallToken()(string,error){
 }
 func (s *Server) firewallPendingSave(id,unit string,deadline int64)(firewallPending,error){
  token,err:=newFirewallToken();if err!=nil{return firewallPending{},err}
- entry:=firewallPending{ID:id,Token:[REDACTED],Unit:unit,Deadline:deadline}
+ entry:=firewallPending{ID:id,Token:token,Unit:unit,Deadline:deadline}
  raw,err:=json.Marshal(entry);if err!=nil{return firewallPending{},err}
  err=s.store.SetSetting(firewallPendingKey(id),string(raw))
  return entry,err
