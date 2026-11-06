@@ -50,13 +50,13 @@ sudo systemd-run --quiet --unit="$UNIT" --property=Type=exec \
   --property="RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6" \
   "$TMP/live/xport" serve --data "$TMP/data" --listen "127.0.0.1:$PORT"
 health(){
-  curl -fsS --max-time 3 "http://127.0.0.1:$PORT/api/health" >/dev/null 2>&1
+  curl -fsS --max-time 3 "http://127.0.0.1:$PORT/" >/dev/null 2>&1
 }
 for _ in $(seq 1 80); do
   if health; then break; fi
   sleep .25
 done
-health || { echo "old Web service failed startup" >&2; exit 1; }
+health || { echo "old Web service failed startup" >&2; sudo systemctl status "$UNIT.service" --no-pager >&2 || true; sudo journalctl -u "$UNIT.service" -n 40 --no-pager >&2 || true; exit 1; }
 [[ "$(sudo systemctl show "$UNIT.service" -p RestrictAddressFamilies --value)" != *AF_NETLINK* ]] || exit 1
 
 echo "[upgrade] Stage verified candidate and schedule real external systemd restart"
