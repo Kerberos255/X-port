@@ -218,6 +218,25 @@ firewall-cmd --zone="$ZONE" --list-rich-rules | grep -F 'port="53342"'
 firewall-cmd --permanent --zone="$ZONE" --list-rich-rules | grep -F 'port="53342"'
 confirm_control /run/control-drop-add.json
 curl -fsS -b /run/xport-ci.cookie "$BASE/api/firewall" >/run/control-drop-list.json
+echo "[selinux-vm] Pre-assert DROP snapshot comparison"
+python3 - <<'PY'
+import json
+d=json.load(open("/run/control-drop-list.json"))
+print("WEB_SNAPSHOT:",json.dumps({"backend":d.get("backend"),"writable":d.get("writable"),
+ "unsafeReason":d.get("unsafeReason"),"opaqueRichZones":d.get("opaqueRichZones"),
+ "rules":d.get("rules")},ensure_ascii=False)[:5000],flush=True)
+PY
+/usr/local/bin/xport firewall-inspect >/run/control-drop-root-snapshot.json || true
+python3 - <<'PY'
+import json
+try:
+ d=json.load(open("/run/control-drop-root-snapshot.json"))
+ print("ROOT_SNAPSHOT:",json.dumps({"backend":d.get("backend"),"writable":d.get("writable"),
+  "unsafeReason":d.get("unsafeReason"),"opaqueRichZones":d.get("opaqueRichZones"),
+  "rules":d.get("rules")},ensure_ascii=False)[:5000],flush=True)
+except Exception as exc:
+ print("ROOT_INSPECT_ERROR:",str(exc),flush=True)
+PY
 if ! python3 - <<'PY'
 import json
 d=json.load(open("/run/control-drop-list.json"))
