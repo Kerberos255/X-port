@@ -231,8 +231,8 @@ html[data-theme="light"] .xhttp-default-hint::placeholder{color:#7b8da3}
   #page-overview .metrics.status-gauges .status-gauge-hint {font-size:9.5px}
 }
 
-/* Daily navigation and authentication text must stay readable in compact mode. */
-@media(min-width:701px){
+/* Keep icon-only intermediate sidebar compact, and enlarge full-width navigation. */
+@media(min-width:1051px){
  .shell .sidebar #nav button{font-size:14px;line-height:1.5}
 }
 .login-card label{font-size:13px;color:#b5c7dc}
