@@ -14,6 +14,7 @@
   function status(r) { return r.runtime !== r.permanent ? '需检查' : (r.runtime ? '已配置' : '未生效') }
   function stateBadge(r) { return '<span class="fw-state '+(r.runtime !== r.permanent ? 'warn' : '')+'">'+status(r)+'</span>' }
   function source(r) { return (r.managed ? 'X-port · ' : '外部 · ') + (r.backend === 'firewalld' ? 'firewalld · '+r.zone : r.backend) }
+  function shortSource(r) { return (r.managed ? 'X-port · ' : '外部 · ') + r.backend }
   function shown() {
     return rules().filter(r => {
       if (state.filter === 'xray' && !r.xray) return false
@@ -62,7 +63,7 @@
       '<td data-label="端口">'+html(r.port)+'</td>'+
       '<td data-label="用途">'+fieldButton(r,'purpose')+'</td>'+
       '<td data-label="协议">'+html(r.protocol.toUpperCase())+'</td>'+
-      '<td data-label="规则来源"><span class="fw-source">'+html(source(r))+'</span></td>'+
+      '<td data-label="规则来源"><span class="fw-source" title="'+html(source(r))+'">'+html(shortSource(r))+'</span></td>'+
       '<td data-label="访问来源">'+html(r.access || '未确认')+'</td>'+
       '<td data-label="状态">'+stateBadge(r)+'</td>'+
       '<td data-label="备注">'+fieldButton(r,'note')+'</td>'+
