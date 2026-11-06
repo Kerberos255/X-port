@@ -2,6 +2,7 @@ package firewall
 
 import (
  "context"
+ "encoding/json"
  "os"
  "path/filepath"
  "strings"
@@ -53,7 +54,96 @@ func TestUFWPortLine(t *testing.T){
   {"443/tcp DENY Anywhere",true,false},
   {"OpenSSH ALLOW Anywhere",false,false},
  }{
-  _,_,broad,valid:=ufwPortLine(tc.line)
+  _,_,broad,_,valid:=ufwPortLine(tc.line)
   if valid!=tc.valid||broad!=tc.broad{t.Errorf("line %q: valid=%v broad=%v",tc.line,valid,broad)}
  }
+}
+
+func TestIndependentInputChains(t *testing.T){
+ for _,tt:=range []struct{rules string;conflict bool}{
+  {`{"nftables":[{"table":{"family":"inet","name":"firewalld"}},{"chain":{"family":"inet","table":"firewalld","name":"filter_INPUT","type":"filter","hook":"input"}}]}`,false},
+  {`{"nftables":[{"chain":{"family":"inet","table":"custom","name":"input","type":"filter","hook":"input"}}]}`,true},
+  {`{"nftables":[{"chain":{"family":"ip","table":"docker","name":"forward","type":"filter","hook":"forward"}}]}`,false},
+ }{
+  conflict,err:=independentInputChains(tt.rules)
+  if err!=nil||conflict!=tt.conflict{t.Errorf("rules=%s, conflict=%v err=%v",tt.rules,conflict,err)}
+ }
+}
+func TestMixedManagersDisableWrites(t *testing.T){
+ dir:=t.TempDir()
+ a:=`#!/bin/sh
+if [ "$1" = "--state" ]; then echo running; exit 0; fi
+exit 1
+`
+ b:=`#!/bin/sh
+echo "Status: active"
+`
+ for name,code:=range map[string]string{"firewall-cmd":a,"ufw":b}{
+  if err:=os.WriteFile(filepath.Join(dir,name),[]byte(code),0755);err!=nil{t.Fatal(err)}
+ }
+ t.Setenv("PATH",dir)
+ snap,err:=Inspect(context.Background())
+ if err!=nil||snap.Backend!="mixed"||snap.Writable||len(snap.Managers)!=2{t.Fatalf("snapshot=%+v err=%v",snap,err)}
+ if err:=Change(context.Background(),"add",23333,"tcp","public");err==nil{t.Fatal("mixed manager should not write")}
+}
+func TestUFWIPv4IPv6Status(t *testing.T){
+ p,proto,broad,v6,ok:=ufwPortLine("2053/tcp (v6) ALLOW Anywhere (v6)")
+ if !ok||!broad||!v6||p!=2053||proto!="tcp"{t.Fatalf("IPv6 parsing: %d %s %v %v %v",p,proto,broad,v6,ok)}
+}
+
+func TestListeningPortsAndUnknownFailure(t *testing.T){
+ dir:=t.TempDir()
+ script:=`#!/bin/sh
+printf 'tcp LISTEN 0 128 127.0.0.1:8080 0.0.0.0:*\n'
+printf 'udp UNCONN 0 0 [::]:2053 [::]:*\n'
+`
+ if err:=os.WriteFile(filepath.Join(dir,"ss"),[]byte(script),0755);err!=nil{t.Fatal(err)}
+ t.Setenv("PATH",dir)
+ ports,err:=ListeningPorts(context.Background());if err!=nil{t.Fatal(err)}
+ if !ports[8080]||!ports[2053]{t.Fatalf("ports=%v",ports)}
+}
+func TestNativeInputChainBlocksWrites(t *testing.T){
+ dir:=t.TempDir()
+ firewalld:=`#!/bin/sh
+case "$1" in
+ --state) echo running;;
+ --get-default-zone) echo public;;
+ --get-active-zones) echo public;;
+ --permanent) echo '443/tcp';;
+ --zone=public) echo '443/tcp';;
+esac
+`
+ nft:=`#!/bin/sh
+echo '{"nftables":[{"chain":{"family":"inet","table":"independent","hook":"input","type":"filter"}}]}'
+`
+ for name,script:=range map[string]string{"firewall-cmd":firewalld,"nft":nft}{
+  if err:=os.WriteFile(filepath.Join(dir,name),[]byte(script),0755);err!=nil{t.Fatal(err)}
+ }
+ t.Setenv("PATH",dir)
+ snap,err:=Inspect(context.Background())
+ if err!=nil{t.Fatal(err)}
+ if snap.Writable||snap.UnsafeReason==""{t.Fatalf("independent input hook should block writes: %+v",snap)}
+}
+
+func TestUFWTopLevelOwnershipDetection(t *testing.T){
+ baseline:=`{"nftables":[{"chain":{"family":"ip","table":"filter","name":"INPUT","hook":"input"}},{"rule":{"family":"ip","table":"filter","chain":"INPUT","expr":[{"counter":{"packets":0,"bytes":0}},{"jump":{"target":"ufw-before-input"}}]}},{"rule":{"family":"ip","table":"filter","chain":"INPUT","expr":[{"counter":{"packets":0,"bytes":0}},{"jump":{"target":"ufw-after-input"}}]}},{"rule":{"family":"ip","table":"filter","chain":"INPUT","expr":[{"counter":{"packets":0,"bytes":0}},{"jump":{"target":"ufw-reject-input"}}]}},{"rule":{"family":"ip","table":"filter","chain":"INPUT","expr":[{"counter":{"packets":0,"bytes":0}},{"jump":{"target":"ufw-track-input"}}]}}]}`
+ conflict,err:=independentInputChainsWithUFW(baseline,true)
+ if err!=nil||conflict{t.Fatalf("UFW managed input incorrectly flagged: %v %v",conflict,err)}
+ ip6:=strings.ReplaceAll(strings.ReplaceAll(baseline,`"family":"ip"`,`"family":"ip6"`),"ufw-","ufw6-")
+ conflict,err=independentInputChainsWithUFW(ip6,true)
+ if err!=nil||conflict{t.Fatalf("UFW IPv6 managed input incorrectly flagged: %v %v",conflict,err)}
+ conflict,err=independentInputChainsWithUFW(baseline,false)
+ if err!=nil||!conflict{t.Fatalf("same rules without UFW must be flagged: %v %v",conflict,err)}
+ var parsed struct{Nftables []map[string]json.RawMessage `json:"nftables"`}
+ if err:=json.Unmarshal([]byte(baseline),&parsed);err!=nil{t.Fatal(err)}
+ // A direct DROP inserted into UFW's top-level INPUT chain must not
+ // be treated as a manager-owned UFW jump.
+ foreign:=map[string]any{"rule":map[string]any{"family":"ip","table":"filter","chain":"INPUT","expr":[]any{map[string]any{"drop":nil}}}}
+ raw,err:=json.Marshal(foreign);if err!=nil{t.Fatal(err)}
+ var entry map[string]json.RawMessage
+ if err=json.Unmarshal(raw,&entry);err!=nil{t.Fatal(err)}
+ parsed.Nftables=append(parsed.Nftables,entry)
+ modified,err:=json.Marshal(parsed);if err!=nil{t.Fatal(err)}
+ conflict,err=independentInputChainsWithUFW(string(modified),true)
+ if err!=nil||!conflict{t.Fatalf("foreign DROP must disable writing: %v %v",conflict,err)}
 }

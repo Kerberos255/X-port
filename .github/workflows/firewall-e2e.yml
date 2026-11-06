@@ -1,0 +1,152 @@
+name: Firewall E2E (isolated Docker namespace)
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/firewall-e2e.yml'
+      - 'internal/firewall/**'
+      - 'internal/ops/firewall*.go'
+      - 'internal/server/firewall*.go'
+      - 'cmd/xport/manager.go'
+      - 'scripts/verify-firewall-container-e2e.sh'
+      - 'scripts/verify-web-upgrade-e2e.sh'
+      - 'scripts/verify-web-update-http.sh'
+      - 'scripts/verify-centos-selinux-vm.sh'
+      - 'scripts/verify-centos-selinux-guest.sh'
+      - 'scripts/verify-centos-helper-matrix.sh'
+      - 'scripts/verify-centos-go-helper-diag.sh'
+      - 'scripts/testdata/firewall_helper_diag/main.go'
+      - 'scripts/verify-centos-panel-coexist-guest.sh'
+      - 'scripts/verify-firewall-distros.sh'
+      - 'scripts/testdata/cancel_timer/main.go'
+      - 'scripts/testdata/upgrade_harness.go'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  isolated-firewalls:
+    # Never execute privileged Docker E2E for untrusted fork PRs.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.27.3'
+          cache: false
+      - name: Build Linux executable
+        run: CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o "$RUNNER_TEMP/xport-fw-e2e" ./cmd/xport
+      - name: Run UFW, firewalld, and 120-second restore in isolated network namespaces
+        run: sudo bash scripts/verify-firewall-container-e2e.sh "$RUNNER_TEMP/xport-fw-e2e"
+
+  upgrade-supervisor:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.27.3'
+          cache: false
+      - name: Upgrade real v0.2.8 service using local verified candidate, then test rollback
+        run: bash scripts/verify-web-upgrade-e2e.sh
+
+  cross-distro:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        distro: [debian, rocky, centos9]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.27.3'
+          cache: false
+      - name: Build X-port
+        run: CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o "$RUNNER_TEMP/xport-cross-e2e" ./cmd/xport
+      - name: Build timer cancellation test adapter
+        run: go build -trimpath -o "$RUNNER_TEMP/firewall-cancel-harness" ./scripts/testdata/cancel_timer/main.go
+      - name: Verify ${{ matrix.distro }} firewall and foreign rules in isolated netns
+        run: sudo bash scripts/verify-firewall-distros.sh "$RUNNER_TEMP/xport-cross-e2e" "${{ matrix.distro }}" "$RUNNER_TEMP/firewall-cancel-harness"
+
+  web-http-upgrade:
+    # End-to-end POST route under the v0.2.8 service, not just an updater library call.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.27.3'
+          cache: false
+      - name: Authenticate and POST actual legacy Web upgrade with local test Release
+        run: bash scripts/verify-web-update-http.sh
+
+  selinux-vm-preflight:
+    # Probe for a real CentOS SELinux-enforcing VM, rather than treating a
+    # privileged container on an AppArmor Ubuntu host as an SELinux test.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - name: Check KVM device and SELinux virtualization prerequisites
+        run: |
+          echo "Host kernel: $(uname -a)"
+          if test -c /dev/kvm; then
+            ls -l /dev/kvm
+            echo "KVM is available; a CentOS enforcing VM may be possible."
+          else
+            echo "KVM device unavailable on this runner: full CentOS SELinux Enforcing requires a dedicated VM runner."
+          fi
+          if test -e /sys/fs/selinux/enforce; then
+            echo "Host SELinux status: $(cat /sys/fs/selinux/enforce)"
+          else
+            echo "Host is not booted with SELinux; containers cannot prove enforcing-mode compatibility."
+          fi
+
+  centos9-selinux-enforcing:
+    # An actual CentOS Stream VM, not a container sharing Ubuntu's SELinux-disabled kernel.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 24
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.27.3'
+          cache: false
+      - name: Build the candidate X-port binary
+        run: CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o "$RUNNER_TEMP/xport-selinux-e2e" ./cmd/xport
+      - name: Build equivalent Go os/exec diagnostic program
+        run: CGO_ENABLED=0 go build -trimpath -o "$RUNNER_TEMP/go-helper-diag" ./scripts/testdata/firewall_helper_diag/main.go
+      - name: Boot official CentOS Stream 9 under KVM and exercise Enforcing mode
+        run: sudo env GO_HELPER_DIAG="$RUNNER_TEMP/go-helper-diag" bash scripts/verify-centos-selinux-vm.sh "$RUNNER_TEMP/xport-selinux-e2e"
+
+  centos9-panel-coexist:
+    # Full 1Panel installation is performed only in a disposable KVM guest.
+    # Keep it separate from the SELinux baseline to identify installer failures.
+    needs: centos9-selinux-enforcing
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 27
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.27.3'
+          cache: false
+      - name: Build X-port
+        run: CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o "$RUNNER_TEMP/xport-panel-coexist" ./cmd/xport
+      - name: Install both management panels in CentOS 9 Enforcing guest
+        run: sudo bash scripts/verify-centos-selinux-vm.sh "$RUNNER_TEMP/xport-panel-coexist" panel

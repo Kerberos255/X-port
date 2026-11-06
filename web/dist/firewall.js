@@ -10,10 +10,10 @@
 
   function rules() { return Array.isArray(state.data?.rules) ? state.data.rules : [] }
   function label(r) { return r.purpose || '未识别' }
-  function editable() { return state.data?.backend === 'firewalld' || state.data?.backend === 'ufw' }
+  function editable() { return state.data?.writable === true && (state.data?.backend === 'firewalld' || state.data?.backend === 'ufw') }
   function status(r) { return r.runtime !== r.permanent ? '需检查' : (r.runtime ? '已配置' : '未生效') }
   function stateBadge(r) { return '<span class="fw-state '+(r.runtime !== r.permanent ? 'warn' : '')+'">'+status(r)+'</span>' }
-  function source(r) { return r.backend === 'firewalld' ? 'firewalld · '+r.zone : r.backend }
+  function source(r) { return (r.managed ? 'X-port · ' : '外部 · ') + (r.backend === 'firewalld' ? 'firewalld · '+r.zone : r.backend) }
   function shown() {
     return rules().filter(r => {
       if (state.filter === 'xray' && !r.xray) return false
@@ -34,13 +34,25 @@
     const data = state.data
     el('fw-backend').textContent = data ? ({firewalld:'firewalld',ufw:'UFW',nftables:'nftables（只读）',iptables:'iptables（只读）',none:'未检测到'}[data.backend] || data.backend) : '检测中'
     el('fw-zone').textContent = data?.defaultZone || (data?.backend === 'ufw' ? 'UFW 规则' : '—')
-    el('fw-engine-state').textContent = !data ? '—' : (data.active ? '● 运行中' : '只读 / 未启用')
+    el('fw-engine-state').textContent = !data ? '—' : (data.writable ? '● 可管理' : (data.active ? '只读 · 检查' : '只读 / 未启用'))
     el('fw-total').textContent = rules().length
     el('fw-active').textContent = rules().filter(r=>r.runtime).length
     el('fw-xray-count').textContent = rules().filter(r=>r.xray).length
-    el('fw-warn-count').textContent = rules().filter(r=>r.runtime !== r.permanent).length
+    el('fw-warn-count').textContent = rules().filter(r=>r.runtime !== r.permanent).length + (data?.unsafeReason ? 1 : 0)
     el('fw-add').disabled = !editable()
-    el('fw-notice').textContent = data?.notice || '无法读取防火墙状态'
+    el('fw-notice').textContent = [data?.unsafeReason || '',data?.notice || '无法读取防火墙状态'].filter(Boolean).join(' · ')
+    const pending = Array.isArray(data?.pending) ? data.pending : []
+    let pendingBox = el('fw-pending')
+    if (!pendingBox) {
+      pendingBox = document.createElement('div')
+      pendingBox.id = 'fw-pending'
+      el('fw-notice').before(pendingBox)
+    }
+    pendingBox.innerHTML = pending.map(p => {
+      const active = Number(p.deadline) > Date.now()
+      return '<div class="fw-pending-item"><span>↺ '+html(p.id)+' · '+(active ? '等待连接确认，超时自动恢复' : '恢复期限已过，请刷新检查规则')+'</span>' +
+        (active ? '<button type="button" class="btn fw-mini" data-fw-act="confirm-pending" data-fw-id="'+html(p.id)+'" data-fw-token="'+html(p.token)+'">确认连接正常</button>' : '')+'</div>'
+    }).join('')
     const filtered = shown()
     el('fw-count').textContent = '显示 '+filtered.length+' / '+rules().length+' 条规则；备注与用途保存在 X-port 数据库中'
     el('fw-rows').innerHTML = filtered.length ? filtered.map(r => '<tr>'+
@@ -99,9 +111,9 @@
     state.detail=r
     el('fw-detail-title').textContent=r.port+' / '+r.protocol.toUpperCase()
     el('fw-detail-body').innerHTML=[
-      ['用途',r.purpose],['备注',r.note||'未填写'],['来源',source(r)],['访问来源',r.access],['运行时规则',r.runtime?'存在':'不存在'],['永久规则',r.permanent?'存在':'不存在']
+      ['用途',r.purpose],['备注',r.note||'未填写'],['来源',source(r)],['访问来源',r.access],['运行时规则',r.runtime?'存在':'不存在'],['永久规则',r.permanent?'存在':'不存在'],['规则归属',r.managed?'X-port 创建':'外部或未知（不可删除）'],['监听端口保护',r.protected?'启用':'未检测到本机监听'],['地址族',r.backend==='ufw'?(r.ipv4?'IPv4 ':'')+(r.ipv6?'IPv6':''):'由 firewalld Zone 决定']
     ].map(([name,val])=>'<div style="display:flex;justify-content:space-between;gap:12px;border-bottom:1px solid var(--line);padding:10px 0"><span>'+html(name)+'</span><b>'+html(val)+'</b></div>').join('')
-    el('fw-detail-remove').hidden = !editable() || r.protected
+    el('fw-detail-remove').hidden = !editable() || r.protected || !r.managed
     el('fw-detail-dialog').returnValue = ''
     el('fw-detail-dialog').showModal()
   }
@@ -127,6 +139,14 @@
       render();return
     }
     const act=button.dataset.fwAct,id=button.dataset.fwId
+    if(act==='confirm-pending') {
+      if (!window.confirm('已确认仍能正常访问管理面板？确认后将取消定时恢复。')) return
+      void request('/api/firewall/rules/confirm','POST',{id,token:button.dataset.fwToken}).then(async()=>{
+        toast('连接已确认，定时恢复已取消')
+        await refresh()
+      }).catch(err=>toast(err.message,true))
+      return
+    }
     if(act==='edit'){state.editing={id,key:button.dataset.fwKey};render()}
     if(act==='cancel'){state.editing=null;render()}
     if(act==='save')void saveEdit()
@@ -144,7 +164,7 @@
     el('fw-load-raw').disabled=true
     el('fw-raw').textContent='读取中…'
     try{const data=await api('/api/firewall/raw');el('fw-raw').textContent=data.ruleset||'规则集为空'}
-    catch(err){el('fw-raw').textContent='读取失败：'+err.message+'。若是从旧版升级且系统服务限制 AF_NETLINK，请确认现有 unit 配置后运行 sudo xport repair，并重启 xport 服务。'}
+    catch(err){el('fw-raw').textContent='读取失败：'+err.message+'。请在系统页检查 X-port 服务单元兼容状态；不要直接覆盖现有自定义服务文件。'}
     finally{el('fw-load-raw').disabled=false}
   })
   el('fw-add-dialog').addEventListener('close',async()=>{
@@ -163,8 +183,18 @@
     const action = el('fw-detail-dialog').returnValue
     el('fw-detail-dialog').returnValue = ''
     if(action!=='remove'||!r)return
-    if(!window.confirm('确认删除 '+r.port+'/'+r.protocol+' 的简单端口放行规则吗？此操作可能导致现有连接中断。'))return
-    try{await request('/api/firewall/rules','POST',{action:'remove',port:r.port,protocol:r.protocol,zone:r.zone||''});toast('规则已删除');await refresh()}
+    if(!r.managed||r.protected||!editable())return toast('规则受保护或不属于 X-port，不能删除',true)
+    if(!window.confirm('删除 X-port 创建的 '+r.port+'/'+r.protocol+' 放行规则？请先确认该端口没有正在运行的服务。'))return
+    try{
+      const result=await request('/api/firewall/rules','POST',{action:'remove',port:r.port,protocol:r.protocol,zone:r.zone||''})
+      await refresh()
+      if(result?.pending) {
+        if(window.confirm('端口规则已临时关闭，约 120 秒后自动恢复。请确认仍能访问管理面板，然后点「确定」永久确认删除；取消则等待自动恢复。')) {
+          await request('/api/firewall/rules/confirm','POST',{id:result.id,token:result.token})
+          toast('删除已确认，恢复任务已取消');await refresh()
+        }else toast('未确认：恢复任务将在期限到达后重新开放该端口')
+      }
+    }
     catch(err){toast(err.message,true)}
   })
   const nav=document.querySelector('#nav [data-page="firewall"]')

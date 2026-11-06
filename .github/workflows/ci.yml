@@ -38,7 +38,7 @@ jobs:
           retention-days: 7
       - name: Shell syntax and safety
         run: |
-          bash -n install.sh scripts/build-linux.sh scripts/install.sh scripts/migrate-xpanel.sh scripts/verify-web-assets.sh scripts/verify-web-browser.sh scripts/capture-web-preview.sh
+          bash -n install.sh scripts/build-linux.sh scripts/install.sh scripts/migrate-xpanel.sh scripts/verify-web-assets.sh scripts/verify-web-browser.sh scripts/capture-web-preview.sh scripts/verify-firewall-runtime.sh
           shellcheck -S error install.sh scripts/*.sh
       - name: Go module consistency
         run: |
@@ -55,3 +55,6 @@ jobs:
         run: |
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o /tmp/xport ./cmd/xport
           go version -m /tmp/xport | grep -Fq 'go1.27.3'
+
+      - name: Firewall WebUI Linux systemd deployment (old unit sandbox)
+        run: sudo bash scripts/verify-firewall-runtime.sh /tmp/xport

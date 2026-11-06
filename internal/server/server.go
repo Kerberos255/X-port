@@ -15,6 +15,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -41,6 +42,7 @@ type Server struct {
 	xrayService    string
 	panelService   string
 	manager        *xray.Manager
+	firewallMu     sync.Mutex
 	trustedProxies []netip.Prefix
 }
 
