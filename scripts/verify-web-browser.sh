@@ -69,7 +69,7 @@ cat > "$TMP/__mock.js" <<'JS'
     if (path === '/api/accounts/online') return json({connections:{}})
     if (path === '/api/accounts/port-suggestion') return json({port:23741,min:20000,max:60000})
     if (path === '/api/firewall' && method === 'GET') return json({
-      backend:'firewalld',active:true,writable:true,managers:['firewalld'],defaultZone:'public',zones:['public'],services:{public:['ssh']},
+      backend:'firewalld',active:true,writable:!globalThis.__fwReadOnly,unsafeReason:globalThis.__fwReadOnly?'独立 INPUT 过滤链需要检查':'',managers:['firewalld'],defaultZone:'public',zones:['public'],services:{public:['ssh']},
       notice:'预览：简单端口规则展示；底层链可能影响结果',rules:[
         {id:'firewalld:public:22/tcp',port:22,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'SSH（常见端口，未核实）',purposeSource:'assumed',note:'远程管理',protected:true,xray:false},
         {id:'firewalld:public:443/tcp',port:443,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'HTTPS',purposeSource:'manual',note:'网站入口',protected:false,xray:false},
@@ -252,6 +252,39 @@ cat > "$TMP/__driver.js" <<'JS'
       fwSave.click()
       await waitForTextContains('#fw-rows button[data-fw-id="firewalld:public:2053/tcp"][data-fw-key="note"] span','浏览器回归备注')
       if(document.querySelector('#nav [data-page="firewall"]')?.classList.contains('active')!==true) throw new Error('firewall navigation not active')
+      const detailButton=document.querySelector('#fw-rows button[data-fw-act="detail"][data-fw-id="firewalld:public:2053/tcp"]')
+      if(!detailButton) throw new Error('firewall detail action missing')
+      detailButton.click()
+      const detail=await waitFor('#fw-detail-dialog[open]')
+      if(detail.querySelectorAll('.fw-detail-section').length!==3) throw new Error('firewall detail groups missing')
+      if(detail.getBoundingClientRect().width < 440 && innerWidth > 800) throw new Error('firewall detail dialog is too narrow')
+      if(!detail.querySelector('.fw-detail-summary')?.textContent.includes('X-port')) throw new Error('detail summary missing')
+      detail.querySelector('button[value="cancel"]').click()
+
+      const oldTheme=document.documentElement.dataset.theme
+      document.documentElement.dataset.theme='light'
+      const chip=document.querySelector('#fw-rows .fw-source')
+      const noteButton=document.querySelector('#fw-rows .fw-remark')
+      for(const node of [chip,noteButton]){
+        if(!node) throw new Error('firewall metadata element missing')
+        const computed=getComputedStyle(node)
+        if(parseFloat(computed.fontSize)<12) throw new Error('firewall metadata too small')
+        const values=computed.color.match(/[0-9]+/g)?.slice(0,3).map(Number)||[]
+        if(values.length!==3 || values.reduce((a,b)=>a+b,0)/3>135) throw new Error('light-theme metadata too pale: '+computed.color)
+      }
+      if(parseFloat(getComputedStyle(document.querySelector('#nav button')).fontSize)<13 && innerWidth>800) throw new Error('sidebar text too small')
+      if(parseFloat(getComputedStyle(document.querySelector('#login-form label')).fontSize)<12) throw new Error('login label too small')
+      document.documentElement.dataset.theme=oldTheme||'dark'
+
+      globalThis.__fwReadOnly=true
+      document.querySelector('#fw-refresh').click()
+      const diagnostic=await waitFor('#fw-diagnostic:not([hidden])')
+      if(!diagnostic.textContent.includes('独立 INPUT')) throw new Error('read-only reason not visible near backend')
+      if(!document.querySelector('#fw-add').disabled) throw new Error('read-only guard failed')
+      globalThis.__fwReadOnly=false
+      document.querySelector('#fw-refresh').click()
+      await waitFor('#fw-diagnostic[hidden]')
+      if(document.querySelector('#fw-add').disabled) throw new Error('write access did not recover')
       mark('pass', `clonePort=${portInput.value};legacyHits=0;fallbackDest=${dest};layout=contained;globalXray=ok`)
     } catch (err) {
       mark('fail', String(err && err.message || err))
