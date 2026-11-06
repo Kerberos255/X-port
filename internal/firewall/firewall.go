@@ -607,6 +607,45 @@ func Change(ctx context.Context,action string,p int,proto,zone string)error{
 	}
 	return nil
 }
+// RichDropText constructs one deterministic dual-family port policy.
+// No shell is involved: the entire text is a single firewall-cmd argument.
+func RichDropText(port int,proto string)(string,error){
+ if !ValidRule(port,proto){return "",errors.New("invalid port/protocol")}
+ return fmt.Sprintf(`rule port port="%d" protocol="%s" drop`,port,proto),nil
+}
+// ChangeSimpleDrop manages only X-port's narrow all-sources dual-family DROP
+// rules. A missing or conflicting rule is never silently overwritten.
+func ChangeSimpleDrop(ctx context.Context,action string,port int,proto,zone string)error{
+ if action!="add"&&action!="remove"{return errors.New("invalid action")}
+ if !ValidRule(port,proto)||!ValidZone(zone){return errors.New("invalid port/protocol/zone")}
+ snap,err:=Inspect(ctx);if err!=nil{return err}
+ if !snap.Writable||snap.Backend!="firewalld"{return errors.New("firewalld unavailable or read-only")}
+ zoneFound:=false;for _,z:=range snap.Zones{if z==zone{zoneFound=true;break}}
+ if !zoneFound{return errors.New("unknown firewalld zone")}
+ matching:=[]Rule{}
+ for _,r:=range snap.Rules{
+  if r.Port==port&&r.Protocol==proto&&r.Zone==zone{matching=append(matching,r)}
+ }
+ if action=="add"{
+  if len(matching)!=0{return errors.New("port already has a rule or conflicting policy")}
+ }else{
+  if len(matching)!=1||matching[0].Kind!="rich"||matching[0].Action!="deny"||
+     matching[0].Family!="both"||!matching[0].Runtime||!matching[0].Permanent||matching[0].Conflict{
+   return errors.New("exact dual-family DROP rule not present or ambiguous")
+  }
+ }
+ rich,err:=RichDropText(port,proto);if err!=nil{return err}
+ flag,undo:="--add-rich-rule=","--remove-rich-rule="
+ if action=="remove"{flag,undo=undo,flag}
+ if _,err:=command(ctx,"firewall-cmd","--zone="+zone,flag+rich);err!=nil{return err}
+ if _,err:=command(ctx,"firewall-cmd","--permanent","--zone="+zone,flag+rich);err!=nil{
+  _,rb:=command(ctx,"firewall-cmd","--zone="+zone,undo+rich)
+  if rb!=nil{return fmt.Errorf("permanent rich update failed and rollback failed: %w",err)}
+  return fmt.Errorf("permanent rich update failed; runtime restored: %w",err)
+ }
+ return nil
+}
+
 func Raw(ctx context.Context)(string,error){
 	if hasTool("nft"){return command(ctx,"nft","-a","list","ruleset")}
 	if hasTool("iptables-save"){return command(ctx,"iptables-save")}
