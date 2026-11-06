@@ -61,7 +61,7 @@ func dispatchManager(args []string) (bool, int) {
 
 func isManagerCommand(cmd string) bool {
 	switch cmd {
-	case "menu", "status", "start", "stop", "restart", "restart-xray", "logs", "autostart", "settings", "admin", "update", "update-xray", "update-geodata", "backup", "firewall", "firewall-apply", "firewall-inspect", "firewall-raw", "firewall-listeners", "repair", "uninstall":
+	case "menu", "status", "start", "stop", "restart", "restart-xray", "logs", "autostart", "settings", "admin", "update", "update-xray", "update-geodata", "backup", "firewall", "firewall-apply", "firewall-inspect", "firewall-raw", "firewall-listeners", "firewall-restore", "repair", "uninstall":
 		return true
 	default:
 		return false
@@ -108,6 +108,8 @@ func runManagerCommand(cmd string, args []string) error {
 		return firewallHelperRaw(args)
 	case "firewall-listeners":
 		return firewallHelperListeners(args)
+	case "firewall-restore":
+		return firewallRestoreHelper(args)
 	case "repair":
 		return repairInstall(args)
 	case "uninstall":
@@ -913,4 +915,15 @@ func firewallHelperListeners(args []string)error{
  ctx,cancel:=context.WithTimeout(context.Background(),10*time.Second);defer cancel()
  ports,err:=firewall.ListeningPorts(ctx);if err!=nil{return err}
  return json.NewEncoder(os.Stdout).Encode(ports)
+}
+
+func firewallRestoreHelper(args []string)error{
+ if err:=requireRoot();err!=nil{return err}
+ if len(args)!=4{return errors.New("usage: xport firewall-restore BACKEND PORT tcp|udp ZONE")}
+ port,err:=strconv.Atoi(args[1]);if err!=nil||!firewall.ValidRule(port,args[2]){return errors.New("invalid port/protocol")}
+ if args[0]!="firewalld"&&args[0]!="ufw"{return errors.New("invalid backend")}
+ if args[0]=="firewalld"&&!firewall.ValidZone(args[3]){return errors.New("invalid zone")}
+ if args[0]=="ufw"&&args[3]!=""{return errors.New("unexpected UFW zone")}
+ ctx,cancel:=context.WithTimeout(context.Background(),30*time.Second);defer cancel()
+ return firewall.Restore(ctx,args[0],port,args[2],args[3])
 }

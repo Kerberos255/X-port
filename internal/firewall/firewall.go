@@ -119,7 +119,14 @@ func Inspect(ctx context.Context)(Snapshot,error){
 		Notice:"只显示简单端口规则；服务、富规则、来源限制、NAT 与其他链可能影响实际连通性。"}
 	if f{snap.Managers=append(snap.Managers,"firewalld")}
 	if u{snap.Managers=append(snap.Managers,"ufw")}
-	snap.Backend=Detect(ctx)
+	switch {
+ case f&&u:snap.Backend="mixed"
+ case f:snap.Backend="firewalld"
+ case u:snap.Backend="ufw"
+ case hasTool("nft"):snap.Backend="nftables"
+ case hasTool("iptables"):snap.Backend="iptables"
+ default:snap.Backend="none"
+ }
 	snap.Active=f||u
 	if f&&u{
 		snap.Backend="mixed";snap.UnsafeReason="firewalld 与 UFW 同时活动，暂停网页写操作"
@@ -260,4 +267,23 @@ func ListeningPorts(ctx context.Context)(map[int]bool,error){
 		if n,err:=strconv.Atoi(port);err==nil&&n>0&&n<=65535{ports[n]=true}
 	}
 	return ports,nil
+}
+
+ // Restore is a narrowly-scoped emergency re-open operation. It is called
+ // by a pre-scheduled systemd timer if the WebUI fails to confirm connectivity.
+ // Unlike normal edits, an independent chain cannot cancel an attempted recovery.
+func Restore(ctx context.Context,backend string,port int,proto,zone string)error{
+ if !ValidRule(port,proto){return errors.New("invalid recovery port")}
+ spec:=fmt.Sprintf("%d/%s",port,proto)
+ switch backend{
+ case "firewalld":
+  if !ValidZone(zone){return errors.New("invalid recovery zone")}
+  if _,err:=command(ctx,"firewall-cmd","--zone="+zone,"--add-port="+spec);err!=nil{return err}
+  _,err:=command(ctx,"firewall-cmd","--permanent","--zone="+zone,"--add-port="+spec)
+  return err
+ case "ufw":
+  if zone!=""{return errors.New("unexpected UFW zone")}
+  _,err:=command(ctx,"ufw","allow",spec);return err
+ default:return errors.New("unsupported recovery backend")
+ }
 }

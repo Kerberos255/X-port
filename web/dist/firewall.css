@@ -92,3 +92,7 @@ html[data-theme="light"] #fw-add-dialog{color:#263c55;background:#fff}
 #page-firewall .fw-table td:last-child .btn{min-width:43px;white-space:nowrap;padding:7px 9px}
 #page-firewall .fw-table td{font-size:12.5px}
 @media(max-width:700px){#page-firewall .fw-table td:last-child .btn{min-width:46px}#page-firewall #fw-add{min-width:92px}}
+
+#page-firewall .fw-pending-item{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:11px 12px;margin-top:9px;border:1px solid rgba(231,185,102,.27);border-radius:9px;background:rgba(231,185,102,.045);color:var(--amber);font-size:11px}
+#page-firewall .fw-pending-item .btn{flex-shrink:0}
+@media(max-width:700px){#page-firewall .fw-pending-item{flex-wrap:wrap}}

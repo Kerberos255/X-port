@@ -41,6 +41,18 @@
     el('fw-warn-count').textContent = rules().filter(r=>r.runtime !== r.permanent).length + (data?.unsafeReason ? 1 : 0)
     el('fw-add').disabled = !editable()
     el('fw-notice').textContent = [data?.unsafeReason || '',data?.notice || '无法读取防火墙状态'].filter(Boolean).join(' · ')
+    const pending = Array.isArray(data?.pending) ? data.pending : []
+    let pendingBox = el('fw-pending')
+    if (!pendingBox) {
+      pendingBox = document.createElement('div')
+      pendingBox.id = 'fw-pending'
+      el('fw-notice').before(pendingBox)
+    }
+    pendingBox.innerHTML = pending.map(p => {
+      const active = Number(p.deadline) > Date.now()
+      return '<div class="fw-pending-item"><span>↺ '+html(p.id)+' · '+(active ? '等待连接确认，超时自动恢复' : '恢复期限已过，请刷新检查规则')+'</span>' +
+        (active ? '<button type="button" class="btn fw-mini" data-fw-act="confirm-pending" data-fw-id="'+html(p.id)+'" data-fw-token="'+html(p.token)+'">确认连接正常</button>' : '')+'</div>'
+    }).join('')
     const filtered = shown()
     el('fw-count').textContent = '显示 '+filtered.length+' / '+rules().length+' 条规则；备注与用途保存在 X-port 数据库中'
     el('fw-rows').innerHTML = filtered.length ? filtered.map(r => '<tr>'+
@@ -127,6 +139,14 @@
       render();return
     }
     const act=button.dataset.fwAct,id=button.dataset.fwId
+    if(act==='confirm-pending') {
+      if (!window.confirm('已确认仍能正常访问管理面板？确认后将取消定时恢复。')) return
+      void request('/api/firewall/rules/confirm','POST',{id,token:button.dataset.fwToken}).then(async()=>{
+        toast('连接已确认，定时恢复已取消')
+        await refresh()
+      }).catch(err=>toast(err.message,true))
+      return
+    }
     if(act==='edit'){state.editing={id,key:button.dataset.fwKey};render()}
     if(act==='cancel'){state.editing=null;render()}
     if(act==='save')void saveEdit()
@@ -165,7 +185,16 @@
     if(action!=='remove'||!r)return
     if(!r.managed||r.protected||!editable())return toast('规则受保护或不属于 X-port，不能删除',true)
     if(!window.confirm('删除 X-port 创建的 '+r.port+'/'+r.protocol+' 放行规则？请先确认该端口没有正在运行的服务。'))return
-    try{await request('/api/firewall/rules','POST',{action:'remove',port:r.port,protocol:r.protocol,zone:r.zone||''});toast('规则已删除');await refresh()}
+    try{
+      const result=await request('/api/firewall/rules','POST',{action:'remove',port:r.port,protocol:r.protocol,zone:r.zone||''})
+      await refresh()
+      if(result?.pending) {
+        if(window.confirm('端口规则已临时关闭，约 120 秒后自动恢复。请确认仍能访问管理面板，然后点「确定」永久确认删除；取消则等待自动恢复。')) {
+          await request('/api/firewall/rules/confirm','POST',{id:result.id,token:result.token})
+          toast('删除已确认，恢复任务已取消');await refresh()
+        }else toast('未确认：恢复任务将在期限到达后重新开放该端口')
+      }
+    }
     catch(err){toast(err.message,true)}
   })
   const nav=document.querySelector('#nav [data-page="firewall"]')

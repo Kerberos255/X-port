@@ -24,6 +24,7 @@ type firewallViewRule struct {
 type firewallView struct {
  firewall.Snapshot
  Rules []firewallViewRule `json:"rules"`
+ Pending []firewallPending `json:"pending,omitempty"`
 }
 
 func (s *Server) firewallGuardPort() int {
@@ -53,13 +54,14 @@ func (s *Server) firewallRead(w http.ResponseWriter,r *http.Request){
   if custom:=settings["firewall_purpose:"+rr.ID];custom!=""{purpose=custom;source="manual"}
   rules=append(rules,firewallViewRule{Rule:rr,Purpose:purpose,PurposeSource:source,Note:settings["firewall_note:"+rr.ID],Protected:protected,Managed:settings["firewall_owned:"+rr.ID]=="v1",Xray:xray})
  }
- writeJSON(w,200,firewallView{Snapshot:snap,Rules:rules})
+ writeJSON(w,200,firewallView{Snapshot:snap,Rules:rules,Pending:pendingFromSettings(settings)})
 }
 func (s *Server) firewallNote(w http.ResponseWriter,r *http.Request){
  var in struct{ID string `json:"id"`; Note string `json:"note"`}
  if decodeJSONLimit(w,r,&in,4<<10)!=nil{return}
  note:=strings.TrimSpace(in.Note)
  if len(note)>360||len([]rune(note))>120{writeError(w,400,"note is too long");return}
+ s.firewallMu.Lock();defer s.firewallMu.Unlock()
  ctx,cancel:=context.WithTimeout(r.Context(),15*time.Second);defer cancel()
  snap,err:=ops.InspectFirewall(ctx);if err!=nil{writeError(w,502,"failed to inspect firewall rules");return}
  found:=false
@@ -76,9 +78,11 @@ func (s *Server) firewallRuleChange(w http.ResponseWriter,r *http.Request){
   Zone string `json:"zone"`
  }
  if decodeJSONLimit(w,r,&in,4<<10)!=nil{return}
- if !firewall.ValidRule(in.Port,in.Protocol)||(in.Action!="add"&&in.Action!="remove"){writeError(w,400,"invalid firewall rule");return}
+ if !firewall.ValidRule(in.Port,in.Protocol)||(in.Action!="add"&&in.Action!="remove"){
+  writeError(w,400,"invalid firewall rule");return
+ }
  s.firewallMu.Lock();defer s.firewallMu.Unlock()
- ctx,cancel:=context.WithTimeout(r.Context(),95*time.Second);defer cancel()
+ ctx,cancel:=context.WithTimeout(r.Context(),100*time.Second);defer cancel()
  snap,err:=ops.InspectFirewall(ctx)
  if err!=nil{writeError(w,502,"could not inspect firewall");return}
  if !snap.Writable{writeError(w,409,"read-only firewall: "+snap.UnsafeReason);return}
@@ -86,33 +90,39 @@ func (s *Server) firewallRuleChange(w http.ResponseWriter,r *http.Request){
  if snap.Backend=="ufw"&&in.Zone!=""{writeError(w,400,"UFW does not support zones");return}
  if snap.Backend=="firewalld"&&!firewall.ValidZone(in.Zone){writeError(w,400,"invalid zone");return}
  id:=firewall.RuleID(snap.Backend,in.Zone,in.Port,in.Protocol)
+ if err:=s.ensureNoPending(id);err!=nil{writeError(w,409,err.Error());return}
+ var restoreUnit string
+ var restoreDeadline int64
  if in.Action=="remove"{
   value,ok,err:=s.store.Setting("firewall_owned:"+id)
   if err!=nil{writeError(w,500,"could not check rule ownership");return}
-  if !ok||value!="v1"{writeError(w,403,"only rules created by X-port can be deleted");return}
-  if in.Port==22||in.Port==s.firewallGuardPort(){writeError(w,403,"management port is protected");return}
+  if !ok||value!="v1"{writeError(w,403,"only X-port created rules can be deleted");return}
+  if in.Port==22||in.Port==s.firewallGuardPort(){writeError(w,403,"management port protected");return}
   ports,err:=ops.FirewallListeners(ctx)
   if err!=nil{writeError(w,409,"cannot verify listeners; deletion blocked");return}
-  if ports[in.Port]{writeError(w,409,"port has an active listener; stop it before removing its rule");return}
+  if ports[in.Port]{writeError(w,409,"port has an active listener; stop it first");return}
+  restoreUnit,restoreDeadline,err=ops.ScheduleFirewallRestore(ctx,snap.Backend,in.Port,in.Protocol,in.Zone)
+  if err!=nil{writeError(w,409,"could not arm connection recovery: "+err.Error());return}
  }
  if err:=ops.ApplyFirewall(ctx,in.Action,in.Port,in.Protocol,in.Zone);err!=nil{
+  if restoreUnit!=""{_ = ops.CancelFirewallRestore(context.Background(),restoreUnit)}
   writeError(w,409,"firewall operation failed: "+err.Error());return
  }
  if in.Action=="add"{
   if err:=s.store.SetSetting("firewall_owned:"+id,"v1");err!=nil{
-   rbctx,done:=context.WithTimeout(context.Background(),30*time.Second)
+   rbctx,done:=context.WithTimeout(context.Background(),35*time.Second)
    rollback:=ops.ApplyFirewall(rbctx,"remove",in.Port,in.Protocol,in.Zone);done()
-   writeError(w,500,fmt.Sprintf("could not persist ownership; firewall rollback: %v",rollback));return
+   writeError(w,500,fmt.Sprintf("ownership persistence failed; rollback: %v",rollback));return
   }
- }else{
-  for _,prefix:=range []string{"firewall_owned:","firewall_note:","firewall_purpose:"}{
-   if err:=s.store.SetSetting(prefix+id,"");err!=nil{
-    writeError(w,500,"firewall changed but rule metadata cleanup failed");return
-   }
-  }
+  s.firewallAudit("add",id)
+  writeJSON(w,200,map[string]bool{"ok":true});return
  }
- s.firewallAudit(in.Action,id)
- writeJSON(w,200,map[string]bool{"ok":true})
+ pending,err:=s.firewallPendingSave(id,restoreUnit,restoreDeadline)
+ if err!=nil{
+  writeError(w,500,"rule temporarily removed; recovery timer remains armed because confirmation state could not be saved");return
+ }
+ s.firewallAudit("remove-pending",id)
+ writeJSON(w,http.StatusAccepted,map[string]any{"ok":true,"pending":true,"id":id,"token":pending.Token,"deadline":pending.Deadline})
 }
 func (s *Server) firewallRaw(w http.ResponseWriter,r *http.Request){
  ctx,cancel:=context.WithTimeout(r.Context(),12*time.Second);defer cancel()
@@ -126,6 +136,7 @@ func (s *Server) firewallPurpose(w http.ResponseWriter,r *http.Request){
  if decodeJSONLimit(w,r,&in,4<<10)!=nil{return}
  purpose:=strings.TrimSpace(in.Purpose)
  if len(purpose)>180||len([]rune(purpose))>60{writeError(w,400,"purpose is too long");return}
+ s.firewallMu.Lock();defer s.firewallMu.Unlock()
  ctx,cancel:=context.WithTimeout(r.Context(),15*time.Second);defer cancel()
  snap,err:=ops.InspectFirewall(ctx);if err!=nil{writeError(w,502,"failed to inspect firewall rules");return}
  found:=false;for _,rr:=range snap.Rules{if rr.ID==in.ID{found=true;break}}
