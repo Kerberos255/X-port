@@ -281,3 +281,17 @@ html[data-theme="light"] #fw-add-dialog .fw-form-hint{color:#795212;background:#
  #fw-policy-dialog{padding:18px}
  #fw-policy-dialog .fw-form{gap:11px}
 }
+
+/* Tablet width: prevent the 980px inner table from expanding the outer CSS
+   grid. Horizontal scrolling belongs inside the table wrapper, never body. */
+@media(min-width:701px){
+ .shell{grid-template-columns:220px minmax(0,1fr)}
+ .shell>main{min-width:0}
+ #page-firewall,#page-firewall .fw-workspace,#page-firewall .fw-table-wrap{
+  min-width:0;max-width:100%
+ }
+ #page-firewall .fw-table-wrap{overflow-x:auto}
+}
+@media(min-width:701px) and (max-width:1050px){
+ .shell{grid-template-columns:76px minmax(0,1fr)}
+}
