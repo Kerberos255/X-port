@@ -11,6 +11,7 @@ import (
  "testing"
 
  "golang.org/x/crypto/bcrypt"
+ "github.com/Kerberos255/X-port/internal/model"
  "github.com/Kerberos255/X-port/internal/service"
  "github.com/Kerberos255/X-port/internal/store"
 )
@@ -72,4 +73,62 @@ func TestExternalFirewallRuleCannotBeDeletedThroughWeb(t *testing.T) {
  rec=postRemove()
  if rec.Code!=http.StatusConflict{t.Fatalf("listening port must be blocked: %d %s",rec.Code,rec.Body.String())}
  if _,err:=os.Stat(marker);!os.IsNotExist(err){t.Fatalf("write attempted despite Web rejection: %v",err)}
+}
+
+func TestFirewallReadMapsAccountsAndListenerUsage(t *testing.T) {
+ dir:=t.TempDir()
+ script:=strings.Join([]string{
+  "#!/bin/sh",
+  "out=''",
+  "for arg do case \"$arg\" in --property=StandardOutput=file:*) out=${arg#--property=StandardOutput=file:};; esac; done",
+  "test -n \"$out\" || exit 96",
+  "exec 1>\"$out\"",
+  "case \" $* \" in",
+  "  *\" firewall-inspect\"*)",
+  "    printf '%s' '{\"backend\":\"firewalld\",\"active\":true,\"writable\":true,\"zones\":[\"public\"],\"rules\":[{\"id\":\"firewalld:public:2053/tcp\",\"port\":2053,\"protocol\":\"tcp\",\"zone\":\"public\",\"backend\":\"firewalld\",\"runtime\":true,\"permanent\":true},{\"id\":\"firewalld:public:8443/tcp\",\"port\":8443,\"protocol\":\"tcp\",\"zone\":\"public\",\"backend\":\"firewalld\",\"runtime\":true,\"permanent\":true}]}'",
+  "    ;;",
+  "  *\" firewall-listeners\"*) printf '%s' '{\"2053\":true}' ;;",
+  "  *) exit 97 ;;",
+  "esac",
+ },"\n")+"\n"
+ if err:=os.WriteFile(filepath.Join(dir,"systemd-run"),[]byte(script),0755);err!=nil{t.Fatal(err)}
+ t.Setenv("PATH",dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+ st,err:=store.Open(filepath.Join(dir,"x.db"));if err!=nil{t.Fatal(err)};defer st.Close()
+ err=st.ReplaceAccounts([]model.Account{
+  {ID:1,Name:"Active inbound",Enabled:true,Port:2053,Protocol:"vless",Tag:"test-inbound-active"},
+  {ID:2,Name:"Paused inbound",Enabled:false,Port:8443,Protocol:"trojan",Tag:"test-inbound-disabled"},
+ })
+ if err!=nil{t.Fatal(err)}
+ hash,err:=bcrypt.GenerateFromPassword([]byte("ci-test-only-pass"),bcrypt.MinCost);if err!=nil{t.Fatal(err)}
+ if err:=st.SetAdmin("admin",string(hash));err!=nil{t.Fatal(err)}
+ h:=New(st,service.NewAccounts(st,testApplier{}),nil,nil).Handler()
+ credential,_:=json.Marshal(map[string]string{"username":"admin","password":"ci-test-only-pass"})
+ login:=httptest.NewRecorder()
+ h.ServeHTTP(login,httptest.NewRequest(http.MethodPost,"http://panel/api/login",bytes.NewReader(credential)))
+ if login.Code!=http.StatusOK{t.Fatalf("login: %d %s",login.Code,login.Body.String())}
+ cookies:=login.Result().Cookies();if len(cookies)==0{t.Fatal("no session")}
+ req:=httptest.NewRequest(http.MethodGet,"http://panel/api/firewall",nil)
+ req.AddCookie(cookies[0])
+ response:=httptest.NewRecorder();h.ServeHTTP(response,req)
+ if response.Code!=http.StatusOK{t.Fatalf("firewall: %d %s",response.Code,response.Body.String())}
+ var payload struct{Rules []struct{
+  ID string `json:"id"`
+  AccountID int64 `json:"accountId"`
+  AccountName string `json:"accountName"`
+  AccountEnabled bool `json:"accountEnabled"`
+  Usage string `json:"usage"`
+  Protected bool `json:"protected"`
+ }}
+ if err:=json.Unmarshal(response.Body.Bytes(),&payload);err!=nil{t.Fatal(err)}
+ if len(payload.Rules)!=2{t.Fatalf("rules: %+v",payload.Rules)}
+ byPort:=map[string]struct{ID int64;Name,Usage string;Enabled,Protected bool}{
+  "firewalld:public:2053/tcp":{1,"Active inbound","used",true,true},
+  "firewalld:public:8443/tcp":{2,"Paused inbound","unused",false,false},
+ }
+ for _,rule:=range payload.Rules{
+  want,ok:=byPort[rule.ID]
+  if !ok||rule.AccountID!=want.ID||rule.AccountName!=want.Name||
+     rule.AccountEnabled!=want.Enabled||rule.Usage!=want.Usage||
+     rule.Protected!=want.Protected{t.Fatalf("unexpected rule: %+v",rule)}
+ }
 }
