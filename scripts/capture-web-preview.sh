@@ -183,3 +183,26 @@ capture account-advanced account
 capture xray-global xray
 printf 'GitHub runner UI screenshots:\n'
 ls -lh "$OUT"/*.png
+
+
+# Standalone firewall UI design preview, using only mock browser data.
+# No X-port API or system firewall operations are invoked.
+for viewport in desktop mobile; do
+  if [[ "$viewport" == desktop ]]; then dimensions="1440,960"; else dimensions="390,844"; fi
+  "$BROWSER" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage \
+    --window-size="$dimensions" --force-device-scale-factor=1 --virtual-time-budget=4000 \
+    --screenshot="$OUT/firewall-$viewport.png" \
+    "http://127.0.0.1:$PORT/firewall-preview.html" >/dev/null 2>"$TMP/firewall-$viewport.log"
+  [[ -s "$OUT/firewall-$viewport.png" ]] || { cat "$TMP/firewall-$viewport.log" >&2; exit 1; }
+  "$BROWSER" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage \
+    --window-size="$dimensions" --virtual-time-budget=4000 --dump-dom \
+    "http://127.0.0.1:$PORT/firewall-preview.html?selftest=1" \
+    > "$TMP/firewall-$viewport-dom.html" 2>"$TMP/firewall-$viewport-test.log"
+  if ! grep -q 'data-firewall-test="pass"' "$TMP/firewall-$viewport-dom.html"; then
+    echo "Firewall $viewport interaction regression failed" >&2
+    grep -o 'data-firewall-test[^>]*' "$TMP/firewall-$viewport-dom.html" >&2 || true
+    cat "$TMP/firewall-$viewport-test.log" >&2
+    exit 1
+  fi
+done
+printf 'Firewall UI interaction and screenshots verified (desktop/mobile)\n'
