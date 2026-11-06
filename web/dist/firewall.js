@@ -13,6 +13,26 @@
   function editable() { return state.data?.writable === true && (state.data?.backend === 'firewalld' || state.data?.backend === 'ufw') }
   function status(r) { return r.runtime !== r.permanent ? '需检查' : (r.runtime ? '已配置' : '未生效') }
   function stateBadge(r) { return '<span class="fw-state '+(r.runtime !== r.permanent ? 'warn' : '')+'">'+status(r)+'</span>' }
+  function usageBadge(r) {
+    if(r.usage==='used')return '<span class="fw-usage used"><span class="fw-usage-dot"></span>已使用</span>'
+    if(r.usage==='unused')return '<span class="fw-usage idle"><span class="fw-usage-dot"></span>未发现监听</span>'
+    return '<span class="fw-usage unknown"><span class="fw-usage-dot"></span>无法检测</span>'
+  }
+  function policy(r) { return r.action === 'deny' || r.action === 'drop' ? 'deny' : 'allow' }
+  function policyBadge(r) {
+    return '<span class="fw-policy '+policy(r)+'">'+(policy(r)==='deny'?'拒绝':'允许')+'</span>'
+  }
+  function accountCell(r) {
+    const title=r.accountName ? html(r.accountName) : html(label(r))
+    const subtitle=r.accountName ? ('Xray · '+html(r.purpose||'账号')+(r.accountEnabled?'':' · 账号已停用')) : (r.xray?'Xray · '+html(r.protocol.toUpperCase()):html(r.access||'系统端口'))
+    const linked = r.accountName && Number.isInteger(r.accountId) && r.accountId>0
+    return '<div class="fw-account-cell">'+(linked?'<button type="button" class="fw-account-link" data-fw-act="account" data-fw-account="'+r.accountId+'" title="前往 Xray 账号管理">'+title+'</button>':'<strong>'+title+'</strong>')+'<small>'+subtitle+'</small></div>'
+  }
+  function ruleToggle(r) {
+    const active=Boolean(r.runtime&&r.permanent)
+    const locked=Boolean(r.protected||r.runtime!==r.permanent)
+    return '<button type="button" class="fw-switch '+(active?'on':'')+'" role="switch" aria-checked="'+active+'" aria-label="'+html(r.port+'/'+r.protocol)+' 规则生效" data-fw-act="toggle" data-fw-id="'+html(r.id)+'" '+(locked?'disabled title="受保护或状态不一致，暂不能切换"':'title="规则启停功能仍在隔离测试"')+'><span></span></button>'+(locked?'<small class="fw-switch-caption">保护中</small>':'')
+  }
   function source(r) { return (r.managed ? 'X-port · ' : '外部 · ') + (r.backend === 'firewalld' ? 'firewalld · '+r.zone : r.backend) }
   function shortSource(r) { return (r.managed ? 'X-port · ' : '外部 · ') + r.backend }
   function shown() {
@@ -40,7 +60,7 @@
     diagnostic.hidden = !data?.unsafeReason
     el('fw-diagnostic-reason').textContent = data?.unsafeReason || ''
     el('fw-total').textContent = rules().length
-    el('fw-active').textContent = rules().filter(r=>r.runtime).length
+    el('fw-active').textContent = rules().filter(r=>r.usage==='used').length
     el('fw-xray-count').textContent = rules().filter(r=>r.xray).length
     el('fw-warn-count').textContent = rules().filter(r=>r.runtime !== r.permanent).length + (data?.unsafeReason ? 1 : 0)
     el('fw-add').disabled = !editable()
@@ -60,15 +80,15 @@
     const filtered = shown()
     el('fw-count').textContent = '显示 '+filtered.length+' / '+rules().length+' 条规则；备注与用途保存在 X-port 数据库中'
     el('fw-rows').innerHTML = filtered.length ? filtered.map(r => '<tr>'+
-      '<td data-label="端口">'+html(r.port)+'</td>'+
-      '<td data-label="用途">'+fieldButton(r,'purpose')+'</td>'+
-      '<td data-label="协议">'+html(r.protocol.toUpperCase())+'</td>'+
-      '<td data-label="规则来源"><span class="fw-source" title="'+html(source(r))+'">'+html(shortSource(r))+'</span></td>'+
-      '<td data-label="访问来源">'+html(r.access || '未确认')+'</td>'+
-      '<td data-label="状态">'+stateBadge(r)+'</td>'+
+      '<td data-label="端口 / 协议"><div class="fw-port-cell"><strong>'+html(r.port)+'</strong><small>/ '+html(r.protocol.toUpperCase())+'</small></div></td>'+
+      '<td data-label="关联账号 / 用途">'+accountCell(r)+'</td>'+
+      '<td data-label="使用情况">'+usageBadge(r)+'</td>'+
+      '<td data-label="策略">'+policyBadge(r)+'</td>'+
+      '<td data-label="来源"><span class="fw-source" title="'+html(source(r))+'">'+html(shortSource(r))+'</span></td>'+
+      '<td data-label="规则生效"><div class="fw-toggle-cell">'+ruleToggle(r)+'</div></td>'+
       '<td data-label="备注">'+fieldButton(r,'note')+'</td>'+
-      '<td data-label="操作"><button class="btn fw-mini ghost" data-fw-act="detail" data-fw-id="'+html(r.id)+'">详情</button></td>'+
-      '</tr>').join('') : '<tr><td colspan="8" class="muted">暂无匹配的端口规则。更多服务或富规则，请切换「底层规则」查看。</td></tr>'
+      '<td data-label="操作"><div class="fw-actions"><button class="btn fw-mini ghost" data-fw-act="configure" data-fw-id="'+html(r.id)+'">编辑</button><button class="btn fw-mini ghost" data-fw-act="detail" data-fw-id="'+html(r.id)+'">详情</button></div></td>'+
+      '</tr>').join('') : '<tr><td colspan="8" class="muted">暂无匹配的规则。</td></tr>'
     el('fw-xray-list').innerHTML = rules().filter(r=>r.xray).map(r => '<div class="fw-xray-line"><div><b>'+html(label(r))+'</b><small class="fw-sub">'+html(r.port)+' / '+html(r.protocol.toUpperCase())+' · '+html(source(r))+'</small></div>'+stateBadge(r)+'</div>').join('') || '<p class="fw-note">目前没有匹配到 Xray 账号的简单端口规则。</p>'
     if (state.editing) { const input = root.querySelector('.fw-edit-input'); if (input) {input.focus(); input.select()} }
   }
@@ -134,6 +154,22 @@
     el('fw-detail-dialog').returnValue = ''
     el('fw-detail-dialog').showModal()
   }
+  function openRuleEditor(id){
+    const r=rules().find(row=>row.id===id)
+    if(!r)return
+    el('fw-policy-title').textContent='编辑 '+r.port+'/'+r.protocol.toUpperCase()
+    el('fw-policy-subtitle').textContent=r.managed?'X-port 管理的规则':'外部规则 · 与当前 firewalld 共用'
+    el('fw-policy-port').value=r.port
+    el('fw-policy-proto').value=r.protocol
+    el('fw-policy-action').value=policy(r)
+    el('fw-policy-zone').value=r.zone||'UFW'
+    el('fw-policy-protection').textContent=r.protected
+      ? '此端口检测到管理服务或监听，系统会禁止危险改动。'
+      : '预览阶段：后端安全编辑及 120 秒回退仍在联调，此处只展示字段，不会修改系统规则。'
+    el('fw-policy-save').disabled=true
+    el('fw-policy-save').title='待隔离安全验证通过后开放'
+    el('fw-policy-dialog').showModal()
+  }
   function openAdd() {
     if(!editable())return
     el('fw-add-port').value=''
@@ -164,6 +200,9 @@
       }).catch(err=>toast(err.message,true))
       return
     }
+    if(act==='account'){document.querySelector('#nav [data-page="accounts"]')?.click();return}
+    if(act==='toggle'){toast('预览阶段：规则启停正在验证断线恢复与规则冲突，暂不执行系统修改。');return}
+    if(act==='configure'){openRuleEditor(id);return}
     if(act==='edit'){state.editing={id,key:button.dataset.fwKey};render()}
     if(act==='cancel'){state.editing=null;render()}
     if(act==='save')void saveEdit()
@@ -191,6 +230,8 @@
     const port=Number(el('fw-add-port').value)
     const protocol=el('fw-add-proto').value,zone=el('fw-add-zone').value
     if(!Number.isInteger(port)||port<1||port>65535)return toast('端口必须是 1–65535 的整数',true)
+    const policy=el('fw-add-policy').value
+    if(policy!=='allow')return toast('拒绝策略仍在隔离验证中，当前不会错误地创建允许规则',true)
     if(!window.confirm('确认在系统防火墙中放行 '+port+'/'+protocol+' 吗？'))return
     try{await request('/api/firewall/rules','POST',{action:'add',port,protocol,zone});toast('规则已添加');await refresh()}
     catch(err){toast(err.message,true)}
