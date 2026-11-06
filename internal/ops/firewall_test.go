@@ -1,6 +1,6 @@
 package ops
 
-import ("context";"testing";"os";"path/filepath";"time")
+import ("context";"testing";"os";"path/filepath";"time";"strings")
 func TestFirewallHelperRejectsInvalidArguments(t *testing.T){
  for _,tc:=range []struct{action string;port int;proto,zone string}{
   {"evil",80,"tcp","public"},{"add",0,"tcp","public"},{"add",22,"icmp","public"},{"add",80,"tcp","bad zone"},
@@ -31,7 +31,7 @@ case "$1" in
  *) exit 1;;
 esac
 `
- for _,name:=range []string{"systemd-run","systemctl"}{
+ for _,name:=range []string{"systemd-run","systemctl","firewall-cmd","ufw"}{
   if err:=os.WriteFile(filepath.Join(dir,name),[]byte(script),0755);err!=nil{t.Fatal(err)}
  }
  t.Setenv("PATH",dir)
@@ -41,6 +41,38 @@ esac
  if deadline<=time.Now().UnixMilli(){t.Fatalf("invalid deadline: %d",deadline)}
  if err:=CancelFirewallRestore(context.Background(),unit);err!=nil{t.Fatal(err)}
 }
+// Systemd must store recovery commands that remain valid when the X-port
+// executable is downgraded or removed during the 120-second window.
+func TestFirewallRestoreTimerUsesNativeUtilities(t *testing.T){
+ dir:=t.TempDir()
+ logFile:=filepath.Join(dir,"timer-arguments")
+ t.Setenv("XPORT_TEST_TIMER_LOG",logFile)
+ systemdScript:="#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$XPORT_TEST_TIMER_LOG\"\n"
+ if err:=os.WriteFile(filepath.Join(dir,"systemd-run"),[]byte(systemdScript),0755);err!=nil{t.Fatal(err)}
+ for _,tool:=range []string{"firewall-cmd","ufw"}{
+  if err:=os.WriteFile(filepath.Join(dir,tool),[]byte("#!/bin/sh\nexit 0\n"),0755);err!=nil{t.Fatal(err)}
+ }
+ t.Setenv("PATH",dir)
+ for _,tc:=range []struct{backend,zone,proto,expected string}{
+  {"firewalld","public","tcp","--permanent"},
+  {"ufw","","udp","allow"},
+ }{
+  unit,_,err:=ScheduleFirewallRestore(context.Background(),tc.backend,53334,tc.proto,tc.zone)
+  if err!=nil{t.Fatal(err)}
+  if !restoreUnitRE.MatchString(unit){t.Fatal("timer unit name invalid")}
+  raw,err:=os.ReadFile(logFile);if err!=nil{t.Fatal(err)}
+  args:=string(raw)
+  tool:=map[string]string{"firewalld":"firewall-cmd","ufw":"ufw"}[tc.backend]
+  if !strings.Contains(args,"/bin/sh\n-c\n") ||
+     !strings.Contains(args,"--on-active=120s") ||
+     !strings.Contains(args,filepath.Join(dir,tool)) ||
+     !strings.Contains(args,tc.expected){
+    t.Fatalf("%s lacks independent native recovery command: %s",tc.backend,args)
+  }
+  if strings.Contains(args,"\nfirewall-restore\n"){t.Fatalf("timer depends on panel subcommand: %s",args)}
+ }
+}
+
 func TestFirewallRestoreCannotConfirmExpiredTimer(t *testing.T){
  dir:=t.TempDir()
  if err:=os.WriteFile(filepath.Join(dir,"systemctl"),[]byte("#!/bin/sh\nexit 3\n"),0755);err!=nil{t.Fatal(err)}
