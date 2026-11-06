@@ -18,29 +18,38 @@
     if(r.usage==='unused')return '<span class="fw-usage idle"><span class="fw-usage-dot"></span>未发现监听</span>'
     return '<span class="fw-usage unknown"><span class="fw-usage-dot"></span>无法检测</span>'
   }
+  function needsCheck(r) {
+    return r.runtime !== r.permanent ||
+      r.usage === 'unknown' ||
+      Boolean(r.accountAmbiguous) ||
+      Boolean(r.xray && r.accountName && r.accountEnabled && r.usage === 'unused') ||
+      Boolean(r.xray && r.accountName && !r.accountEnabled && r.usage === 'used')
+  }
   function policy(r) { return r.action === 'deny' || r.action === 'drop' ? 'deny' : 'allow' }
   function policyBadge(r) {
     return '<span class="fw-policy '+policy(r)+'">'+(policy(r)==='deny'?'拒绝':'允许')+'</span>'
   }
   function accountCell(r) {
     const title=r.accountName ? html(r.accountName) : html(label(r))
-    const subtitle=r.accountName ? ('Xray · '+html(r.purpose||'账号')+(r.accountEnabled?'':' · 账号已停用')) : (r.xray?'Xray · '+html(r.protocol.toUpperCase()):html(r.access||'系统端口'))
+    const subtitle=r.accountAmbiguous ? '多个账号匹配 · 请检查传输与端口'
+      : r.accountName ? ('Xray · '+html(r.purpose||'账号')+(r.accountEnabled?'':' · 账号已停用'))
+      : (r.xray?'Xray · '+html(r.protocol.toUpperCase()):html(r.access||'系统端口')
     const linked = r.accountName && Number.isInteger(r.accountId) && r.accountId>0
     return '<div class="fw-account-cell">'+(linked?'<button type="button" class="fw-account-link" data-fw-act="account" data-fw-account="'+r.accountId+'" title="前往 Xray 账号管理">'+title+'</button>':'<strong>'+title+'</strong>')+'<small>'+subtitle+'</small></div>'
   }
   function ruleToggle(r) {
     const active=Boolean(r.runtime&&r.permanent)
-    const locked=Boolean(r.protected||r.runtime!==r.permanent)
-    return '<button type="button" class="fw-switch '+(active?'on':'')+'" role="switch" aria-checked="'+active+'" aria-label="'+html(r.port+'/'+r.protocol)+' 规则生效" data-fw-act="toggle" data-fw-id="'+html(r.id)+'" '+(locked?'disabled title="受保护或状态不一致，暂不能切换"':'title="规则启停功能仍在隔离测试"')+'><span></span></button>'+(locked?'<small class="fw-switch-caption">保护中</small>':'')
+    const locked=Boolean(r.protected||r.runtime!==r.permanent||!editable())
+    return '<button type="button" class="fw-switch '+(active?'on':'')+'" role="switch" aria-checked="'+active+'" aria-label="'+html(r.port+'/'+r.protocol)+' 规则生效" data-fw-act="toggle" data-fw-id="'+html(r.id)+'" aria-disabled="true" '+(locked?'disabled title="受保护或状态不一致，暂不能切换"':'title="规则启停功能仍在隔离测试"')+'><span></span></button>'+(locked?'<small class="fw-switch-caption">保护中</small>':'')
   }
   function source(r) { return (r.managed ? 'X-port · ' : '外部 · ') + (r.backend === 'firewalld' ? 'firewalld · '+r.zone : r.backend) }
   function shortSource(r) { return (r.managed ? 'X-port · ' : '外部 · ') + r.backend }
   function shown() {
     return rules().filter(r => {
       if (state.filter === 'xray' && !r.xray) return false
-      if (state.filter === 'warn' && r.runtime === r.permanent) return false
+      if (state.filter === 'warn' && !needsCheck(r)) return false
       const term = state.term.toLowerCase().trim()
-      return !term || [r.port,r.protocol,r.purpose,r.note,r.zone,r.access,r.backend].join(' ').toLowerCase().includes(term)
+      return !term || [r.port,r.protocol,r.purpose,r.accountName,r.note,r.zone,r.access,r.backend,r.usage].join(' ').toLowerCase().includes(term)
     })
   }
   function fieldButton(r, key) {
@@ -62,7 +71,7 @@
     el('fw-total').textContent = rules().length
     el('fw-active').textContent = rules().filter(r=>r.usage==='used').length
     el('fw-xray-count').textContent = rules().filter(r=>r.xray).length
-    el('fw-warn-count').textContent = rules().filter(r=>r.runtime !== r.permanent).length + (data?.unsafeReason ? 1 : 0)
+    el('fw-warn-count').textContent = rules().filter(needsCheck).length + (data?.unsafeReason ? 1 : 0)
     el('fw-add').disabled = !editable()
     el('fw-notice').textContent = data?.notice || '无法读取防火墙状态'
     const pending = Array.isArray(data?.pending) ? data.pending : []
@@ -141,7 +150,7 @@
       ? '由 X-port 创建的端口规则；修改前仍需检查服务和网络连通性。'
       : '由系统或其他管理器维护。可修改用途和备注，删除操作保留在原管理器中。'
     const groups=[
-      ['基本信息',[['用途',label(r)],['备注',r.note||'未填写'],['规则来源',source(r)],['访问来源',r.access||'未确认']]],
+      ['基本信息',[['用途',label(r)],['关联账号',r.accountAmbiguous?'多个候选，无法唯一定位':(r.accountName||'无关联')],['监听状态',r.usage==='used'?'检测到同协议监听':r.usage==='unused'?'未检测到同协议监听':'无法确认'],['备注',r.note||'未填写'],['规则来源',source(r)],['访问来源',r.access||'未确认']]],
       ['规则状态',[['运行时',r.runtime?'已配置':'不存在'],['永久配置',r.permanent?'已配置':'不存在'],['地址族',r.backend==='ufw'?(r.ipv4?'IPv4 ':'')+(r.ipv6?'IPv6':''):'由 firewalld Zone 决定']]],
       ['安全保护',[['规则归属',r.managed?'X-port 管理':'外部或未知（不可删除）'],['端口保护',r.protected?'已启用':'未检测到本机监听']]]
     ]
