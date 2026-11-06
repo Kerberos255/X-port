@@ -100,6 +100,69 @@ test "$code" = 403
 firewall-cmd --zone="$ZONE" --query-port=19178/tcp | grep -Fxq yes
 firewall-cmd --permanent --zone="$ZONE" --query-port=19178/tcp | grep -Fxq yes
 firewall-cmd --zone="$ZONE" --query-port=19090/tcp | grep -Fxq yes
+# X-port may edit a dormant external SIMPLE allowance with explicit consent.
+# The old source is protected by a 120s native rollback and ownership remains
+# external. Actual 1Panel Web UI is not being driven in this fixture.
+python3 - "$ZONE" <<'PY'
+import json,sys
+d=json.load(open("/run/panel-after-external-edit.json"))
+r=next(x for x in d["rules"] if x["port"]==19178 and x["protocol"]=="tcp")
+assert len(r["revision"])==24,r
+json.dump({"id":r["id"],"revision":r["revision"],
+ "newPort":19179,"newProtocol":"tcp","externalAcknowledged":True},
+ open("/run/panel-external-edit-request.json","w"))
+PY
+code="$(curl -sS -b /run/xport-ci.cookie -H "Origin: $BASE" \
+ -H 'Content-Type: application/json' -o /run/panel-edit-accepted.json -w '%{http_code}' \
+ -d @/run/panel-external-edit-request.json "$BASE/api/firewall/edit")"
+if [[ "$code" != 202 ]]; then
+ echo "[panel-coexist] Controlled external edit failed: HTTP $code"
+ cat /run/panel-edit-accepted.json; exit 1
+fi
+firewall-cmd --zone="$ZONE" --query-port=19178/tcp | grep -Fxq no
+firewall-cmd --zone="$ZONE" --query-port=19179/tcp | grep -Fxq yes
+python3 - <<'PY'
+import json
+p=json.load(open("/run/panel-edit-accepted.json"))
+assert p["pending"] and len(p["token"])==32 and p["kind"]=="edit-external",p
+json.dump({"id":p["id"],"token":p["token"]},open("/run/panel-edit-confirm.json","w"))
+PY
+code="$(curl -sS -b /run/xport-ci.cookie -H "Origin: $BASE" \
+ -H 'Content-Type: application/json' -o /run/panel-edit-confirmed.json -w '%{http_code}' \
+ -d @/run/panel-edit-confirm.json "$BASE/api/firewall/rules/confirm")"
+if [[ "$code" != 200 ]]; then cat /run/panel-edit-confirmed.json; exit 1; fi
+firewall-cmd --reload
+curl -fsS -b /run/xport-ci.cookie "$BASE/api/firewall" >/run/panel-edit-final.json
+python3 - <<'PY'
+import json
+d=json.load(open("/run/panel-edit-final.json"))
+assert all(r["port"]!=19178 for r in d["rules"])
+r=[x for x in d["rules"] if x["port"]==19179 and x["protocol"]=="tcp"]
+assert len(r)==1 and r[0]["managed"] is False and r[0]["runtime"] and r[0]["permanent"],r
+print("[panel-coexist] Confirmed X-port external edit remains visible through firewalld and externally owned")
+PY
+# Stale source IDs and old revision tokens cannot be replayed.
+code="$(curl -sS -b /run/xport-ci.cookie -H "Origin: $BASE" \
+ -H 'Content-Type: application/json' -o /run/panel-edit-stale.json -w '%{http_code}' \
+ -d @/run/panel-external-edit-request.json "$BASE/api/firewall/edit")"
+test "$code" = 409
+# The real external management port still cannot be modified, even with
+# the correct revision and explicit cross-panel acknowledgment.
+curl -fsS -b /run/xport-ci.cookie "$BASE/api/firewall" >/run/panel-edit-protected.json
+python3 - <<'PY'
+import json
+d=json.load(open("/run/panel-edit-protected.json"))
+r=next(x for x in d["rules"] if x["port"]==19090 and x["protocol"]=="tcp")
+json.dump({"id":r["id"],"revision":r["revision"],"newPort":19191,
+ "newProtocol":"tcp","externalAcknowledged":True},
+ open("/run/panel-edit-protected-request.json","w"))
+PY
+code="$(curl -sS -b /run/xport-ci.cookie -H "Origin: $BASE" \
+ -H 'Content-Type: application/json' -o /run/panel-edit-protected-response.json -w '%{http_code}' \
+ -d @/run/panel-edit-protected-request.json "$BASE/api/firewall/edit")"
+test "$code" = 409
+firewall-cmd --zone="$ZONE" --query-port=19090/tcp | grep -Fxq yes
+echo "[panel-coexist] Revision checks and management listener protection passed"
 systemctl is-active --quiet 1panel-core
 systemctl is-active --quiet xport.service
 test "$(getenforce)" = Enforcing
