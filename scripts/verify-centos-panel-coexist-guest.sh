@@ -163,6 +163,49 @@ code="$(curl -sS -b /run/xport-ci.cookie -H "Origin: $BASE" \
 test "$code" = 409
 firewall-cmd --zone="$ZONE" --query-port=19090/tcp | grep -Fxq yes
 echo "[panel-coexist] Revision checks and management listener protection passed"
+
+# Unconfirmed external edits must restore the old port and remove the new
+# rule without depending on X-port being available 120 seconds later.
+STAGE=external-edit-watchdog
+firewall-cmd --zone="$ZONE" --add-port=19181/tcp
+firewall-cmd --permanent --zone="$ZONE" --add-port=19181/tcp
+curl -fsS -b /run/xport-ci.cookie "$BASE/api/firewall" >/run/external-watchdog-before.json
+python3 - <<'PY'
+import json
+d=json.load(open("/run/external-watchdog-before.json"))
+r=next(x for x in d["rules"] if x["port"]==19181 and x["protocol"]=="tcp")
+assert r["managed"] is False
+json.dump({"id":r["id"],"revision":r["revision"],"newPort":19182,
+ "newProtocol":"tcp","externalAcknowledged":True},
+ open("/run/external-watchdog-request.json","w"))
+PY
+code="$(curl -sS -b /run/xport-ci.cookie -H "Origin: $BASE" \
+ -H 'Content-Type: application/json' -o /run/external-watchdog-start.json -w '%{http_code}' \
+ -d @/run/external-watchdog-request.json "$BASE/api/firewall/edit")"
+if [[ "$code" != 202 ]]; then cat /run/external-watchdog-start.json; exit 1; fi
+firewall-cmd --zone="$ZONE" --query-port=19181/tcp | grep -Fxq no
+firewall-cmd --zone="$ZONE" --query-port=19182/tcp | grep -Fxq yes
+# Keep the installed panel service running; the watchdog's native worker
+# still must not depend on the X-port executable.
+mv /usr/local/bin/xport /usr/local/bin/xport.external-watchdog
+restored=0
+for i in $(seq 1 140); do
+ old_rt="$(firewall-cmd --zone="$ZONE" --query-port=19181/tcp || true)"
+ old_pm="$(firewall-cmd --permanent --zone="$ZONE" --query-port=19181/tcp || true)"
+ new_rt="$(firewall-cmd --zone="$ZONE" --query-port=19182/tcp || true)"
+ new_pm="$(firewall-cmd --permanent --zone="$ZONE" --query-port=19182/tcp || true)"
+ if [[ "$old_rt" = yes && "$old_pm" = yes && "$new_rt" = no && "$new_pm" = no ]]; then
+  restored=1; break
+ fi
+ sleep 1
+done
+mv /usr/local/bin/xport.external-watchdog /usr/local/bin/xport
+if [[ "$restored" != 1 ]]; then
+ echo "[panel-coexist] Unconfirmed external edit watchdog did not restore old rule"
+ exit 1
+fi
+echo "[panel-coexist] Real 120-second external edit recovered old rule and removed target while binary missing"
+
 systemctl is-active --quiet 1panel-core
 systemctl is-active --quiet xport.service
 test "$(getenforce)" = Enforcing
