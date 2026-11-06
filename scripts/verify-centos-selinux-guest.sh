@@ -130,8 +130,12 @@ code="$(curl -sS -b /run/xport-ci.cookie -H "Origin: $BASE" \
  -H 'Content-Type: application/json' -o /run/confirm-response.json -w '%{http_code}' \
  -d @/run/confirm.json "$BASE/api/firewall/rules/confirm")"
 if [[ "$code" != 200 ]]; then cat /run/confirm-response.json; exit 1; fi
-firewall-cmd --zone="$ZONE" --query-port=53333/tcp | grep -Fxq no
-firewall-cmd --permanent --zone="$ZONE" --query-port=53333/tcp | grep -Fxq no
+runtime_query="$(firewall-cmd --zone="$ZONE" --query-port=53333/tcp || true)"
+permanent_query="$(firewall-cmd --permanent --zone="$ZONE" --query-port=53333/tcp || true)"
+if [[ "$runtime_query" != no || "$permanent_query" != no ]]; then
+ echo "[selinux-vm] Deleted rule still exists: runtime=$runtime_query permanent=$permanent_query" >&2
+ exit 1
+fi
 echo "[selinux-vm] Web rule removal confirmed"
 echo "XPORT_SELINUX_E2E_OK"
 if [[ -f /run/xport-ci-seed/panel-test.sh ]]; then
