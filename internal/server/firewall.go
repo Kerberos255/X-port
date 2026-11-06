@@ -236,7 +236,9 @@ func (s *Server) firewallRuleChange(w http.ResponseWriter,r *http.Request){
  if in.Action=="add"{
   if err:=s.store.SetSetting("firewall_owned:"+id,"v1");err!=nil{
    rbctx,done:=context.WithTimeout(context.Background(),35*time.Second)
-   rollback:=ops.ApplyFirewall(rbctx,s.store.Dir(),"remove",in.Port,in.Protocol,in.Zone);done()
+   var rollback error
+   if in.Action=="resume-drop"{rollback=ops.ApplySimpleDrop(rbctx,s.store.Dir(),"remove",in.Port,in.Protocol,in.Zone)}else{rollback=ops.ApplyFirewall(rbctx,s.store.Dir(),"remove",in.Port,in.Protocol,in.Zone)}
+   done()
    writeError(w,500,fmt.Sprintf("ownership persistence failed; rollback: %v",rollback));return
   }
   s.firewallAudit("add",id)
@@ -287,13 +289,13 @@ func (s *Server) firewallControl(w http.ResponseWriter,r *http.Request){
   writeError(w,400,"invalid firewall port/protocol/zone");return
  }
  switch in.Action {
- case "add-drop","remove-drop","pause-allow","resume-allow":
+ case "add-drop","remove-drop","pause-allow","resume-allow","pause-drop","resume-drop":
  default:writeError(w,400,"unsupported firewall control action");return
  }
  allowID:=firewall.RuleID("firewalld",in.Zone,in.Port,in.Protocol)
  dropID:=fmt.Sprintf("firewalld:%s:rich:%d/%s:deny:both",in.Zone,in.Port,in.Protocol)
  id:=allowID
- if in.Action=="add-drop"||in.Action=="remove-drop"{id=dropID}
+ if in.Action=="add-drop"||in.Action=="remove-drop"||in.Action=="pause-drop"||in.Action=="resume-drop"{id=dropID}
  if id!=in.ID{writeError(w,409,"rule changed or stale selection");return}
  s.firewallMu.Lock();defer s.firewallMu.Unlock()
  ctx,cancel:=context.WithTimeout(r.Context(),100*time.Second);defer cancel()
@@ -337,12 +339,12 @@ func (s *Server) firewallControl(w http.ResponseWriter,r *http.Request){
  }
  // A DROP rule is not a harmless inverse of ALLOW. Never add one to a
  // listening port, including a panel, SSH or a Docker-proxy process.
- if in.Action=="add-drop"||in.Action=="pause-allow"{
+ if in.Action=="add-drop"||in.Action=="pause-allow"||in.Action=="resume-drop"{
   listeners,err:=ops.FirewallListeners(ctx,s.store.Dir())
   if err!=nil{writeError(w,409,"cannot verify live listeners; unsafe change blocked");return}
   if listeners[in.Port]{
-   if in.Action=="add-drop"{
-    writeError(w,409,"active listener detected; DROP creation blocked");return
+   if in.Action=="add-drop"||in.Action=="resume-drop"{
+    writeError(w,409,"active listener detected; DROP activation blocked");return
    }
    // Pause a live Xray rule only when it unambiguously belongs to one
    // enabled Xray account. Other listening services stay protected.
@@ -355,26 +357,29 @@ func (s *Server) firewallControl(w http.ResponseWriter,r *http.Request){
    }
   }
  }
- if in.Action=="resume-allow"{
+ if in.Action=="resume-allow"||in.Action=="resume-drop"{
   raw,ok,err:=s.store.Setting(firewallPausedKey(id))
   if err!=nil{writeError(w,500,"cannot load paused rule");return}
   if !ok||raw==""{writeError(w,409,"no paused rule to resume");return}
   var paused firewall.Rule
   if json.Unmarshal([]byte(raw),&paused)!=nil||paused.ID!=id||
-     paused.Kind!="port"||paused.Action!="allow"||paused.Port!=in.Port||
+     ((in.Action=="resume-allow"&&(paused.Kind!="port"||paused.Action!="allow"))||
+      (in.Action=="resume-drop"&&(paused.Kind!="rich"||paused.Action!="deny"||paused.Family!="both")))||paused.Port!=in.Port||
      paused.Protocol!=in.Protocol||paused.Zone!=in.Zone||paused.Backend!="firewalld"{
    writeError(w,409,"paused rule snapshot invalid");return
   }
   if matching!=0{writeError(w,409,"rule already exists or was changed externally");return}
-  if err:=ops.ApplyFirewall(ctx,s.store.Dir(),"add",in.Port,in.Protocol,in.Zone);err!=nil{
-   writeError(w,409,"resume failed: "+err.Error());return
+  var applyErr error
+  if in.Action=="resume-drop"{applyErr=ops.ApplySimpleDrop(ctx,s.store.Dir(),"add",in.Port,in.Protocol,in.Zone)}else{applyErr=ops.ApplyFirewall(ctx,s.store.Dir(),"add",in.Port,in.Protocol,in.Zone)}
+  if applyErr!=nil{
+   writeError(w,409,"resume failed: "+applyErr.Error());return
   }
   if err:=s.store.SetSetting(firewallPausedKey(id),"");err!=nil{
    rbctx,done:=context.WithTimeout(context.Background(),35*time.Second)
    rollback:=ops.ApplyFirewall(rbctx,s.store.Dir(),"remove",in.Port,in.Protocol,in.Zone);done()
    writeError(w,500,fmt.Sprintf("resume metadata failed; rollback: %v",rollback));return
   }
-  s.firewallAudit("resume-allow",id)
+  s.firewallAudit(in.Action,id)
   writeJSON(w,200,map[string]bool{"ok":true});return
  }
  switch in.Action{
@@ -382,10 +387,15 @@ func (s *Server) firewallControl(w http.ResponseWriter,r *http.Request){
   if matching!=0{writeError(w,409,"port is already governed by another policy");return}
   target=firewall.Rule{ID:id,Port:in.Port,Protocol:in.Protocol,Zone:in.Zone,
    Backend:"firewalld",Kind:"rich",Action:"deny",Family:"both"}
- case "remove-drop":
+ case "remove-drop","pause-drop":
   if matching!=1||target.ID!=id||target.Kind!="rich"||target.Action!="deny"||
      target.Family!="both"||!target.Runtime||!target.Permanent{
    writeError(w,409,"DROP rule changed or is not a complete dual-family policy");return
+  }
+  if in.Action=="pause-drop"{
+   raw,_,err:=s.store.Setting(firewallPausedKey(id))
+   if err!=nil{writeError(w,500,"cannot inspect paused metadata");return}
+   if raw!=""{writeError(w,409,"rule already has paused metadata");return}
   }
  case "pause-allow":
   if matching!=1||target.ID!=id||target.Kind!="port"||target.Action!="allow"||
@@ -403,9 +413,9 @@ func (s *Server) firewallControl(w http.ResponseWriter,r *http.Request){
  case "add-drop":
   unit,deadline,err=ops.ScheduleFirewallDropUndo(ctx,"remove",in.Port,in.Protocol,in.Zone)
   kind="add-drop"
- case "remove-drop":
+ case "remove-drop","pause-drop":
   unit,deadline,err=ops.ScheduleFirewallDropUndo(ctx,"add",in.Port,in.Protocol,in.Zone)
-  kind="remove-drop"
+  kind=in.Action
  case "pause-allow":
   unit,deadline,err=ops.ScheduleFirewallRestore(ctx,"firewalld",in.Port,in.Protocol,in.Zone)
   kind="pause-allow"
