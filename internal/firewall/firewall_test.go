@@ -245,3 +245,39 @@ func TestUFWTopLevelOwnershipDetection(t *testing.T){
  conflict,err=independentInputChainsWithUFW(string(modified),true)
  if err!=nil||!conflict{t.Fatalf("foreign DROP must disable writing: %v %v",conflict,err)}
 }
+
+func TestSimpleRichRuleRecognition(t *testing.T){
+ cases:=[]struct{raw,zone,action,family string;port int;ok bool}{
+  {`rule port port="10401" protocol="tcp" drop`,"public","deny","both",10401,true},
+  {`rule family="ipv4" port port="2053" protocol="udp" reject`,"public","reject","ipv4",2053,true},
+  {`rule family="ipv6" port port="65535" protocol="tcp" accept`,"trusted","accept","ipv6",65535,true},
+  {`rule family="ipv4" source address="192.0.2.0/24" port port="10401" protocol="tcp" drop`,"public","","",0,false},
+  {`rule priority="-100" port port="10401" protocol="tcp" drop`,"public","","",0,false},
+  {`rule port port="10401" protocol="tcp" log drop`,"public","","",0,false},
+  {`rule port port="99999" protocol="tcp" drop`,"public","","",0,false},
+  {`rule port port="443" protocol="sctp" drop`,"public","","",0,false},
+  {`rule port port="443-446" protocol="tcp" drop`,"public","","",0,false},
+ }
+ for _,tc:=range cases{
+  t.Run(tc.raw,func(t *testing.T){
+   r,ok:=parseSimpleRichRule(tc.raw,tc.zone)
+   if ok!=tc.ok{t.Fatalf("ok=%v expected=%v",ok,tc.ok)}
+   if !ok{return}
+   if r.Action!=tc.action||r.Family!=tc.family||r.Kind!="rich"||r.Port!=tc.port||r.Zone!=tc.zone||r.ID==""{
+    t.Fatalf("parsed %+v",r)
+   }
+  })
+ }
+}
+func TestConflictingPortPoliciesFlagged(t *testing.T){
+ rules:=[]Rule{
+  {Port:443,Protocol:"tcp",Backend:"firewalld",Zone:"public",Action:"allow",Kind:"port"},
+  {Port:443,Protocol:"tcp",Backend:"firewalld",Zone:"public",Action:"deny",Kind:"rich"},
+  {Port:443,Protocol:"udp",Backend:"firewalld",Zone:"public",Action:"allow",Kind:"port"},
+  {Port:443,Protocol:"tcp",Backend:"firewalld",Zone:"trusted",Action:"allow",Kind:"port"},
+ }
+ markRuleConflicts(rules)
+ if !rules[0].Conflict||!rules[1].Conflict||rules[2].Conflict||rules[3].Conflict{
+  t.Fatalf("policy conflicts: %+v",rules)
+ }
+}
