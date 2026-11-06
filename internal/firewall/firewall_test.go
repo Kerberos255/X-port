@@ -281,3 +281,48 @@ func TestConflictingPortPoliciesFlagged(t *testing.T){
   t.Fatalf("policy conflicts: %+v",rules)
  }
 }
+
+func TestFirewalldRichSnapshotUsesBothRuntimeAndPermanent(t *testing.T){
+ dir:=t.TempDir()
+ // Mirror the exact canonical output observed in the failing CentOS 9 E2E,
+ // from both runtime and permanent firewalld, not a hand-built JSON snapshot.
+ cmd:=`#!/bin/sh
+case "$1" in
+ --state) echo running ;;
+ --get-default-zone) echo public ;;
+ --get-active-zones) printf 'public\n  interfaces: eth0\n' ;;
+ --zone=public)
+  case "$2" in
+   --list-ports) echo '' ;;
+   --list-rich-rules) echo 'rule port port="53342" protocol="tcp" drop' ;;
+   --list-services) echo ssh ;;
+   *) exit 2 ;;
+  esac ;;
+ --permanent)
+  case "$2" in
+   --zone=public)
+    case "$3" in
+     --list-ports) echo '' ;;
+     --list-rich-rules) echo 'rule port port="53342" protocol="tcp" drop' ;;
+     *) exit 2 ;;
+    esac ;;
+   *) exit 2 ;;
+  esac ;;
+ *) exit 2 ;;
+esac
+`
+ if err:=os.WriteFile(filepath.Join(dir,"firewall-cmd"),[]byte(cmd),0755);err!=nil{t.Fatal(err)}
+ t.Setenv("PATH",dir)
+ snap,err:=Inspect(context.Background())
+ if err!=nil{t.Fatal(err)}
+ if len(snap.Rules)!=1{
+  t.Fatalf("firewalld returned rich rules but snapshot did not: %+v",snap)
+ }
+ rich:=snap.Rules[0]
+ if rich.Port!=53342||rich.Protocol!="tcp"||rich.Kind!="rich"||
+    rich.Action!="deny"||rich.Family!="both"||!rich.Runtime||!rich.Permanent||
+    rich.ID!="firewalld:public:rich:53342/tcp:deny:both"{
+  t.Fatalf("rich rule misread: %+v",rich)
+ }
+ if snap.OpaqueRichZones["public"]{t.Fatalf("canonical DROP marked opaque: %+v",snap)}
+}
