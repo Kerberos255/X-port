@@ -160,9 +160,15 @@ func (s *Server) firewallRead(w http.ResponseWriter,r *http.Request){
   var paused firewall.Rule
   if json.Unmarshal([]byte(raw),&paused)!=nil||paused.ID==""||
      key!=firewallPausedKey(paused.ID)||paused.Backend!="firewalld"||
-     paused.Kind!="port"||paused.Action!="allow"||
      !firewall.ValidZone(paused.Zone)||!firewall.ValidRule(paused.Port,paused.Protocol)||
      settings["firewall_owned:"+paused.ID]!="v1"{continue}
+  // A paused rule no longer appears in firewalld. Accept only X-port's
+  // exact known allow or DROP shapes; never resurrect arbitrary rich rules.
+  validAllow:=paused.Kind=="port"&&paused.Action=="allow"&&
+     paused.ID==firewall.RuleID("firewalld",paused.Zone,paused.Port,paused.Protocol)
+  validDrop:=paused.Kind=="rich"&&paused.Action=="deny"&&paused.Family=="both"&&
+     paused.ID==fmt.Sprintf("firewalld:%s:rich:%d/%s:deny:both",paused.Zone,paused.Port,paused.Protocol)
+  if !validAllow&&!validDrop{continue}
   existing:=-1
   conflicting:=false
   for i,entry:=range rules{
@@ -189,7 +195,11 @@ func (s *Server) firewallRead(w http.ResponseWriter,r *http.Request){
    Protected:paused.Port==22||paused.Port==s.firewallGuardPort(),
    Managed:true,Xray:len(account)>0,AccountID:accountID,AccountName:name,
    AccountEnabled:enabled,AccountAmbiguous:len(account)>1,Usage:usage,
-   Paused:true,Revision:firewallRuleRevision(paused),CanToggle:snap.Backend=="firewalld"&&!snap.OpaqueRichZones[paused.Zone]&&!conflicting&&paused.Port!=22&&paused.Port!=s.firewallGuardPort(),
+   Paused:true,PausedDrift:conflicting,Conflict:conflicting,
+   Revision:firewallRuleRevision(paused),
+   CanToggle:snap.Backend=="firewalld"&&!snap.OpaqueRichZones[paused.Zone]&&!conflicting&&
+     paused.Port!=22&&paused.Port!=s.firewallGuardPort()&&
+     (validAllow||(listeningError==nil&&!listening[paused.Port])),
   })
  }
  writeJSON(w,200,firewallView{Snapshot:snap,Rules:rules,Pending:pendingFromSettings(settings)})

@@ -12,6 +12,7 @@ import (
  "testing"
 
  "golang.org/x/crypto/bcrypt"
+ "github.com/Kerberos255/X-port/internal/firewall"
  "github.com/Kerberos255/X-port/internal/model"
  "github.com/Kerberos255/X-port/internal/service"
  "github.com/Kerberos255/X-port/internal/store"
@@ -165,6 +166,44 @@ func TestFirewallReadMapsAccountsAndListenerUsage(t *testing.T) {
  for _,item:=range fallback.Rules{
   if item.Usage!="unknown"||!item.Protected{t.Fatalf("failed socket inspection must be unknown and protected: %+v",item)}
  }
+
+ // A confirmed paused DROP is absent from firewalld but must remain
+ // visible and resumable in X-port's read model. This caught the CentOS
+ // E2E mismatch after the real DROP was confirmed and then paused.
+ t.Setenv("XPORT_TEST_SOCKET_ERROR","")
+ paused:=firewall.Rule{
+  ID:"firewalld:public:rich:53342/tcp:deny:both",Port:53342,Protocol:"tcp",
+  Zone:"public",Backend:"firewalld",Kind:"rich",Action:"deny",Family:"both",
+  Runtime:true,Permanent:true,
+ }
+ encoded,err:=json.Marshal(paused);if err!=nil{t.Fatal(err)}
+ if err:=st.SetSetting("firewall_owned:"+paused.ID,"v1");err!=nil{t.Fatal(err)}
+ if err:=st.SetSetting("firewall_paused:"+paused.ID,string(encoded));err!=nil{t.Fatal(err)}
+ pausedResponse:=httptest.NewRecorder()
+ h.ServeHTTP(pausedResponse,req)
+ if pausedResponse.Code!=http.StatusOK{t.Fatalf("paused read: %d %s",pausedResponse.Code,pausedResponse.Body.String())}
+ var view struct{Rules []struct{
+  ID string `json:"id"`
+  Action string `json:"action"`
+  Kind string `json:"kind"`
+  Family string `json:"family"`
+  Paused bool `json:"paused"`
+  Managed bool `json:"managed"`
+  Runtime bool `json:"runtime"`
+  Permanent bool `json:"permanent"`
+  CanToggle bool `json:"canToggle"`
+ }}
+ if err:=json.Unmarshal(pausedResponse.Body.Bytes(),&view);err!=nil{t.Fatal(err)}
+ count:=0
+ for _,rule:=range view.Rules{
+  if rule.ID!=paused.ID{continue}
+  count++
+  if !rule.Paused||!rule.Managed||rule.Runtime||rule.Permanent||
+     !rule.CanToggle||rule.Kind!="rich"||rule.Action!="deny"||rule.Family!="both"{
+   t.Fatalf("paused DROP must be visible and inactive: %+v",rule)
+  }
+ }
+ if count!=1{t.Fatalf("paused DROP absent or duplicated: count=%d rules=%+v",count,view.Rules)}
 }
 
 func TestAccountFirewallTransportAndPortCollisions(t *testing.T){
