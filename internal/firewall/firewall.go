@@ -20,6 +20,8 @@ import (
 type Rule struct {
 	ID string `json:"id"`
 	Port int `json:"port"`
+ RangeStart int `json:"rangeStart,omitempty"`
+ RangeEnd int `json:"rangeEnd,omitempty"`
 	Protocol string `json:"protocol"`
 	Zone string `json:"zone,omitempty"`
 	Backend string `json:"backend"`
@@ -48,6 +50,7 @@ type Snapshot struct {
 }
 var zoneRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`)
 var portRE = regexp.MustCompile(`^([1-9][0-9]{0,4})/(tcp|udp)$`)
+var portRangeRE = regexp.MustCompile(`^([1-9][0-9]{0,4})-([1-9][0-9]{0,4})/(tcp|udp)$`)
 
 func command(ctx context.Context, name string, args ...string) (string,error) {
 	cctx,cancel:=context.WithTimeout(ctx,5*time.Second);defer cancel()
@@ -68,6 +71,21 @@ func ParsePort(s string)(int,string,bool){
 	m:=portRE.FindStringSubmatch(s);if m==nil{return 0,"",false}
 	n,err:=strconv.Atoi(m[1]);return n,m[2],err==nil&&ValidRule(n,m[2])
 }
+// ParsePortSpec preserves native port ranges as read-only inventory entries.
+func ParsePortSpec(spec string)(Rule,bool){
+ if p,proto,ok:=ParsePort(spec);ok{return Rule{Port:p,Protocol:proto},true}
+ m:=portRangeRE.FindStringSubmatch(spec)
+ if m==nil{return Rule{},false}
+ start,e1:=strconv.Atoi(m[1]);end,e2:=strconv.Atoi(m[2])
+ if e1!=nil||e2!=nil||!ValidRule(start,m[3])||!ValidRule(end,m[3])||start>=end{return Rule{},false}
+ return Rule{Protocol:m[3],RangeStart:start,RangeEnd:end},true
+}
+func (r Rule) IsRange()bool{return r.RangeStart>0&&r.RangeEnd>=r.RangeStart}
+func (r Rule) ContainsPort(p int)bool{
+ if r.IsRange(){return p>=r.RangeStart&&p<=r.RangeEnd}
+ return r.Port==p
+}
+func (r Rule) FirstPort()int{if r.IsRange(){return r.RangeStart};return r.Port}
 func activeZones(raw string)[]string{
 	var zones []string
 	for _,line:=range strings.Split(raw,"\n"){
@@ -229,9 +247,9 @@ func Inspect(ctx context.Context)(Snapshot,error){
 			entries:=map[string]*Rule{}
 			for _,batch:=range []struct{text string;runtime bool}{{rt,true},{pm,false}}{
 				for _,spec:=range strings.Fields(batch.text){
-					port,proto,ok:=ParsePort(spec);if !ok{continue}
+					portSpec,ok:=ParsePortSpec(spec);if !ok{continue}
 					r:=entries[spec]
-					if r==nil{r=&Rule{ID:"firewalld:"+zone+":"+spec,Port:port,Protocol:proto,Zone:zone,Backend:"firewalld",Access:"区域："+zone};entries[spec]=r}
+					if r==nil{r=&Rule{ID:"firewalld:"+zone+":"+spec,Port:portSpec.Port,Protocol:portSpec.Protocol,RangeStart:portSpec.RangeStart,RangeEnd:portSpec.RangeEnd,Zone:zone,Backend:"firewalld",Access:"区域："+zone};entries[spec]=r}
 					if batch.runtime{r.Runtime=true}else{r.Permanent=true}
 				}
 			}
@@ -277,7 +295,7 @@ func Inspect(ctx context.Context)(Snapshot,error){
 	case "none":
 		snap.Notice="未发现活动的受支持防火墙管理器。"
 	}
-	sort.Slice(snap.Rules,func(i,j int)bool{a,b:=snap.Rules[i],snap.Rules[j];if a.Port!=b.Port{return a.Port<b.Port};if a.Protocol!=b.Protocol{return a.Protocol<b.Protocol};return a.Zone<b.Zone})
+	sort.Slice(snap.Rules,func(i,j int)bool{a,b:=snap.Rules[i],snap.Rules[j];if a.FirstPort()!=b.FirstPort(){return a.FirstPort()<b.FirstPort()};if a.Protocol!=b.Protocol{return a.Protocol<b.Protocol};return a.Zone<b.Zone})
  markRuleConflicts(snap.Rules)
 	return snap,nil
 }
@@ -297,20 +315,36 @@ func parseSimpleRichRule(raw,zone string)(Rule,bool){
  return Rule{ID:id,Port:p,Protocol:match[3],Zone:zone,Backend:"firewalld",
   Access:"区域："+zone,Family:family,Kind:"rich",Action:action},true
 }
+// Detect overlapping single ports and ranges with a per-zone interval
+// sweep. Large imported rule sets should not pay O(n²) per page refresh.
 func markRuleConflicts(rules []Rule){
  groups:=make(map[string][]int)
  for i,r:=range rules{
-  key:=fmt.Sprintf("%s/%s/%d/%s",r.Backend,r.Zone,r.Port,r.Protocol)
+  key:=r.Backend+"\x00"+r.Zone+"\x00"+r.Protocol
   groups[key]=append(groups[key],i)
  }
  for _,indices:=range groups{
-  if len(indices)<2{continue}
-  for _,i:=range indices{rules[i].Conflict=true}
+  sort.Slice(indices,func(i,j int)bool{
+   a,b:=rules[indices[i]],rules[indices[j]]
+   if a.FirstPort()!=b.FirstPort(){return a.FirstPort()<b.FirstPort()}
+   return a.RangeEnd<b.RangeEnd
+  })
+  highestEnd,highestIndex:=-1,-1
+  for _,idx:=range indices{
+   r:=rules[idx]
+   first,last:=r.FirstPort(),r.Port
+   if r.IsRange(){last=r.RangeEnd}
+   if first<=highestEnd{
+    rules[idx].Conflict=true
+    rules[highestIndex].Conflict=true
+   }
+   if last>highestEnd{highestEnd=last;highestIndex=idx}
+  }
  }
 }
 
 func containsRule(s Snapshot,p int,proto,zone string)(Rule,bool){
-	for _,r:=range s.Rules{if r.Port==p&&r.Protocol==proto&&r.Zone==zone{return r,true}}
+	for _,r:=range s.Rules{if r.ContainsPort(p)&&r.Protocol==proto&&r.Zone==zone{return r,true}}
 	return Rule{},false
 }
 func RuleID(backend,zone string,p int,proto string)string{
@@ -327,7 +361,7 @@ func Change(ctx context.Context,action string,p int,proto,zone string)error{
  if snap.Backend=="firewalld"&&snap.OpaqueRichZones[zone]{
   return errors.New("zone contains unsupported rich rules; normal port changes blocked")
  }
- if exists&&(r.Kind=="rich"||r.Action!="allow"||r.Conflict){return errors.New("ambiguous or conflicting port/rich rules; use original manager")}
+ if exists&&(r.IsRange()||r.Kind=="rich"||r.Action!="allow"||r.Conflict){return errors.New("ambiguous, ranged or conflicting rules; use original manager")}
 	switch snap.Backend {
 	case "firewalld":
 		if !ValidZone(zone){return errors.New("invalid zone")}
@@ -377,11 +411,11 @@ func ChangeSimpleDrop(ctx context.Context,action string,port int,proto,zone stri
  for _,r:=range snap.Rules{
   // Another active zone might already expose the same port. Changing one
   // zone cannot be presented as an unambiguous global allow/deny policy.
-  if action=="add"&&r.Port==port&&r.Protocol==proto&&r.Zone!=zone{
+  if action=="add"&&r.ContainsPort(port)&&r.Protocol==proto&&r.Zone!=zone{
    return errors.New("same port is configured in another zone")
   }
 
-  if r.Port==port&&r.Protocol==proto&&r.Zone==zone{matching=append(matching,r)}
+  if r.ContainsPort(port)&&r.Protocol==proto&&r.Zone==zone{matching=append(matching,r)}
  }
  if action=="add"{
   if len(matching)!=0{return errors.New("port already has a rule or conflicting policy")}

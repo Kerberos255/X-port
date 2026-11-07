@@ -121,6 +121,93 @@ assert data.get("tcp/28612") is True, data
 assert not data.get("udp/28612",False), data
 print("[selinux-vm] TCP panel listener is recognized independently from UDP")
 PY
+STAGE=discovery-process-e2e
+# Read-only process attribution must work under the real SELinux/systemd helper.
+python3 -m http.server 53440 --bind 127.0.0.1 >/run/xport-ci-python-http.log 2>&1 &
+probe_pid=$!
+for i in $(seq 1 20); do
+ if ss -H -lntp | grep -F ':53440 ' >/dev/null; then break; fi
+ sleep .2
+done
+firewall-cmd --zone="$ZONE" --add-port=53440/tcp >/dev/null
+firewall-cmd --permanent --zone="$ZONE" --add-port=53440/tcp >/dev/null
+/usr/local/bin/xport firewall-discovery >/run/xport-ci-discovery.json
+python3 - <<'PY'
+import json
+d=json.load(open('/run/xport-ci-discovery.json'))
+assert any(p['port']==53440 and p['protocol']=='tcp' and p.get('pid',0)>0 and p.get('name','').startswith('python') for p in d['processes']),d
+print('[selinux-vm] Real process/PID discovery passed')
+PY
+curl -fsS -b /run/xport-ci.cookie "$BASE/api/firewall" >/run/xport-ci-discovered.json
+python3 - <<'PY'
+import json
+d=json.load(open('/run/xport-ci-discovered.json'))
+r=[r for r in d['rules'] if r['port']==53440 and r['protocol']=='tcp']
+assert len(r)==1 and r[0]['protected'] and r[0]['usage']=='used' and any(p.get('pid',0)>0 for p in r[0].get('usageDetails',[])),r
+PY
+kill "$probe_pid"
+wait "$probe_pid" 2>/dev/null || true
+firewall-cmd --zone="$ZONE" --remove-port=53440/tcp >/dev/null
+firewall-cmd --permanent --zone="$ZONE" --remove-port=53440/tcp >/dev/null
+
+STAGE=nonstandard-ssh-protection
+# The sshd daemon is NOT restarted: a configured-but-not-listening port is
+# still a critical port and must be protected from a fresh Web request.
+cp -p /etc/ssh/sshd_config /run/xport-ci-sshd-config.orig
+{ printf 'Port 53571\n'; cat /run/xport-ci-sshd-config.orig; } >/etc/ssh/sshd_config
+restorecon /etc/ssh/sshd_config >/dev/null 2>&1 || true
+sshd -T >/run/xport-ci-effective-sshd.conf
+grep -Fxq 'port 53571' /run/xport-ci-effective-sshd.conf
+firewall-cmd --zone="$ZONE" --add-port=53571/tcp >/dev/null
+firewall-cmd --permanent --zone="$ZONE" --add-port=53571/tcp >/dev/null
+curl -fsS -b /run/xport-ci.cookie "$BASE/api/firewall" >/run/xport-ci-ssh-guard.json
+python3 - <<'PY'
+import json
+d=json.load(open('/run/xport-ci-ssh-guard.json'))
+r=[r for r in d['rules'] if r['port']==53571]
+assert len(r)==1 and r[0]['protected'] and r[0]['purposeSource']=='ssh',r
+assert not r[0]['canToggle'] and r[0]['usage'] == 'unused',r
+with open('/run/xport-ci-ssh-edit.json','w') as f:
+ json.dump(dict(id=r[0]['id'],revision=r[0]['revision'],newPort=53572,newProtocol='tcp',externalAcknowledged=True),f)
+PY
+code="$(curl -sS -b /run/xport-ci.cookie -H "Origin: $BASE" -H 'Content-Type: application/json' -o /run/xport-ci-ssh-edit-result.json -w '%{http_code}' -d @/run/xport-ci-ssh-edit.json "$BASE/api/firewall/edit")"
+test "$code" = 409
+code="$(curl -sS -b /run/xport-ci.cookie -H "Origin: $BASE" -H 'Content-Type: application/json' -o /run/xport-ci-ssh-drop.json -w '%{http_code}' -d "{\"action\":\"add-drop\",\"id\":\"firewalld:$ZONE:rich:53571/tcp:deny:both\",\"port\":53571,\"protocol\":\"tcp\",\"zone\":\"$ZONE\"}" "$BASE/api/firewall/control")"
+test "$code" = 409
+test "$(firewall-cmd --zone="$ZONE" --query-port=53571/tcp || true)" = yes
+cp -p /run/xport-ci-sshd-config.orig /etc/ssh/sshd_config
+restorecon /etc/ssh/sshd_config >/dev/null 2>&1 || true
+firewall-cmd --zone="$ZONE" --remove-port=53571/tcp >/dev/null
+firewall-cmd --permanent --zone="$ZONE" --remove-port=53571/tcp >/dev/null
+echo "[selinux-vm] Configured non-22 SSH port guarded without a listener"
+
+STAGE=firewalld-readonly-range
+mkdir -p /etc/pure-ftpd/conf
+printf '39000 40000\n' >/etc/pure-ftpd/conf/PassivePortRange
+firewall-cmd --zone="$ZONE" --add-port=39000-40000/tcp >/dev/null
+firewall-cmd --permanent --zone="$ZONE" --add-port=39000-40000/tcp >/dev/null
+curl -fsS -b /run/xport-ci.cookie "$BASE/api/firewall" >/run/xport-ci-range.json
+python3 - <<'PY'
+import json
+d=json.load(open('/run/xport-ci-range.json'))
+r=[r for r in d['rules'] if r.get('rangeStart')==39000 and r.get('rangeEnd')==40000]
+assert len(r)==1 and r[0]['port']==0 and r[0]['protected'] and not r[0]['canToggle'],r
+assert r[0]['purposeSource']=='ftp-config',r
+with open('/run/xport-ci-range-edit.json','w') as f:
+ json.dump(dict(id=r[0]['id'],revision=r[0]['revision'],newPort=42000,newProtocol='tcp',externalAcknowledged=True),f)
+PY
+code="$(curl -sS -b /run/xport-ci.cookie -H "Origin: $BASE" -H 'Content-Type: application/json' -o /run/xport-ci-range-edit-result.json -w '%{http_code}' -d @/run/xport-ci-range-edit.json "$BASE/api/firewall/edit")"
+if [[ "$code" != 409 ]]; then cat /run/xport-ci-range-edit-result.json; echo "range edit HTTP $code"; exit 1; fi
+code="$(curl -sS -b /run/xport-ci.cookie -H "Origin: $BASE" -H 'Content-Type: application/json' -o /run/xport-ci-range-overlap.json -w '%{http_code}' -d "{\"action\":\"add\",\"port\":39300,\"protocol\":\"tcp\",\"zone\":\"$ZONE\"}" "$BASE/api/firewall/rules")"
+if [[ "$code" != 409 ]]; then cat /run/xport-ci-range-overlap.json; echo "range overlap HTTP $code"; exit 1; fi
+# firewalld query-port may report YES for a member of a pre-existing
+# range; inspect the exact native list to prove no separate port was added.
+firewall-cmd --zone="$ZONE" --list-ports | tr ' ' '\n' | grep -Fx '39000-40000/tcp' >/dev/null
+test -z "$(firewall-cmd --zone="$ZONE" --list-ports | tr ' ' '\n' | grep -Fx '39300/tcp' || true)"
+firewall-cmd --zone="$ZONE" --remove-port=39000-40000/tcp >/dev/null
+firewall-cmd --permanent --zone="$ZONE" --remove-port=39000-40000/tcp >/dev/null
+echo "[selinux-vm] FTP range displayed, overlapping and range edits rejected"
+
 STAGE=foreign-input-fail-closed
 echo "[selinux-vm] Verifying separate INPUT filter blocks Web writes without changing rules"
 nft add table inet xport_ci_external

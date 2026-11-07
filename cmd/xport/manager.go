@@ -61,7 +61,7 @@ func dispatchManager(args []string) (bool, int) {
 
 func isManagerCommand(cmd string) bool {
 	switch cmd {
-	case "menu", "status", "start", "stop", "restart", "restart-xray", "logs", "autostart", "settings", "admin", "update", "update-xray", "update-geodata", "backup", "firewall", "firewall-apply", "firewall-inspect", "firewall-policy", "firewall-raw", "firewall-listeners", "firewall-sockets", "firewall-restore", "repair", "uninstall":
+	case "menu", "status", "start", "stop", "restart", "restart-xray", "logs", "autostart", "settings", "admin", "update", "update-xray", "update-geodata", "backup", "firewall", "firewall-apply", "firewall-inspect", "firewall-policy", "firewall-raw", "firewall-listeners", "firewall-sockets", "firewall-discovery", "firewall-restore", "repair", "uninstall":
 		return true
 	default:
 		return false
@@ -112,6 +112,8 @@ func runManagerCommand(cmd string, args []string) error {
 		return firewallHelperListeners(args)
 	case "firewall-sockets":
 		return firewallHelperSockets(args)
+	case "firewall-discovery":
+		return firewallHelperDiscovery(args)
 	case "firewall-restore":
 		return firewallRestoreHelper(args)
 	case "repair":
@@ -947,4 +949,12 @@ func firewallRestoreHelper(args []string)error{
  if args[0]=="ufw"&&args[3]!=""{return errors.New("unexpected UFW zone")}
  ctx,cancel:=context.WithTimeout(context.Background(),30*time.Second);defer cancel()
  return firewall.Restore(ctx,args[0],port,args[2],args[3])
+}
+
+func firewallHelperDiscovery(args []string)error{
+ if err:=requireRoot();err!=nil{return err}
+ if len(args)!=0{return errors.New("firewall-discovery takes no arguments")}
+ ctx,cancel:=context.WithTimeout(context.Background(),16*time.Second);defer cancel()
+ d,err:=firewall.Discover(ctx);if err!=nil{return err}
+ return json.NewEncoder(os.Stdout).Encode(d)
 }

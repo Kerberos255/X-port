@@ -104,3 +104,11 @@ func FirewallSockets(ctx context.Context, dataDir string)(map[string]bool,error)
  if sockets==nil{return nil,errors.New("empty listening socket reply")}
  return sockets,nil
 }
+
+func FirewallDiscovery(ctx context.Context,dataDir string)(firewall.Discovery,error){
+ out,err:=firewallHelper(ctx,dataDir,"firewall-discovery")
+ if err!=nil{return firewall.Discovery{},err}
+ var d firewall.Discovery
+ if err:=json.Unmarshal([]byte(out),&d);err!=nil{return d,fmt.Errorf("invalid discovery reply: %w",err)}
+ return d,nil
+}

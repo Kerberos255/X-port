@@ -310,3 +310,16 @@ html[data-theme="light"] #fw-add-dialog .fw-form-hint{color:#795212;background:#
  margin-top:2px;accent-color:#16a085;cursor:pointer}
 html[data-theme="light"] #fw-policy-dialog .fw-external-confirm{
  border-color:#c9e6dd;background:#f0fbf7;color:#365e54}
+
+/* Bounded process labels and additional mappings, without widening the table. */
+#page-firewall .fw-usage-link{border:1px solid transparent;background:transparent;
+ padding:5px 4px;border-radius:7px;cursor:pointer;max-width:100%;min-width:0;text-align:left}
+#page-firewall .fw-usage-link:hover{border-color:var(--line);background:rgba(93,197,178,.07)}
+#page-firewall .fw-usage-link:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
+#page-firewall .fw-usage-owner{max-width:105px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#page-firewall .fw-usage-link small{font-size:11px;font-weight:500;flex-shrink:0}
+#page-firewall .fw-usage-extra{display:inline-flex;padding:3px 5px;margin-left:3px;
+ border-radius:6px;border:1px solid var(--line);color:var(--muted);font-size:11px}
+#page-firewall .fw-port-cell strong{overflow-wrap:anywhere}
+html[data-theme="light"] #page-firewall .fw-usage-link{background:transparent;color:#168058}
+@media(max-width:700px){#page-firewall .fw-usage-owner{max-width:min(150px,38vw)}}

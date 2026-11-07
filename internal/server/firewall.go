@@ -2,6 +2,7 @@ package server
 
 import (
  "context"
+ "errors"
  "crypto/sha256"
  "encoding/hex"
  "encoding/json"
@@ -29,16 +30,26 @@ type firewallViewRule struct {
  AccountName string `json:"accountName,omitempty"`
  AccountEnabled bool `json:"accountEnabled"`
  Usage string `json:"usage"`
+ UsageDetails []firewallUsageItem `json:"usageDetails,omitempty"`
+ UsageOverflow int `json:"usageOverflow,omitempty"`
  AccountAmbiguous bool `json:"accountAmbiguous,omitempty"`
  Paused bool `json:"paused,omitempty"`
  PausedDrift bool `json:"pausedDrift,omitempty"`
  CanToggle bool `json:"canToggle"`
  Revision string `json:"revision,omitempty"`
 }
+type firewallUsageItem struct {
+ Port int `json:"port"`
+ Protocol string `json:"protocol"`
+ PID int `json:"pid,omitempty"`
+ Name string `json:"name,omitempty"`
+ Container bool `json:"container,omitempty"`
+}
 type firewallView struct {
  firewall.Snapshot
  Rules []firewallViewRule `json:"rules"`
  Pending []firewallPending `json:"pending,omitempty"`
+ DiscoveryWarning string `json:"discoveryWarning,omitempty"`
 }
 
 // Account association is by numeric port AND the actual Xray transport.
@@ -101,6 +112,47 @@ func (s *Server) firewallGuardPort() int {
  n,err:=strconv.Atoi(p);if err!=nil||n<1||n>65535{return 8080}
  return n
 }
+func (s *Server) firewallCriticalPorts(ctx context.Context,ports ...int)error{
+ // One snapshot for all ports in the same requested edit: avoid re-running
+ // Docker inspect and sshd -T separately for source and destination.
+ d,err:=ops.FirewallDiscovery(ctx,s.store.Dir())
+ if err!=nil{return fmt.Errorf("cannot verify SSH/Docker critical ports: %w",err)}
+ if d.SSHUncertain{return errors.New("SSH effective port cannot be verified")}
+ if d.DockerUncertain{return errors.New("Docker published ports cannot be verified")}
+ for _,port:=range ports{
+  if discoveredSSHPort(d,port){return errors.New("configured SSH management port protected")}
+  if discoveredDockerPort(d,port){return errors.New("Docker published port protected")}
+ }
+ return nil
+}
+func usageForRule(rr firewall.Rule,d firewall.Discovery)([]firewallUsageItem,int){
+ var items []firewallUsageItem
+ seen:=map[string]bool{}
+ for _,p:=range d.Processes{
+  if p.Protocol!=rr.Protocol||!rr.ContainsPort(p.Port){continue}
+  key:=fmt.Sprintf("process/%s/%d/%d",p.Protocol,p.Port,p.PID)
+  if seen[key]{continue};seen[key]=true
+  items=append(items,firewallUsageItem{Port:p.Port,Protocol:p.Protocol,PID:p.PID,Name:p.Name})
+ }
+ for _,p:=range d.Docker{
+  if p.Protocol!=rr.Protocol||!rr.ContainsPort(p.Port){continue}
+  key:=fmt.Sprintf("docker/%s/%d/%s",p.Protocol,p.Port,p.Container)
+  if seen[key]{continue};seen[key]=true
+  items=append(items,firewallUsageItem{Port:p.Port,Protocol:p.Protocol,Name:p.Container,Container:true})
+ }
+ if len(items)>12{return items[:12],len(items)-12}
+ return items,0
+}
+func discoveredSSHPort(d firewall.Discovery,p int)bool{
+ for _,n:=range d.SSHPorts{if n==p{return true}}
+ return false
+}
+func discoveredDockerPort(d firewall.Discovery,p int)bool{
+ // Conservatively guard a numeric host port across TCP and UDP. A Docker
+ // mapping may be reachable through NAT even without a local socket owner.
+ for _,n:=range d.Docker{if n.Port==p{return true}}
+ return false
+}
 func (s *Server) firewallRead(w http.ResponseWriter,r *http.Request){
  ctx,cancel:=context.WithTimeout(r.Context(),15*time.Second);defer cancel()
  snap,err:=ops.InspectFirewall(ctx,s.store.Dir());if err!=nil{log.Printf("firewall inspection unavailable: %v",err);writeError(w,502,"failed to inspect firewall rules");return}
@@ -112,7 +164,13 @@ func (s *Server) firewallRead(w http.ResponseWriter,r *http.Request){
  // conservative port-level protection label. Avoid two systemd helper calls
  // that could disagree if a listener starts or stops between queries.
  sockets,socketError:=ops.FirewallSockets(ctx,s.store.Dir())
+ discovery,discoveryErr:=ops.FirewallDiscovery(ctx,s.store.Dir())
  listeningError:=socketError
+ // Discovery errors are visible, and never grant permission to modify.
+ discoveryWarning:=""
+ if discoveryErr!=nil{discoveryWarning="无法核实 SSH/进程/Docker 端口；危险操作已锁定"}
+ if discovery.SSHUncertain{discoveryWarning="无法确认 SSH 有效配置；危险操作已锁定"}
+ if discovery.DockerUncertain{discoveryWarning="无法确认 Docker 映射端口；危险操作已锁定"}
  listening:=make(map[int]bool)
  for key:=range sockets{
   slash:=strings.IndexByte(key,'/')
@@ -132,13 +190,31 @@ func (s *Server) firewallRead(w http.ResponseWriter,r *http.Request){
   if ambiguous{purpose="多个 Xray 账号关联同一端口（需检查）"}
   source:="unknown"
   if xray{source="xray"}
-  protected:=rr.Port==22||rr.Port==s.firewallGuardPort()||listeningError!=nil||listening[rr.Port]
+  ssh:=!rr.IsRange()&&discoveredSSHPort(discovery,rr.Port)
+  protected:=rr.IsRange()||rr.Port==22||ssh||rr.Port==s.firewallGuardPort()||listeningError!=nil||discoveryWarning!=""||listening[rr.Port]
+  details,overflow:=usageForRule(rr,discovery)
+  if len(details)>0{protected=true}
   usage:="unknown"
   if socketError==nil{
    usage="unused"
    if sockets[key]{usage="used"}
+   for sock:=range sockets{
+    if rr.IsRange()&&strings.HasPrefix(sock,rr.Protocol+"/"){
+     p,e:=strconv.Atoi(strings.TrimPrefix(sock,rr.Protocol+"/"))
+     if e==nil&&rr.ContainsPort(p){usage="used";break}
+    }
+   }
   }
-  if !xray&&rr.Port==22{purpose="SSH（常见端口，未核实）";source="assumed"}
+  if socketError==nil&&len(details)>0{usage="used"}
+  if usage=="unused"&&(discoveryErr!=nil||discovery.DockerUncertain){usage="unknown"}
+  if !xray&&(rr.Port==22||ssh){purpose="SSH · 管理端口";source="ssh"}
+  if rr.IsRange(){
+   for _,ftp:=range discovery.FTPRanges{
+    if rr.Protocol==ftp.Protocol&&rr.RangeStart==ftp.Start&&rr.RangeEnd==ftp.End{
+     purpose="FTP 被动模式 · "+ftp.Service+"（配置匹配）";source="ftp-config";break
+    }
+   }
+  }
   if !xray&&rr.Port==s.firewallGuardPort(){purpose="X-port 管理面板";source="panel"}
   if custom:=settings["firewall_purpose:"+rr.ID];custom!=""{purpose=custom;source="manual"}
   rules=append(rules,firewallViewRule{
@@ -146,9 +222,10 @@ func (s *Server) firewallRead(w http.ResponseWriter,r *http.Request){
    Note:settings["firewall_note:"+rr.ID],Protected:protected,
    Managed:settings["firewall_owned:"+rr.ID]=="v1",Xray:xray,
    AccountID:account.ID,AccountName:account.Name,AccountEnabled:account.Enabled,
-   AccountAmbiguous:ambiguous,Usage:usage,Revision:firewallRuleRevision(rr),
+   AccountAmbiguous:ambiguous,Usage:usage,UsageDetails:details,UsageOverflow:overflow,Revision:firewallRuleRevision(rr),
     CanToggle:snap.Backend=="firewalld"&&!snap.OpaqueRichZones[rr.Zone]&&settings["firewall_owned:"+rr.ID]=="v1"&&!rr.Conflict&&
-      rr.Port!=22&&rr.Port!=s.firewallGuardPort()&&
+      !rr.IsRange()&&!ssh&&!discoveredDockerPort(discovery,rr.Port)&&
+      discoveryWarning==""&&listeningError==nil&&rr.Port!=22&&rr.Port!=s.firewallGuardPort()&&
       (rr.Kind=="port"||rr.Kind=="rich")&&
       (!protected||(xray&&!ambiguous&&account.Enabled)),
   })
@@ -190,20 +267,27 @@ func (s *Server) firewallRead(w http.ResponseWriter,r *http.Request){
   if len(account)==1{name=account[0].Name;accountID=account[0].ID;enabled=account[0].Enabled}
   usage:="unknown"
   if socketError==nil{usage="unused";if sockets[fmt.Sprintf("%s/%d",paused.Protocol,paused.Port)]{usage="used"}}
+  details,overflow:=usageForRule(paused,discovery)
+  if socketError==nil&&len(details)>0{usage="used"}
+  if usage=="unused"&&(discoveryErr!=nil||discovery.DockerUncertain){usage="unknown"}
   rules=append(rules,firewallViewRule{
    Rule:paused,Purpose:settings["firewall_purpose:"+paused.ID],
    PurposeSource:"manual",Note:settings["firewall_note:"+paused.ID],
-   Protected:paused.Port==22||paused.Port==s.firewallGuardPort(),
+   Protected:paused.Port==22||discoveredSSHPort(discovery,paused.Port)||
+     discoveredDockerPort(discovery,paused.Port)||paused.Port==s.firewallGuardPort()||
+     discoveryWarning!=""||listeningError!=nil||listening[paused.Port],
    Managed:true,Xray:len(account)>0,AccountID:accountID,AccountName:name,
-   AccountEnabled:enabled,AccountAmbiguous:len(account)>1,Usage:usage,
+   AccountEnabled:enabled,AccountAmbiguous:len(account)>1,Usage:usage,UsageDetails:details,UsageOverflow:overflow,
    Paused:true,PausedDrift:conflicting,
    Revision:firewallRuleRevision(paused),
    CanToggle:snap.Backend=="firewalld"&&!snap.OpaqueRichZones[paused.Zone]&&!conflicting&&
+     discoveryWarning==""&&listeningError==nil&&
+     !discoveredSSHPort(discovery,paused.Port)&&!discoveredDockerPort(discovery,paused.Port)&&
      paused.Port!=22&&paused.Port!=s.firewallGuardPort()&&
-     (validAllow||(listeningError==nil&&!listening[paused.Port])),
+     (validAllow||!listening[paused.Port]),
   })
  }
- writeJSON(w,200,firewallView{Snapshot:snap,Rules:rules,Pending:pendingFromSettings(settings)})
+ writeJSON(w,200,firewallView{Snapshot:snap,Rules:rules,Pending:pendingFromSettings(settings),DiscoveryWarning:discoveryWarning})
 }
 func (s *Server) firewallNote(w http.ResponseWriter,r *http.Request){
  var in struct{ID string `json:"id"`; Note string `json:"note"`}
@@ -247,6 +331,7 @@ func (s *Server) firewallRuleChange(w http.ResponseWriter,r *http.Request){
   if err!=nil{writeError(w,500,"could not check rule ownership");return}
   if !ok||value!="v1"{writeError(w,403,"only X-port created rules can be deleted");return}
   if in.Port==22||in.Port==s.firewallGuardPort(){writeError(w,403,"management port protected");return}
+  if err:=s.firewallCriticalPorts(ctx,in.Port);err!=nil{writeError(w,409,err.Error());return}
   ports,err:=ops.FirewallListeners(ctx,s.store.Dir())
   if err!=nil{writeError(w,409,"cannot verify listeners; deletion blocked");return}
   if ports[in.Port]{writeError(w,409,"port has an active listener; stop it first");return}
@@ -342,7 +427,7 @@ func (s *Server) firewallControl(w http.ResponseWriter,r *http.Request){
  // Never operate on a rule that is mixed with a contradictory policy,
  // or another zone's similarly named port.
  for _,rr:=range snap.Rules{
-  if rr.Port!=in.Port||rr.Protocol!=in.Protocol{continue}
+  if !rr.ContainsPort(in.Port)||rr.Protocol!=in.Protocol{continue}
   if rr.Zone!=in.Zone{
    writeError(w,409,"same port is configured in another zone; use original manager");return
   }
@@ -355,6 +440,9 @@ func (s *Server) firewallControl(w http.ResponseWriter,r *http.Request){
  if matching>1{writeError(w,409,"ambiguous firewall rules");return}
  if in.Port==22||in.Port==s.firewallGuardPort(){
   writeError(w,403,"SSH and panel management ports are protected");return
+ }
+ if err:=s.firewallCriticalPorts(ctx,in.Port);err!=nil{
+  writeError(w,409,err.Error());return
  }
  ownedValue,_,err:=s.store.Setting("firewall_owned:"+id)
  if err!=nil{writeError(w,500,"cannot check rule ownership");return}
@@ -506,9 +594,12 @@ func (s *Server) firewallExternalEdit(w http.ResponseWriter,r *http.Request){
  if firewallRuleRevision(source)!=in.Revision{
   writeError(w,409,"source rule changed since page load; refresh before editing");return
  }
- if source.Kind!="port"||source.Action!="allow"||!source.Runtime||!source.Permanent||source.Conflict||
+ if source.IsRange()||source.Kind!="port"||source.Action!="allow"||!source.Runtime||!source.Permanent||source.Conflict||
     !firewall.ValidZone(source.Zone)||snap.OpaqueRichZones[source.Zone]{
   writeError(w,409,"only simple, fully synchronized port allowances can be edited");return
+ }
+ if err:=s.firewallCriticalPorts(ctx,source.Port,in.NewPort);err!=nil{
+  writeError(w,409,err.Error());return
  }
  if source.Port==in.NewPort&&source.Protocol==in.NewProtocol{
   writeError(w,400,"new rule must differ from existing port/protocol");return
@@ -535,7 +626,7 @@ func (s *Server) firewallExternalEdit(w http.ResponseWriter,r *http.Request){
  for _,rr:=range snap.Rules{
   if rr.ID==source.ID{continue}
   if (rr.Port==source.Port&&rr.Protocol==source.Protocol&&rr.Zone==source.Zone)||
-     (rr.Port==in.NewPort&&rr.Protocol==in.NewProtocol){
+     (rr.ContainsPort(in.NewPort)&&rr.Protocol==in.NewProtocol){
    writeError(w,409,"source or destination overlaps another rule");return
   }
  }

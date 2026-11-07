@@ -12,6 +12,7 @@ on:
       - 'internal/server/firewall*.go'
       - 'cmd/xport/manager.go'
       - 'scripts/verify-firewall-container-e2e.sh'
+      - 'scripts/verify-docker-usage-e2e.sh'
       - 'scripts/verify-web-upgrade-e2e.sh'
       - 'scripts/verify-web-update-http.sh'
       - 'scripts/verify-centos-selinux-vm.sh'
@@ -44,6 +45,23 @@ jobs:
         run: CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o "$RUNNER_TEMP/xport-fw-e2e" ./cmd/xport
       - name: Run UFW, firewalld, and 120-second restore in isolated network namespaces
         run: sudo bash scripts/verify-firewall-container-e2e.sh "$RUNNER_TEMP/xport-fw-e2e"
+
+  docker-published-ports:
+    # Disposable hosted runner only. Docker traffic is not assumed to traverse
+    # firewalld INPUT, and no production Docker socket is touched.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.27.3'
+          cache: false
+      - name: Build static X-port discovery binary
+        run: CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o "$RUNNER_TEMP/xport-docker-e2e" ./cmd/xport
+      - name: Verify Docker TCP and UDP published mappings using scratch image
+        run: bash scripts/verify-docker-usage-e2e.sh "$RUNNER_TEMP/xport-docker-e2e"
 
   upgrade-supervisor:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
