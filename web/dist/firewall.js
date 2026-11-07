@@ -87,14 +87,15 @@
     const data = state.data
     el('fw-backend').textContent = data ? ({firewalld:'firewalld',ufw:'UFW',nftables:'nftables（只读）',iptables:'iptables（只读）',none:'未检测到'}[data.backend] || data.backend) : '检测中'
     el('fw-zone').textContent = data?.defaultZone || (data?.backend === 'ufw' ? 'UFW 规则' : '—')
-    el('fw-engine-state').textContent = !data ? '—' : (data.writable ? '● 可管理' : (data.active ? '只读 · 检查' : '只读 / 未启用'))
+    el('fw-engine-state').textContent = !data ? '—' : (!data.writable ? (data.active ? '只读 · 检查' : '只读 / 未启用') : (data.discoveryWarning ? '部分危险操作受限' : '● 可管理'))
     const diagnostic=el('fw-diagnostic')
     diagnostic.hidden = !data?.unsafeReason && !data?.discoveryWarning
+    el('fw-diagnostic-title').textContent = data?.unsafeReason ? '规则修改已暂停' : '危险操作已锁定'
     el('fw-diagnostic-reason').textContent = data?.unsafeReason || data?.discoveryWarning || ''
     el('fw-total').textContent = rules().length
     el('fw-active').textContent = rules().filter(r=>r.usage==='used').length
     el('fw-xray-count').textContent = rules().filter(r=>r.xray).length
-    el('fw-warn-count').textContent = rules().filter(needsCheck).length + (data?.unsafeReason ? 1 : 0)
+    el('fw-warn-count').textContent = rules().filter(needsCheck).length + (data?.unsafeReason || data?.discoveryWarning ? 1 : 0)
     el('fw-add').disabled = !editable()
     el('fw-notice').textContent = (data?.notice || '无法读取防火墙状态')+
       (data?.discoveryWarning ? ' · '+data.discoveryWarning : '')
