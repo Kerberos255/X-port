@@ -61,9 +61,18 @@ cat > "$TMP/__mock.js" <<'JS'
   globalThis.__accountToggleHold = false
   globalThis.__accountReleaseWrite = null
   globalThis.__accountToggleCalls = 0
+  globalThis.__fwControlPending = false
+  globalThis.__pendingConfirmSeenWhileBusy = null
   globalThis.__xportServerVersion = 'browser-test'
   globalThis.__xportPending = false
-  globalThis.confirm = () => { globalThis.__fwConfirmCalls++; return globalThis.__fwConfirmResult }
+  globalThis.confirm = message => {
+    globalThis.__fwConfirmCalls++
+    if(globalThis.__fwControlPending && String(message).includes('规则已临时修改')){
+      globalThis.__pendingConfirmSeenWhileBusy=Boolean(document.querySelector('#operation-progress')?.open)
+      return false
+    }
+    return globalThis.__fwConfirmResult
+  }
   let fwNote = '主节点 · REALITY'
   globalThis.fetch = (input, init = {}) => {
     const u = new URL(typeof input === 'string' ? input : input.url, location.href)
@@ -117,7 +126,7 @@ cat > "$TMP/__mock.js" <<'JS'
     if (path === '/api/firewall/control' && method === 'POST') {
       globalThis.__fwControlCalls=(globalThis.__fwControlCalls||0)+1
       globalThis.__fwLastControl=JSON.parse(init.body||'{}')
-      return json({ok:true,pending:false})
+      return json({ok:true,pending:globalThis.__fwControlPending,id:'test-protected',token:'test-token'})
     }
     if (path === '/api/firewall/edit' && method === 'POST') {
       globalThis.__fwEditCalls=(globalThis.__fwEditCalls||0)+1
@@ -547,6 +556,19 @@ cat > "$TMP/__driver.js" <<'JS'
          globalThis.__fwLastEdit?.revision!=='111122223333444455556666')
         throw new Error('confirmed external edit did not include revision and explicit consent')
       if((globalThis.__fwMutationCalls||0)!==beforeDeny)throw new Error('external edit fell back to legacy allow path')
+      // Native recovery confirmation must be offered after the
+      // non-dismissible operation progress overlay is released.
+      globalThis.__fwControlPending=true
+      globalThis.__fwConfirmResult=true
+      const activeToggle=document.querySelector('#fw-rows button.fw-switch[data-fw-id="firewalld:public:2053/tcp"]')
+      if(!activeToggle)throw new Error('test rule toggle missing')
+      activeToggle.click()
+      await sleep(120)
+      if(globalThis.__pendingConfirmSeenWhileBusy!==false)
+        throw new Error('firewall recovery confirmation appeared while operation progress was modal')
+      if(document.querySelector('#operation-progress')?.open)
+        throw new Error('firewall recovery confirmation left progress locked')
+      globalThis.__fwControlPending=false
       globalThis.__fwConfirmResult=false
       mark('pass', `clonePort=${portInput.value};legacyHits=0;fallbackDest=${dest};layout=contained;globalXray=ok;firewallEdits=guarded`)
     } catch (err) {
