@@ -45,54 +45,7 @@ type PublishedPort struct {
 var ownerRE=regexp.MustCompile(`"([^"\n]{1,64})",pid=([0-9]{1,9})`)
 var sshPortRE=regexp.MustCompile(`(?m)^port[ 	]+([0-9]{1,5})[ 	]*$`)
 var socketPortRE=regexp.MustCompile(`(?m)([0-9]{1,5})[ \t]+[(](Stream|Datagram)[)]`)
-var numberRangeRE=regexp.MustCompile(`^([0-9]{1,5})[[:space:],-]+([0-9]{1,5})package firewall
-
-import (
- "context"
- "encoding/json"
- "errors"
- "fmt"
- "os"
- "os/exec"
- "regexp"
- "sort"
- "strconv"
- "strings"
- "time"
-)
-
-// Discovery is read-only host context. It is not proof that a firewall
-// allowance is reachable through NAT, a cloud security group or another chain.
-type Discovery struct {
- Processes []ListeningProcess `json:"processes"`
- SSHPorts []int `json:"sshPorts"`
- SSHUncertain bool `json:"sshUncertain"`
- FTPRanges []ConfiguredRange `json:"ftpRanges"`
- Docker []PublishedPort `json:"docker"`
- DockerUncertain bool `json:"dockerUncertain"`
-}
-type ListeningProcess struct {
- Port int `json:"port"`
- Protocol string `json:"protocol"`
- PID int `json:"pid,omitempty"`
- Name string `json:"name,omitempty"`
-}
-type ConfiguredRange struct {
- Start int `json:"start"`
- End int `json:"end"`
- Protocol string `json:"protocol"`
- Service string `json:"service"`
-}
-type PublishedPort struct {
- Port int `json:"port"`
- Protocol string `json:"protocol"`
- Container string `json:"container"`
-}
-
-var ownerRE=regexp.MustCompile(`"([^"\n]{1,64})",pid=([0-9]{1,9})`)
-var sshPortRE=regexp.MustCompile(`(?m)^port[ 	]+([0-9]{1,5})[ 	]*$`)
-var socketPortRE=regexp.MustCompile(`(?m)([0-9]{1,5})[ \t]+[(](Stream|Datagram)[)]`)
-)
+var numberRangeRE=regexp.MustCompile(`^([0-9]{1,5})[[:space:],-]+([0-9]{1,5})$`)
 
 func parseProcessSockets(raw string)([]ListeningProcess,error){
  entries:=make([]ListeningProcess,0,32)
