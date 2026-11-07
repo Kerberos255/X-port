@@ -62,6 +62,26 @@
       })
       if(!response.ok)return null
       const info=await response.json()
+      // A restart invalidates all in-memory login sessions. The version
+      // endpoint remains public (version only); firewall pending metadata
+      // remains authenticated and is fetched only when a build changed.
+      if(info?.version && info.version!==loaded){
+        const guard=await fetch('/api/xport/update-state',{
+          method:'GET',credentials:'same-origin',cache:'no-store',
+          headers:{'Accept':'application/json'}
+        })
+        if(guard.ok){
+          const stateInfo=await guard.json()
+          info.firewallPending=Boolean(stateInfo.firewallPending)
+        }else if(guard.status===401){
+          // The browser needs a fresh login after restart. Its old session
+          // cannot confirm pending rules; native recovery stays independent.
+          info.sessionExpired=true
+        }else{
+          notice('无法确认防火墙待处理状态；暂缓自动刷新。')
+          return info
+        }
+      }
       const result=decision(info)
       state.seen=String(info.version||'')
       if(result==='reload'){reloadTo(info.version)}
