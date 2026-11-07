@@ -3,6 +3,7 @@
 (() => {
   'use strict'
   let busy=false
+  let confirming=false
   const dialog=()=>document.getElementById('operation-progress')
   const title=()=>document.getElementById('operation-progress-title')
   const detail=()=>document.getElementById('operation-progress-detail')
@@ -12,7 +13,7 @@
     if(node)node.textContent=String(text||'')
   }
   function start(name,subject){
-    if(busy)throw new Error('已有操作正在执行，请勿重复提交')
+    if(busy||confirming)throw new Error('已有操作正在执行，请勿重复提交')
     const node=dialog()
     if(!node || !node.showModal)throw new Error('操作进度弹窗不可用')
     busy=true
@@ -42,6 +43,45 @@
       return result
     }finally{stop()}
   }
+  function ask({title:name,detail:message,confirmText='确认',cancelText='取消',danger=false}){
+    if(busy||confirming)return Promise.reject(new Error('已有操作尚未完成'))
+    const modal=document.getElementById('operation-confirm')
+    if(!modal)return Promise.reject(new Error('确认弹窗不可用'))
+    confirming=true
+    document.getElementById('operation-confirm-title').textContent=String(name||'确认操作')
+    document.getElementById('operation-confirm-detail').textContent=String(message||'')
+    const yes=document.getElementById('operation-confirm-apply')
+    const no=document.getElementById('operation-confirm-cancel')
+    yes.textContent=String(confirmText)
+    no.textContent=String(cancelText)
+    yes.className=danger?'btn danger':'btn primary'
+    return new Promise((resolve,reject)=>{
+      let done=false
+      const finish=accepted=>{
+        if(done)return
+        done=true
+        yes.removeEventListener('click',accept)
+        no.removeEventListener('click',rejectClick)
+        modal.removeEventListener('cancel',cancel)
+        if(modal.open)modal.close()
+        confirming=false
+        resolve(accepted)
+      }
+      const accept=()=>finish(true)
+      const rejectClick=()=>finish(false)
+      const cancel=event=>{event.preventDefault();finish(false)}
+      yes.addEventListener('click',accept)
+      no.addEventListener('click',rejectClick)
+      modal.addEventListener('cancel',cancel)
+      try{modal.showModal()}catch(err){
+        yes.removeEventListener('click',accept)
+        no.removeEventListener('click',rejectClick)
+        modal.removeEventListener('cancel',cancel)
+        confirming=false
+        reject(err)
+      }
+    })
+  }
   async function refreshAccounts(){
     // An actual read is required before dismissing progress: caller should
     // not mistake a successful HTTP write for a refreshed account list.
@@ -55,6 +95,6 @@
     if(node)node.addEventListener('cancel',event=>event.preventDefault())
   })
   window.XportOperation=Object.freeze({
-    run,setStage,refreshAccounts,get busy(){return busy}
+    run,ask,setStage,refreshAccounts,get busy(){return busy},get confirming(){return confirming}
   })
 })()
