@@ -81,7 +81,8 @@ cat > "$TMP/__mock.js" <<'JS'
         {id:'firewalld:public:15432/tcp',port:15432,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'PostgreSQL',purposeSource:'manual',note:'限制应用服务访问',protected:false,xray:false,usage:'unused',action:'deny'},
         {id:'firewalld:public:rich:443/udp:deny:ipv4',port:443,protocol:'udp',family:'ipv4',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'未识别',protected:true,xray:false,usage:'unused',action:'deny',kind:'rich'},
         {id:'firewalld:public:rich:443/udp:deny:ipv6',port:443,protocol:'udp',family:'ipv6',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'未识别',protected:true,xray:false,usage:'unused',action:'deny',kind:'rich'},
-        {id:'firewalld:public:51820/udp',port:51820,protocol:'udp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'WireGuard',purposeSource:'manual',note:'站点互联',protected:false,xray:false,usage:'used',action:'allow'}
+        {id:'firewalld:public:51820/udp',port:51820,protocol:'udp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'WireGuard',purposeSource:'manual',note:'站点互联',protected:false,xray:false,usage:'used',action:'allow'},
+        {id:'firewalld:public:39000-40000/tcp',port:0,rangeStart:39000,rangeEnd:40000,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'FTP 被动模式（配置匹配）',purposeSource:'ftp-config',note:'',protected:true,xray:false,usage:'unused',action:'allow',kind:'port'}
       ]})
     if (path === '/api/firewall/notes' && method === 'PUT') {
       fwNote = JSON.parse(init.body).note
@@ -142,9 +143,36 @@ cat > "$TMP/__preview.js" <<'JS'
         if (!note.hidden) throw new Error('internal update note should be hidden')
         const status=await waitFor('#xray-page-update-state')
         if (!(status.textContent||'').trim()) throw new Error('Xray update state missing')
-      } else if (preview === 'firewall' || preview === 'firewall-light' || preview === 'firewall-detail-light' || preview === 'firewall-editor-light' || preview === 'firewall-create-light') {
+      } else if (preview === 'firewall' || preview === 'firewall-light' || preview === 'firewall-detail-light' || preview === 'firewall-editor-light' || preview === 'firewall-create-light' || preview === 'firewall-long-ipv6' || preview === 'firewall-long-ipv6-light' || preview === 'firewall-long-range') {
         document.querySelector('#nav [data-page="firewall"]').click()
         await waitFor('#fw-rows tr button[data-fw-act="edit"]')
+        if (preview.startsWith('firewall-long-ipv6')) {
+          const ip='2001:0db8:abcd:1234:5678:9abc:def0:1234/64'
+          const label=document.querySelector('#fw-rows button[data-fw-id="firewalld:public:rich:443/udp:deny:ipv6"][data-fw-act="detail"]')?.closest('tr')?.querySelector('.fw-ip-cell span')
+          if (!label) throw new Error('IPv6 firewall row unavailable in screenshot fixture')
+          label.textContent=ip
+          label.title=ip
+          if (getComputedStyle(label).textOverflow!=='ellipsis' ||
+              getComputedStyle(label).whiteSpace!=='nowrap' ||
+              label.scrollWidth<=label.clientWidth)
+            throw new Error('long IPv6 is not truncated to a single line')
+          // Screenshot only: place the target row in the first visible
+          // position; headless Chromium does not reliably repaint after scroll.
+          const target=label.closest('tr')
+          target.parentElement.prepend(target)
+        }
+        if (preview === 'firewall-long-range') {
+          const row=document.querySelector('#fw-rows button[data-fw-id="firewalld:public:39000-40000/tcp"][data-fw-act="detail"]')?.closest('tr')
+          const number=row?.querySelector('.fw-port-cell strong')
+          const protocol=row?.querySelector('.fw-port-cell small')
+          if (!number || !protocol || number.textContent!=='39000–40000' ||
+              protocol.textContent.trim()!=='TCP' ||
+              getComputedStyle(number).whiteSpace!=='nowrap' ||
+              number.scrollWidth>number.clientWidth+1 ||
+              number.getBoundingClientRect().bottom>protocol.getBoundingClientRect().top+1)
+            throw new Error('long port range and protocol did not fit on separate lines')
+          row.parentElement.prepend(row)
+        }
         if (preview === 'firewall-detail-light') {
           document.querySelector('#fw-rows button[data-fw-act="detail"][data-fw-id="firewalld:public:2053/tcp"]').click()
           await waitFor('#fw-detail-dialog[open]')
@@ -205,7 +233,7 @@ cat > "$TMP/__preview.js" <<'JS'
         if(!hint||getComputedStyle(hint).display==='none')
           throw new Error('tablet needs an explicit scroll hint')
       }
-      if (preview === 'firewall' &&
+      if ((preview === 'firewall' || preview.startsWith('firewall-long-ipv6') || preview === 'firewall-long-range') &&
           document.documentElement.scrollWidth > innerWidth + 2) {
         throw new Error('mobile horizontal overflow: '+document.documentElement.scrollWidth+' > '+innerWidth)
       }
@@ -247,6 +275,22 @@ capture account-advanced account
 capture xray-global xray
 capture firewall-desktop firewall
 capture firewall-light firewall-light
+capture firewall-long-ipv6 firewall-long-ipv6
+capture firewall-long-ipv6-light firewall-long-ipv6-light
+capture firewall-long-range firewall-long-range
+# Screenshots can be written even if injected preview assertions fail;
+# require the Chromium DOM success sentinel for both long-address themes.
+for preview in firewall-long-ipv6 firewall-long-ipv6-light firewall-long-range; do
+  "$BROWSER" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage \
+    --window-size=1440,1000 --force-device-scale-factor=1 --virtual-time-budget=6500 \
+    --dump-dom "http://127.0.0.1:$PORT/?preview=$preview" \
+    >"$TMP/$preview-dom.html" 2>"$TMP/$preview-dom.log"
+  if ! grep -Fq "data-preview-ready=\"$preview\"" "$TMP/$preview-dom.html"; then
+    grep -o 'data-preview-error="[^"]*"' "$TMP/$preview-dom.html" || true
+    echo "Long IPv6 preview failed: $preview" >&2
+    exit 1
+  fi
+done
 capture firewall-detail-light firewall-detail-light
 capture firewall-editor-light firewall-editor-light
 capture firewall-create-light firewall-create-light
@@ -255,6 +299,33 @@ capture firewall-create-light firewall-create-light
   --window-size=390,844 --force-device-scale-factor=1 --virtual-time-budget=6500 \
   --screenshot="$OUT/firewall-mobile.png" "http://127.0.0.1:$PORT/?preview=firewall" >/dev/null 2>"$TMP/firewall-mobile.log"
 [[ -s "$OUT/firewall-mobile.png" ]] || { cat "$TMP/firewall-mobile.log" >&2; exit 1; }
+"$BROWSER" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage \
+  --window-size=390,844 --force-device-scale-factor=1 --virtual-time-budget=6500 \
+  --screenshot="$OUT/firewall-long-ipv6-mobile.png" "http://127.0.0.1:$PORT/?preview=firewall-long-ipv6" \
+  >/dev/null 2>"$TMP/firewall-long-ipv6-mobile.log"
+[[ -s "$OUT/firewall-long-ipv6-mobile.png" ]] || {
+  cat "$TMP/firewall-long-ipv6-mobile.log" >&2
+  echo "Long IPv6 mobile screenshot missing" >&2
+  exit 1
+}
+"$BROWSER" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage \
+  --window-size=390,844 --force-device-scale-factor=1 --virtual-time-budget=6500 \
+  --screenshot="$OUT/firewall-long-range-mobile.png" "http://127.0.0.1:$PORT/?preview=firewall-long-range" \
+  >/dev/null 2>"$TMP/firewall-long-range-mobile.log"
+[[ -s "$OUT/firewall-long-range-mobile.png" ]] || {
+  cat "$TMP/firewall-long-range-mobile.log" >&2
+  echo "Long port-range mobile screenshot missing" >&2
+  exit 1
+}
+"$BROWSER" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage \
+  --window-size=390,844 --force-device-scale-factor=1 --virtual-time-budget=6500 \
+  --dump-dom "http://127.0.0.1:$PORT/?preview=firewall-long-ipv6" \
+  >"$TMP/firewall-long-ipv6-mobile.html" 2>"$TMP/firewall-long-ipv6-mobile-dom.log"
+if ! grep -Fq 'data-preview-ready="firewall-long-ipv6"' "$TMP/firewall-long-ipv6-mobile.html"; then
+  grep -o 'data-preview-error="[^"]*"' "$TMP/firewall-long-ipv6-mobile.html" || true
+  echo "Long IPv6 mobile layout test failed" >&2
+  exit 1
+fi
 # A screenshot alone cannot detect horizontal overflow or failed JS.
 "$BROWSER" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage \
   --window-size=390,844 --force-device-scale-factor=1 --virtual-time-budget=6500 \

@@ -317,6 +317,37 @@ cat > "$TMP/__driver.js" <<'JS'
       if(!sshRow?.textContent.includes('sshd')||!sshRow?.querySelector('button.fw-switch[disabled]')) throw new Error('nonstandard SSH process or protected state missing')
       const ftpRow=document.querySelector('#fw-rows button[data-fw-act="detail"][data-fw-id="firewalld:public:39000-40000/tcp"]')?.closest('tr')
       if(!ftpRow?.textContent.includes('39000–40000')||!ftpRow?.textContent.includes('FTP 被动模式')||!ftpRow?.querySelector('button.fw-switch[disabled]')) throw new Error('read-only passive FTP range missing')
+      // All port labels use a consistent stacked layout. Ranges must remain
+      // on ONE line and protocols must sit beneath them, not wrap unpredictably.
+      for(const row of [accountRow,ftpRow,v4row]){
+        const cell=row?.querySelector('.fw-port-cell')
+        const number=cell?.querySelector('strong')
+        const protocol=cell?.querySelector('small')
+        if(!number||!protocol||getComputedStyle(cell).flexDirection!=='column'||
+           !['TCP','UDP'].includes(protocol.textContent.trim())||
+           getComputedStyle(number).whiteSpace!=='nowrap')
+          throw new Error('port/protocol must be a predictable two-line stack')
+        if(number.getBoundingClientRect().bottom>protocol.getBoundingClientRect().top+1)
+          throw new Error('port and protocol overlap instead of stacking')
+        if(number.scrollWidth>number.clientWidth+1)
+          throw new Error('port range clipped at desktop width: '+number.textContent)
+      }
+      const longIPv6='2001:0db8:abcd:1234:5678:9abc:def0:1234/64'
+      const ipv6Cell=v6row.querySelector('.fw-ip-cell')
+      const ipv6Label=ipv6Cell.querySelector('span')
+      if(ipv6Label.title!=='::/0')throw new Error('IP cell must expose full address in title')
+      const originalIPv6=ipv6Label.textContent
+      ipv6Label.textContent=longIPv6
+      ipv6Label.title=longIPv6
+      const ipv6CSS=getComputedStyle(ipv6Label)
+      if(ipv6CSS.whiteSpace!=='nowrap'||ipv6CSS.overflow!=='hidden'||
+         ipv6CSS.textOverflow!=='ellipsis'||ipv6Label.scrollWidth<=ipv6Label.clientWidth)
+        throw new Error('long IPv6 must be truncated to one visual line')
+      if(ipv6Cell.getBoundingClientRect().right>v6row.querySelectorAll('td')[1].getBoundingClientRect().right+1)
+        throw new Error('long IPv6 overflows IP column')
+      if(ipv6Label.title!==longIPv6)throw new Error('full IPv6 hover address missing')
+      ipv6Label.textContent=originalIPv6
+      ipv6Label.title=originalIPv6
       ftpRow.querySelector('button[data-fw-act="configure"]').click()
       const rangeEditor=await waitFor('#fw-policy-dialog[open]')
       if(!rangeEditor.querySelector('#fw-policy-port').disabled||!rangeEditor.querySelector('#fw-policy-save').disabled||
