@@ -346,14 +346,23 @@ if [[ ! -f /run/xport-ci-seed/panel-test.sh ]]; then
  [[ "$code" == 202 ]] || { cat /run/timer-remove.json; exit 1; }
  test "$(firewall-cmd --zone="$ZONE" --query-port="$restore_port"/tcp || true)" = no
  test "$(firewall-cmd --permanent --zone="$ZONE" --query-port="$restore_port"/tcp || true)" = no
- timer_unit="$(python3 -c 'import json; print(json.load(open("/run/timer-remove.json"))["id"])')"
- # The precise timer unit is intentionally not a public Web API field.
- # Read it from the authenticated panel's pending state within the VM.
- python3 - <<'PY'
-import json
-with open('/run/timer-remove.json') as f: d=json.load(f)
-assert d['pending'] and len(d['token']) == 32
+ # Verify the native systemd timer itself is precise; systemd defaults to
+ # AccuracySec=1min and can defer a promised 120-second restore.
+ curl -fsS -b /run/xport-ci.cookie "$BASE/api/firewall" >/run/timer-pending.json
+ timer_unit="$(python3 - "$ZONE" <<'PY'
+import json,sys
+pending=json.load(open('/run/timer-pending.json')).get('pending') or []
+matches=[p for p in pending if p.get('id')==f'firewalld:{sys.argv[1]}:53334/tcp']
+assert len(matches)==1 and matches[0].get('unit','').startswith('xport-fw-restore-'),matches
+print(matches[0]['unit'])
 PY
+ )"
+ timer_accuracy="$(systemctl show "$timer_unit.timer" --property=AccuracyUSec --value)"
+ if [[ "$timer_accuracy" != "1s" ]]; then
+  echo "[selinux-vm] Recovery timer precision unexpected: $timer_accuracy"
+  exit 1
+ fi
+ echo "[selinux-vm] Recovery timer accuracy is 1 second"
  echo "[selinux-vm] Recovery timers immediately after scheduling:"
  systemctl list-timers --all --no-pager 'xport-fw-restore-*' || true
  mv /usr/local/bin/xport /usr/local/bin/xport.timer-test
