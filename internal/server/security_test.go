@@ -131,3 +131,22 @@ func TestVersionProbeAuthenticatedAndPendingGuard(t *testing.T){
  code,v,_=request("/api/xport/version",nil)
  if code!=200||len(v)!=1||v["version"]!=buildinfo.Current{t.Fatalf("state leaked in public version: %v",v)}
 }
+
+func TestUpdatePanelRejectsPendingWithoutStaging(t *testing.T){
+ s,h:=newSecurityTestServer(t)
+ s.panelService="xport.service"
+ raw,_:=json.Marshal(firewallPending{ID:"firewalld:public:test",Unit:"xport-test.timer",
+  Deadline:time.Now().Add(2*time.Minute).UnixMilli()})
+ if err:=s.store.SetSetting("firewall_pending:test",string(raw));err!=nil{t.Fatal(err)}
+ cookie:=loginSecurityTest(t,h)
+ request:=httptest.NewRequest(http.MethodPost,"http://panel/api/xport/update",
+  strings.NewReader("{}"))
+ request.AddCookie(cookie)
+ request.Header.Set("Origin","http://panel")
+ request.Header.Set("Content-Type","application/json")
+ rec:=httptest.NewRecorder()
+ h.ServeHTTP(rec,request)
+ if rec.Code!=http.StatusConflict||!strings.Contains(rec.Body.String(),"firewall"){
+  t.Fatalf("pending firewall must reject update before Stage: %d %s",rec.Code,rec.Body.String())
+ }
+}
