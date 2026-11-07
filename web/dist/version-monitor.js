@@ -15,6 +15,11 @@
     if(target.id==='fw-search'||target.type==='search')return
     state.dirty=true
   },true)
+  // Once navigation leaves an editor, that page has already been dismissed.
+  // Do not let a previously edited inline note block later self-updates.
+  document.addEventListener('click',event=>{
+    if(event.target?.closest?.('#nav [data-page]'))state.dirty=false
+  },true)
   function editing() {
     if(state.dirty)return true
     if (document.querySelector('dialog[open], #modal:not(.hidden), .fw-edit-input')) return true
