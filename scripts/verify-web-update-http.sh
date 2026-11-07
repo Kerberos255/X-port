@@ -145,15 +145,20 @@ sleep 12
 curl -fsS -c "$TMP/cookies2" -H 'Content-Type: application/json' --data "$payload" "$BASE/api/login" >/dev/null
 # The replacement binary must serve its actual new version to the
 # browser, not an old cached HTML entry point or a fixed-reload timer.
-curl -fsS -b "$TMP/cookies2" "$BASE/api/xport/version" > "$TMP/version.json"
+curl -fsS "$BASE/api/xport/version" > "$TMP/version.json"
+curl -fsS -b "$TMP/cookies2" "$BASE/api/xport/update-state" > "$TMP/pending-state.json"
+code="$(curl -sS -o "$TMP/unauthorized-state.json" -w '%{http_code}' "$BASE/api/xport/update-state")"
+[[ "$code" == 401 ]] || { echo "pending state should require login, got HTTP $code" >&2; exit 1; }
 curl -fsS -D "$TMP/index.headers" "$BASE/" -o "$TMP/new-index.html"
-python3 - "$TMP/version.json" "$TMP/index.headers" "$TMP/new-index.html" <<'PY'
+python3 - "$TMP/version.json" "$TMP/pending-state.json" "$TMP/index.headers" "$TMP/new-index.html" <<'PY'
 import json,sys
 from pathlib import Path
 version=json.loads(Path(sys.argv[1]).read_text())
-headers=Path(sys.argv[2]).read_text().lower()
-html=Path(sys.argv[3]).read_text()
-assert version=={"version":"0.2.9","firewallPending":False},version
+pending=json.loads(Path(sys.argv[2]).read_text())
+headers=Path(sys.argv[3]).read_text().lower()
+html=Path(sys.argv[4]).read_text()
+assert version=={"version":"0.2.9"},version
+assert pending=={"firewallPending":False},pending
 assert "cache-control: no-store" in headers,headers
 assert 'name="xport-build-version" content="0.2.9"' in html,html[:600]
 assert "/version-monitor.js?v=0.2.9" in html
