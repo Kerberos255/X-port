@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/Kerberos255/X-port/internal/service"
+ "github.com/Kerberos255/X-port/internal/buildinfo"
 	"github.com/Kerberos255/X-port/internal/store"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -85,4 +86,28 @@ func TestForwardedHeadersIgnoredFromUntrustedPeer(t *testing.T) {
 	if got := s.requestScheme(req); got != "http" {
 		t.Fatalf("scheme trusted spoofed header: %q", got)
 	}
+}
+
+func TestVersionProbeAuthenticatedAndPendingGuard(t *testing.T){
+ s,h:=newSecurityTestServer(t)
+ request:=func(cookie *http.Cookie)(int,map[string]any,string){
+  req:=httptest.NewRequest(http.MethodGet,"http://panel/api/xport/version",nil)
+  if cookie!=nil{req.AddCookie(cookie)}
+  rr:=httptest.NewRecorder();h.ServeHTTP(rr,req)
+  var out map[string]any
+  _=json.Unmarshal(rr.Body.Bytes(),&out)
+  return rr.Code,out,rr.Header().Get("Cache-Control")
+ }
+ if code,_,_:=request(nil);code!=http.StatusUnauthorized{t.Fatalf("unauthed version probe: %d",code)}
+ cookie:=loginSecurityTest(t,h)
+ code,result,cache:=request(cookie)
+ if code!=200||result["version"]!=buildinfo.Current||result["firewallPending"]!=false||!strings.Contains(cache,"no-store"){
+  t.Fatalf("version=%d %v cache=%q",code,result,cache)
+ }
+ if err:=s.store.SetSetting("firewall_pending:test","unparseable-but-still-pending");err!=nil{t.Fatal(err)}
+ _,result,_=request(cookie)
+ if result["firewallPending"]!=true{t.Fatalf("pending must fail closed: %v",result)}
+ if err:=s.store.SetSetting("firewall_pending:test","");err!=nil{t.Fatal(err)}
+ _,result,_=request(cookie)
+ if result["firewallPending"]!=false{t.Fatalf("pending guard must clear: %v",result)}
 }
