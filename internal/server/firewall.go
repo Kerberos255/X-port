@@ -112,13 +112,17 @@ func (s *Server) firewallGuardPort() int {
  n,err:=strconv.Atoi(p);if err!=nil||n<1||n>65535{return 8080}
  return n
 }
-func (s *Server) firewallCriticalPort(ctx context.Context,port int)error{
+func (s *Server) firewallCriticalPorts(ctx context.Context,ports ...int)error{
+ // One snapshot for all ports in the same requested edit: avoid re-running
+ // Docker inspect and sshd -T separately for source and destination.
  d,err:=ops.FirewallDiscovery(ctx,s.store.Dir())
  if err!=nil{return fmt.Errorf("cannot verify SSH/Docker critical ports: %w",err)}
- if d.SSHUncertain{return fmt.Errorf("SSH effective port cannot be verified")}
- if d.DockerUncertain{return fmt.Errorf("Docker published ports cannot be verified")}
- for _,p:=range d.SSHPorts{if p==port{return errors.New("configured SSH management port protected")}}
- for _,p:=range d.Docker{if p.Port==port{return errors.New("Docker published port protected")}}
+ if d.SSHUncertain{return errors.New("SSH effective port cannot be verified")}
+ if d.DockerUncertain{return errors.New("Docker published ports cannot be verified")}
+ for _,port:=range ports{
+  if discoveredSSHPort(d,port){return errors.New("configured SSH management port protected")}
+  if discoveredDockerPort(d,port){return errors.New("Docker published port protected")}
+ }
  return nil
 }
 func usageForRule(rr firewall.Rule,d firewall.Discovery)([]firewallUsageItem,int){
@@ -327,7 +331,7 @@ func (s *Server) firewallRuleChange(w http.ResponseWriter,r *http.Request){
   if err!=nil{writeError(w,500,"could not check rule ownership");return}
   if !ok||value!="v1"{writeError(w,403,"only X-port created rules can be deleted");return}
   if in.Port==22||in.Port==s.firewallGuardPort(){writeError(w,403,"management port protected");return}
-  if err:=s.firewallCriticalPort(ctx,in.Port);err!=nil{writeError(w,409,err.Error());return}
+  if err:=s.firewallCriticalPorts(ctx,in.Port);err!=nil{writeError(w,409,err.Error());return}
   ports,err:=ops.FirewallListeners(ctx,s.store.Dir())
   if err!=nil{writeError(w,409,"cannot verify listeners; deletion blocked");return}
   if ports[in.Port]{writeError(w,409,"port has an active listener; stop it first");return}
@@ -437,7 +441,7 @@ func (s *Server) firewallControl(w http.ResponseWriter,r *http.Request){
  if in.Port==22||in.Port==s.firewallGuardPort(){
   writeError(w,403,"SSH and panel management ports are protected");return
  }
- if err:=s.firewallCriticalPort(ctx,in.Port);err!=nil{
+ if err:=s.firewallCriticalPorts(ctx,in.Port);err!=nil{
   writeError(w,409,err.Error());return
  }
  ownedValue,_,err:=s.store.Setting("firewall_owned:"+id)
@@ -594,8 +598,9 @@ func (s *Server) firewallExternalEdit(w http.ResponseWriter,r *http.Request){
     !firewall.ValidZone(source.Zone)||snap.OpaqueRichZones[source.Zone]{
   writeError(w,409,"only simple, fully synchronized port allowances can be edited");return
  }
- if err:=s.firewallCriticalPort(ctx,source.Port);err!=nil{writeError(w,409,err.Error());return}
- if err:=s.firewallCriticalPort(ctx,in.NewPort);err!=nil{writeError(w,409,err.Error());return}
+ if err:=s.firewallCriticalPorts(ctx,source.Port,in.NewPort);err!=nil{
+  writeError(w,409,err.Error());return
+ }
  if source.Port==in.NewPort&&source.Protocol==in.NewProtocol{
   writeError(w,400,"new rule must differ from existing port/protocol");return
  }
