@@ -169,17 +169,32 @@ function parseGlobalXrayEditorV11(){
  return value
 }
 async function saveGlobalXrayConfigV11(){
- const button=document.querySelector('#save-xray-global'),editor=document.querySelector('#xray-global-config')
+ const button=document.querySelector('#save-xray-global')
+ const editor=document.querySelector('#xray-global-config')
  let config
- try{config=parseGlobalXrayEditorV11()}catch(err){toast(err.message,true);return}
- if(!confirm('验证并应用全局 Xray 高级配置？\nX-port 会先执行 xray run -test；重启失败会自动恢复旧配置。'))return
- button.disabled=true;button.textContent='验证并应用中…';globalStateV11('验证中')
+ try{config=parseGlobalXrayEditorV11()}
+ catch(err){toast(err.message,true);return}
+ if(!await XportOperation.ask({
+  title:'确认应用 Xray 高级配置',
+  detail:'将先执行 xray run -test 验证；若重启失败则自动恢复旧配置。',
+  confirmText:'验证并应用'
+ }))return
+ button.disabled=true
+ globalStateV11('验证中')
  try{
-  const result=await api('/api/xray/config',{method:'PUT',body:JSON.stringify({config})})
-  editor.value=JSON.stringify(result.config||{},null,2)
-  xrayGlobalLoadedV11=true;globalStateV11('已应用',true);toast('全局 Xray 高级配置已应用')
- }catch(err){globalStateV11('应用失败');toast(err.message,true)}
- finally{button.disabled=false;button.textContent='验证并应用'}
+  await XportOperation.run({
+   title:'正在应用 Xray 高级配置',detail:'校验 JSON、执行 Xray 配置测试并重启',
+   perform:()=>api('/api/xray/config',{method:'PUT',body:JSON.stringify({config})}),
+   verify:async()=>{
+    const fresh=await api('/api/xray/config')
+    editor.value=JSON.stringify(fresh.config||{},null,2)
+    xrayGlobalLoadedV11=true
+   }
+  })
+  globalStateV11('已应用',true)
+  toast('全局 Xray 高级配置已应用')
+ }catch(err){globalStateV11('应用结果待核对');toast(err.message,true)}
+ finally{button.disabled=false}
 }
 
 function initV11(){
@@ -205,6 +220,8 @@ initV11()
   e.append(icon,text)
   e.classList.remove('hidden')
   e.classList.toggle('bad',bad)
+  e.setAttribute('role',bad?'alert':'status')
+  e.setAttribute('aria-live',bad?'assertive':'polite')
   clearTimeout(toastEmphasisV11.t)
   toastEmphasisV11.t=setTimeout(()=>e.classList.add('hidden'),bad?6500:3000)
  }
