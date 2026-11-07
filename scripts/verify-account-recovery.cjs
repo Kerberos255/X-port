@@ -16,6 +16,15 @@ function makePage(handler) {
     clearTimeout,
     confirm: () => true,
     toast: message => toasts.push(message),
+    // In this isolated VM test the DOM dialog is not loaded. Exercise
+    // the identical mutation/verification sequence without a browser.
+    XportOperation: {
+      run: async ({perform, verify}) => {
+        const result = await perform()
+        if (verify) await verify(result)
+        return result
+      }
+    },
     api: async (path, options) => {
       calls.push([path, options?.method || 'GET'])
       return handler(path, options)
