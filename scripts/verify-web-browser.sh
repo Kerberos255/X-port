@@ -684,8 +684,9 @@ if ! grep -q 'data-browser-regression="pass"' "$DOM"; then
   python3 - "$DOM" <<'PY'
 import re,sys
 text=open(sys.argv[1],encoding='utf-8',errors='replace').read()
-html=re.search(r'<html\\b[^>]*>',text,re.I)
+html=re.search(r'<html\b[^>]*>',text,re.I)
 print('Browser html state: '+(html.group(0)[:1800] if html else '<missing>'),file=sys.stderr)
+print('Browser DOM bytes: '+str(len(text))+' first: '+repr(text[:400]),file=sys.stderr)
 PY
   grep -o 'data-browser-regression[^>]*' "$DOM" >&2 || true
   cat "$TMP/browser.log" >&2
