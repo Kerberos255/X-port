@@ -469,9 +469,9 @@ cat > "$TMP/__driver.js" <<'JS'
       toast('端口必须是 1–65535',true)
       if(notice.classList.contains('hidden')||notice.getAttribute('role')!=='alert')
         throw new Error('validation error notice is not accessible')
-      let rect=notice.getBoundingClientRect()
-      if(Math.abs((rect.top+rect.bottom)/2-innerHeight/2)>Math.max(25,innerHeight*.06) ||
-         Math.abs((rect.left+rect.right)/2-innerWidth/2)>Math.max(25,innerWidth*.06))
+      const noticeRect=notice.getBoundingClientRect()
+      if(Math.abs((noticeRect.top+noticeRect.bottom)/2-innerHeight/2)>Math.max(25,innerHeight*.06) ||
+         Math.abs((noticeRect.left+noticeRect.right)/2-innerWidth/2)>Math.max(25,innerWidth*.06))
         throw new Error('validation notice is not centered')
       if(getComputedStyle(notice).pointerEvents!=='none' || parseFloat(getComputedStyle(notice).fontSize)<13)
         throw new Error('notice must be legible and nonblocking')
@@ -662,6 +662,8 @@ cat > "$TMP/__driver.js" <<'JS'
   }, {once:true})
 })()
 JS
+
+node --check "$TMP/__driver.js"
 
 (
   cd "$TMP"
