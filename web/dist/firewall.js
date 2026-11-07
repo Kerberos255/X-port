@@ -27,8 +27,8 @@
   function ipCell(r){
     const family=addressFamily(r)
     const ips=family==='ipv4'?['0.0.0.0/0']:family==='ipv6'?['::/0']:['0.0.0.0/0','::/0']
-    return '<div class="fw-ip-cell" title="允许的来源地址段；不代表本机绑定 IP">'+
-      ips.map(ip=>'<span>'+html(ip)+'</span>').join('')+'</div>'
+    return '<div class="fw-ip-cell" aria-label="来源地址；不代表本机绑定 IP">'+
+      ips.map(ip=>'<span title="'+html(ip)+'">'+html(ip)+'</span>').join('')+'</div>'
   }
   function usageDescription(d){return d.container ? 'Docker: '+(d.name||'容器')+' ('+d.port+')' :
     (d.name || '进程未识别')+(d.pid ? ' ('+d.pid+')':'')+' · '+d.port+'/'+d.protocol}
@@ -130,7 +130,7 @@
     const filtered = shown()
     el('fw-count').textContent = '显示 '+filtered.length+' / '+rules().length+' 条规则；备注与用途保存在 X-port 数据库中'
     el('fw-rows').innerHTML = filtered.length ? filtered.map(r => '<tr>'+
-      '<td data-label="端口 / 协议"><div class="fw-port-cell"><strong>'+html(portText(r))+'</strong><small>/ '+html(r.protocol.toUpperCase())+'</small></div></td>'+
+      '<td data-label="端口 / 协议"><div class="fw-port-cell"><strong title="'+html(portText(r))+'">'+html(portText(r))+'</strong><small>'+html(r.protocol.toUpperCase())+'</small></div></td>'+
       '<td data-label="IP / 地址族">'+ipCell(r)+'</td>'+
       '<td data-label="关联账号 / 用途">'+accountCell(r)+'</td>'+
       '<td data-label="使用情况">'+usageBadge(r)+'</td>'+
