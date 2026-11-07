@@ -293,7 +293,7 @@ cat > "$TMP/__driver.js" <<'JS'
       const defaultSSH=document.querySelector('#fw-rows button[data-fw-id="firewalld:public:22/tcp"][data-fw-act="detail"]')?.closest('tr')
       if(!defaultSSH||defaultSSH.textContent.includes('SSH · 管理端口'))
         throw new Error('unused default SSH port mislabeled as actual management listener')
-      const bothIP=document.querySelector('#fw-rows button[data-fw-id="firewalld:public:443/tcp"][data-fw-act="detail"]')?.closest('tr .fw-ip-cell')
+      const bothIP=document.querySelector('#fw-rows button[data-fw-id="firewalld:public:443/tcp"][data-fw-act="detail"]')?.closest('tr')?.querySelector('.fw-ip-cell')
       if(!bothIP?.textContent.includes('0.0.0.0/0')||!bothIP?.textContent.includes('::/0'))
         throw new Error('dual-family port missing either wildcard address')
       const monitor=window.XportVersionMonitor
