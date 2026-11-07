@@ -340,10 +340,11 @@
     el(id).addEventListener('input',updateExternalSaveState)
     el(id).addEventListener('change',updateExternalSaveState)
   }
-  el('fw-policy-dialog').addEventListener('close',()=>{
-    const action=el('fw-policy-dialog').returnValue
-    el('fw-policy-dialog').returnValue=''
+  el('fw-policy-dialog').querySelector('form').addEventListener('submit',ev=>{
+    ev.preventDefault()
+    const action=ev.submitter?.value||''
     const rule=selectedEditRule
+    el('fw-policy-dialog').close()
     if(action!=='save'){selectedEditRule=null;return}
     if(rule)void saveExternalEdit(rule)
   })
@@ -375,10 +376,11 @@
     try{await request('/api/firewall/rules','POST',{action:'add',port,protocol,zone});toast('规则已添加');await refresh()}
     catch(err){toast(err.message,true)}
   })
-  el('fw-detail-dialog').addEventListener('close',async()=>{
+  el('fw-detail-dialog').querySelector('form').addEventListener('submit',async ev=>{
+    ev.preventDefault()
     const r=state.detail
-    const action = el('fw-detail-dialog').returnValue
-    el('fw-detail-dialog').returnValue = ''
+    const action=ev.submitter?.value||''
+    el('fw-detail-dialog').close()
     if(action!=='remove'||!r)return
     if(!r.managed||r.protected||!editable())return toast('规则受保护或不属于 X-port，不能删除',true)
     if(r.kind==='rich'&&r.action==='deny'){
