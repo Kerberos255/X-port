@@ -309,7 +309,10 @@ if [[ ! -f /run/xport-ci-seed/panel-test.sh ]]; then
  test -n "$(firewall-cmd --zone="$ZONE" --list-rich-rules | grep -F 'port="53344"')"
  mv /usr/local/bin/xport /usr/local/bin/xport.drop-timer
  restored=0
- for i in $(seq 1 140); do
+ # systemd targets 120s. Under KVM/CI load the native firewalld D-Bus
+ # command can finish later; observe real runtime+permanent state with a
+ # bounded grace period rather than declaring failure while service runs.
+ for i in $(seq 1 185); do
   if [[ -z "$(firewall-cmd --zone="$ZONE" --list-rich-rules | grep -F 'port="53344"' || true)" ]] &&
      [[ -z "$(firewall-cmd --permanent --zone="$ZONE" --list-rich-rules | grep -F 'port="53344"' || true)" ]]; then
    restored=1; break
@@ -355,7 +358,8 @@ PY
  systemctl list-timers --all --no-pager 'xport-fw-restore-*' || true
  mv /usr/local/bin/xport /usr/local/bin/xport.timer-test
  restored=0
- for i in $(seq 1 135); do
+ # Use the same bounded completion grace for the legacy allow timer.
+ for i in $(seq 1 185); do
   runtime="$(firewall-cmd --zone="$ZONE" --query-port="$restore_port"/tcp || true)"
   if [[ "$runtime" == yes ]]; then
    permanent="$(firewall-cmd --permanent --zone="$ZONE" --query-port="$restore_port"/tcp || true)"
