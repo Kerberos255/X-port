@@ -107,6 +107,7 @@ func TestFirewallReadMapsAccountsAndListenerUsage(t *testing.T) {
   "  *\" firewall-sockets\"*)",
   "    if [ \"${XPORT_TEST_SOCKET_ERROR:-}\" = 1 ]; then exit 98; fi",
   "    printf '%s' '{\"tcp/2053\":true}' ;;",
+  "  *\" firewall-discovery\"*) printf '%s' '{\"processes\":[{\"port\":2053,\"protocol\":\"tcp\",\"pid\":5010,\"name\":\"xray\"}],\"sshPorts\":[22],\"sshUncertain\":false,\"ftpRanges\":[],\"docker\":[],\"dockerUncertain\":false}' ;;",
   "  *) exit 97 ;;",
   "esac",
  },"\n")+"\n"
