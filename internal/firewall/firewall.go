@@ -315,14 +315,30 @@ func parseSimpleRichRule(raw,zone string)(Rule,bool){
  return Rule{ID:id,Port:p,Protocol:match[3],Zone:zone,Backend:"firewalld",
   Access:"区域："+zone,Family:family,Kind:"rich",Action:action},true
 }
+// Detect overlapping single ports and ranges with a per-zone interval
+// sweep. Large imported rule sets should not pay O(n²) per page refresh.
 func markRuleConflicts(rules []Rule){
- for i:=range rules{
-  for j:=i+1;j<len(rules);j++{
-   a,b:=rules[i],rules[j]
-   if a.Backend!=b.Backend||a.Zone!=b.Zone||a.Protocol!=b.Protocol{continue}
-   if a.ContainsPort(b.FirstPort())||b.ContainsPort(a.FirstPort()){
-    rules[i].Conflict=true;rules[j].Conflict=true
+ groups:=make(map[string][]int)
+ for i,r:=range rules{
+  key:=r.Backend+"\x00"+r.Zone+"\x00"+r.Protocol
+  groups[key]=append(groups[key],i)
+ }
+ for _,indices:=range groups{
+  sort.Slice(indices,func(i,j int)bool{
+   a,b:=rules[indices[i]],rules[indices[j]]
+   if a.FirstPort()!=b.FirstPort(){return a.FirstPort()<b.FirstPort()}
+   return a.RangeEnd<b.RangeEnd
+  })
+  highestEnd,highestIndex:=-1,-1
+  for _,idx:=range indices{
+   r:=rules[idx]
+   first,last:=r.FirstPort(),r.Port
+   if r.IsRange(){last=r.RangeEnd}
+   if first<=highestEnd{
+    rules[idx].Conflict=true
+    rules[highestIndex].Conflict=true
    }
+   if last>highestEnd{highestEnd=last;highestIndex=idx}
   }
  }
 }
