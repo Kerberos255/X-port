@@ -27,11 +27,19 @@ async function saveSettings(e){
  try{const d=await api('/api/settings',{method:'PUT',body:JSON.stringify(body)});f.elements.currentPassword.value='';f.elements.newPassword.value='';await loadSettings();toast(d.restartRequired?'设置已保存；重启 X-port 后生效':'设置已保存')}catch(x){toast(x.message,true)}
 }
 
-function exportAccounts(){
- const host=prompt('批量导出使用哪个服务器域名 / IP？',location.hostname||'')
+async function exportAccounts(){
+ let host
+ try{
+  host=await XportOperation.input({
+   title:'批量导出账号',
+   detail:'请输入导出链接使用的服务器域名或 IP。',
+   defaultValue:location.hostname||'',placeholder:'example.com',
+   confirmText:'开始导出'
+  })
+ }catch(err){toast(err.message,true);return}
  if(host===null)return
  if(!host.trim()){toast('服务器域名 / IP 不能为空',true);return}
- location.href=`/api/accounts/export?host=${encodeURIComponent(host.trim())}`
+ location.href='/api/accounts/export?host='+encodeURIComponent(host.trim())
 }
 
 function renderAccounts(){
@@ -75,9 +83,23 @@ async function checkGeodata(manual=false){
 
 async function updateGeodata(){
  if(!xportGeodata?.available){await checkGeodata(true);if(!xportGeodata?.available)return}
- if(!confirm(`将 geoip.dat / geosite.dat 更新到 ${xportGeodata.latest}？\n两个文件会一起替换，Xray 重启失败自动回滚。`))return
- const b=$('#update-geodata');b.disabled=true;b.textContent='更新中…'
- try{const d=await api('/api/xray/geodata',{method:'POST',body:'{}'});xportGeodata=d;toast(`GeoData 已更新到 ${d.current}`);await checkGeodata()}catch(e){toast(e.message,true);b.disabled=false;b.textContent='重试更新'}
+ if(!await XportOperation.ask({
+  title:'确认更新 GeoData',
+  detail:'将 geoip.dat / geosite.dat 更新到 '+xportGeodata.latest+'？\n两个文件会一起替换，Xray 重启失败自动回滚。',
+  confirmText:'确认更新'
+ }))return
+ const b=$('#update-geodata')
+ if(b)b.disabled=true
+ try{
+  const d=await XportOperation.run({
+   title:'正在更新 GeoData',detail:'替换规则文件并验证 Xray 启动状态',
+   perform:()=>api('/api/xray/geodata',{method:'POST',body:'{}'}),
+   verify:async()=>{await api('/api/xray/geodata');await checkGeodata(false)}
+  })
+  xportGeodata=d
+  toast('GeoData 已更新到 '+d.current)
+ }catch(e){toast(e.message,true)}
+ finally{if(b){b.disabled=!xportGeodata?.available;b.textContent=xportGeodata?.available?'更新 GeoData':'已是最新'}}
 }
 
 function buildXrayUpdatePanel(){
@@ -114,9 +136,22 @@ async function checkXrayRollback(){
 
 async function rollbackXray(){
  if(!xrayRollback?.available){await checkXrayRollback();if(!xrayRollback?.available)return}
- if(!confirm(`将 Xray 从 ${xrayRollback.current} 回退到 ${xrayRollback.previous}？\n旧 core 会先验证当前配置；失败自动保持当前版本。`))return
- const b=$('#xray-page-rollback');if(b)b.disabled=true
- try{const d=await api('/api/xray/rollback',{method:'POST',body:'{}'});toast(`Xray 已切换到 ${d.current}`);await loadOverview();await checkUpdate();await checkXrayRollback()}catch(e){toast(e.message,true);await checkXrayRollback()}
+ if(!await XportOperation.ask({
+  title:'确认回退 Xray',
+  detail:'将 Xray 从 '+xrayRollback.current+' 回退到 '+xrayRollback.previous+'？\n旧核心会先验证当前配置，失败时保持当前版本。',
+  confirmText:'确认回退',danger:true
+ }))return
+ const b=$('#xray-page-rollback')
+ if(b)b.disabled=true
+ try{
+  const d=await XportOperation.run({
+   title:'正在回退 Xray',detail:'验证旧核心、应用配置并核对运行状态',
+   perform:()=>api('/api/xray/rollback',{method:'POST',body:'{}'}),
+   verify:async()=>{await api('/api/overview');await loadOverview(false,true);await checkUpdate();await checkXrayRollback()}
+  })
+  toast('Xray 已切换到 '+d.current)
+ }catch(e){toast(e.message,true)}
+ finally{await checkXrayRollback()}
 }
 
 async function checkUpdate(manual=false){
@@ -130,25 +165,61 @@ async function checkUpdate(manual=false){
 
 async function updateXray(){
  if(!state.update?.available){await checkUpdate(true);if(!state.update?.available)return}
- if(!confirm(`将 Xray 从 ${state.update.current||'当前版本'} 更新到 ${state.update.latest}？\n更新失败自动恢复旧版本。`))return
- const buttons=[$('#do-update'),$('#xray-page-do-update')].filter(Boolean);buttons.forEach(b=>{b.disabled=true;b.textContent='更新中…'})
- try{const d=await api('/api/xray/update',{method:'POST',body:'{}'});state.update=d;toast(`Xray 已更新到 ${d.current}`);await loadOverview();await checkUpdate()}catch(e){toast(e.message,true);renderXrayUpdateState(state.update);const b=$('#do-update');if(b){b.disabled=false;b.textContent='重试更新'}}
+ if(!await XportOperation.ask({
+  title:'确认更新 Xray',
+  detail:'将 Xray 从 '+(state.update.current||'当前版本')+' 更新到 '+state.update.latest+'？\n更新失败会恢复旧版本。',
+  confirmText:'确认更新'
+ }))return
+ const buttons=[$('#do-update'),$('#xray-page-do-update')].filter(Boolean)
+ buttons.forEach(b=>b.disabled=true)
+ try{
+  const d=await XportOperation.run({
+   title:'正在更新 Xray',detail:'下载核心、校验并重启服务',
+   perform:()=>api('/api/xray/update',{method:'POST',body:'{}'}),
+   verify:async()=>{await api('/api/overview');await loadOverview(false,true);await checkUpdate()}
+  })
+  state.update=d
+  toast('Xray 已更新到 '+d.current)
+ }catch(e){toast(e.message,true);renderXrayUpdateState(state.update)}
+ finally{buttons.forEach(b=>b.disabled=!state.update?.available)}
 }
 
 async function importBackupFile(file){
  if(!file)return
  if(file.size>64*1024*1024){toast('备份文件不能超过 64 MiB',true);return}
  try{
-  const res=await fetch('/api/backups/import',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/gzip'},body:file})
-  let d=null;try{d=await res.json()}catch{}
-  if(!res.ok)throw new Error(d?.error||`HTTP ${res.status}`)
-  toast('备份已导入；确认内容后再选择恢复');await loadBackups()
- }catch(e){toast(e.message,true)}finally{$('#backup-file').value=''}
+  await XportOperation.run({
+   title:'正在导入备份',detail:'上传备份文件并核对备份列表',
+   perform:async()=>{
+    const res=await fetch('/api/backups/import',{
+     method:'POST',credentials:'same-origin',
+     headers:{'Content-Type':'application/gzip'},body:file
+    })
+    let d=null;try{d=await res.json()}catch{}
+    if(!res.ok)throw new Error(d?.error||'HTTP '+res.status)
+    return d
+   },
+   verify:async()=>{await api('/api/backups');await loadBackups()}
+  })
+  toast('备份已导入，请核对内容后再恢复')
+ }catch(e){toast(e.message,true)}
+ finally{$('#backup-file').value=''}
 }
 
 async function restartXport(){
- if(!confirm('重启 X-port 管理面板？\n页面会短暂断开；Xray 代理核心不会因此停止。'))return
- try{await api('/api/xport/restart',{method:'POST',body:'{}'});toast('已安排重启，几秒后自动刷新');setTimeout(()=>location.reload(),3500)}catch(e){toast(e.message,true)}
+ if(!await XportOperation.ask({
+  title:'确认重启 X-port',
+  detail:'管理面板会短暂断开，Xray 代理核心不会因此停止。',
+  confirmText:'确认重启'
+ }))return
+ try{
+  await XportOperation.run({
+   title:'正在提交面板重启',detail:'等待服务器确认重启安排',
+   perform:()=>api('/api/xport/restart',{method:'POST',body:'{}'})
+  })
+  toast('已安排重启，页面将自动重新连接')
+  setTimeout(()=>location.reload(),3500)
+ }catch(e){toast('重启结果未确认：'+e.message,true)}
 }
 
 function ensureSelfUpdateCard(){
@@ -169,27 +240,34 @@ async function checkXportUpdate(manual=false){
 
 async function updateXport(){
  if(!xportSelfUpdate?.available){await checkXportUpdate(true);if(!xportSelfUpdate?.available)return}
- // A pending 120-second native rollback must not be interrupted by a
- // binary replacement, even when the firewall page isn't open.
  try{
   const guard=await api('/api/xport/update-state')
   if(guard.firewallPending){
-   toast('防火墙存在待确认操作，请先确认连接或等待恢复，再更新面板',true)
+   toast('防火墙仍有待确认操作，请先确认连接或等待恢复',true)
    return
   }
  }catch(e){toast('无法确认防火墙待处理状态：'+e.message,true);return}
- if(!confirm(`将 X-port 从 ${xportSelfUpdate.current} 更新到 ${xportSelfUpdate.latest}？\n更新失败自动恢复旧版本。`))return
- const b=$('#do-xport-update');b.disabled=true;b.textContent='更新中…'
+ if(!await XportOperation.ask({
+  title:'确认更新 X-port',
+  detail:'将 X-port 从 '+xportSelfUpdate.current+' 更新到 '+xportSelfUpdate.latest+'？\n更新失败自动恢复旧版本。',
+  confirmText:'确认更新'
+ }))return
+ const b=$('#do-xport-update')
+ if(b)b.disabled=true
  try{
-  const d=await api('/api/xport/update',{method:'POST',body:'{}'}),info=d.update||d
-  toast(d.scheduled?`X-port ${info.latest} 已安装，等待新版本就绪`:'X-port 已是最新')
+  const d=await XportOperation.run({
+   title:'正在更新 X-port',detail:'下载、校验并安排面板版本切换',
+   perform:()=>api('/api/xport/update',{method:'POST',body:'{}'})
+  })
+  const info=d.update||d
+  toast(d.scheduled?'更新已安装，等待新版本启动':'X-port 已是最新')
   if(d.scheduled){
-   // Do not reload on a fixed timer: systemd may still be restarting.
-   // Wait until the *running* version changes, then reload cached assets.
+   // Close progress before version monitoring; the monitor avoids refreshing open dialogs.
    if(window.XportVersionMonitor)void window.XportVersionMonitor.waitFor(info.latest)
    else setTimeout(()=>location.reload(),6000)
   }else await checkXportUpdate()
- }catch(e){toast(e.message,true);b.disabled=false;b.textContent='重试更新'}
+ }catch(e){toast('更新请求结果未确认：'+e.message,true)}
+ finally{if(b){b.disabled=!xportSelfUpdate?.available;b.textContent=xportSelfUpdate?.available?'更新 X-port':'已是最新'}}
 }
 
 function bindMetricRings(){

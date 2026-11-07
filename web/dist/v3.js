@@ -28,7 +28,11 @@ async function mutationWithRecoveryV3(run,verify,requireXray=true){
  try{return {value:await run(),recovered:false}}
  catch(err){
   if(!isTransientNetworkErrorV3(err))throw err
-  toast('连接暂时中断，正在核实操作结果…')
+  // The native progress dialog is above ordinary toasts. Keep users
+  // informed there while we verify a write that may already have applied.
+  if(typeof XportOperation!=='undefined'&&XportOperation.busy)
+   XportOperation.setStage?.('连接暂时中断，正在核实操作结果…')
+  else toast('连接暂时中断，正在核实操作结果…')
   if(!await waitForPanelV3())throw new Error('面板仍无法连接，操作结果未确认；请恢复连接后刷新')
   let applied=false
   try{applied=Boolean(await verify())}catch{}
@@ -139,7 +143,11 @@ async function loadExpertV3(id,details){
   $('#save-expert').onclick=async()=>{
    const b=$('#save-expert'),body=expertBodyFromFormV3(d);b.disabled=true;b.textContent='应用中…'
    try{
-    await mutationWithRecoveryV3(()=>api(`/api/accounts/${id}/expert`,{method:'PUT',body:JSON.stringify(body)}),async()=>{const cur=await api(`/api/accounts/${id}/expert`);return Boolean(cur)})
+    await XportOperation.run({
+     title:'正在保存高级设置',detail:'账号 '+id+' · Xray 配置',
+     perform:()=>mutationWithRecoveryV3(()=>api(`/api/accounts/${id}/expert`,{method:'PUT',body:JSON.stringify(body)}),async()=>Boolean(await api(`/api/accounts/${id}/expert`))),
+     verify:()=>XportOperation.refreshAccounts()
+    })
     toast('高级设置已应用');await loadAccounts();await loadOverview();await loadOnlineConnectionsV3(false);await loadExpertV3(id,details)
    }catch(e){toast(e.message,true);b.disabled=false;b.textContent='保存高级设置'}
   }
@@ -165,7 +173,11 @@ async function openAccountModalV3(a=null){
 
 async function toggleAccountV3(id,enabled,button){
  button.disabled=true
- try{await mutationWithRecoveryV3(()=>api(`/api/accounts/${id}/enabled`,{method:'PATCH',body:JSON.stringify({enabled})}),async()=>{const cur=await api(`/api/accounts/${id}`);return Boolean(cur.enabled)===enabled});await loadAccounts();await loadOverview();await loadOnlineConnectionsV3(false);toast(enabled?'账号已启用':'账号已停用')}
+ try{await XportOperation.run({
+  title:enabled?'正在启用账号':'正在停用账号',detail:'账号 '+id,
+  perform:()=>mutationWithRecoveryV3(()=>api(`/api/accounts/${id}/enabled`,{method:'PATCH',body:JSON.stringify({enabled})}),async()=>{const cur=await api(`/api/accounts/${id}`);return Boolean(cur.enabled)===enabled}),
+  verify:()=>XportOperation.refreshAccounts()
+ });await loadOnlineConnectionsV3(false);toast(enabled?'账号已启用':'账号已停用')}
  catch(e){toast(e.message,true);button.disabled=false}
 }
 function openCloneModalV3(id){
@@ -173,8 +185,15 @@ function openCloneModalV3(id){
  $('#clone-cancel').onclick=closeModal;$('#clone-form').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.currentTarget),name=String(f.get('name')||''),port=Number(f.get('port')||0),before=new Set(state.accounts.map(x=>Number(x.id)));try{await mutationWithRecoveryV3(()=>api(`/api/accounts/${id}/clone`,{method:'POST',body:JSON.stringify({name,port})}),async()=>{const d=await api('/api/accounts');return(d.accounts||[]).some(x=>!before.has(Number(x.id))&&x.name===name&&Number(x.port)===port)});closeModal();await loadAccounts();await loadOverview();await loadOnlineConnectionsV3(false);toast('账号已克隆')}catch(x){toast(x.message,true)}}
 }
 async function resetTrafficV3(id){
-  const a=state.accounts.find(x=>x.id===id);if(!confirm(`清零「${a?.name||id}」的本期上下行流量？\n累计总流量不会清零。`))return
-  try{await mutationWithRecoveryV3(()=>api(`/api/accounts/${id}/traffic/reset`,{method:'POST',body:'{}'}),async()=>{const d=await api('/api/accounts');const cur=(d.accounts||[]).find(x=>Number(x.id)===id);return cur&&Number(cur.upBytes||0)===0&&Number(cur.downBytes||0)===0},false);await loadAccounts();await loadOverview();toast('本期流量已清零')}catch(e){toast(e.message,true)}
+  const a=state.accounts.find(x=>x.id===id)
+  if(!await XportOperation.ask({title:'确认清零本期流量',
+    detail:'账号「'+(a?.name||id)+'」的本期上下行流量将清零，累计总流量保留。',
+    confirmText:'确认清零',danger:true}))return
+  try{await XportOperation.run({
+   title:'正在清零本期流量',detail:a?.name||String(id),
+   perform:()=>mutationWithRecoveryV3(()=>api(`/api/accounts/${id}/traffic/reset`,{method:'POST',body:'{}'}),async()=>{const d=await api('/api/accounts');const cur=(d.accounts||[]).find(x=>Number(x.id)===id);return cur&&Number(cur.upBytes||0)===0&&Number(cur.downBytes||0)===0},false),
+   verify:()=>XportOperation.refreshAccounts()
+  });toast('本期流量已清零')}catch(e){toast(e.message,true)}
 }
 async function refreshAccountsAfterDeleteV3(){
   for(let attempt=0;attempt<5;attempt++){
@@ -184,16 +203,22 @@ async function refreshAccountsAfterDeleteV3(){
   return false
 }
 async function deleteAccountV3(id){
-  const a=state.accounts.find(x=>x.id===id);if(!confirm(`删除账号「${a?.name||id}」？\n对应 inbound 会从 Xray 配置移除。`))return
+  const a=state.accounts.find(x=>x.id===id)
+  if(!await XportOperation.ask({title:'确认删除账号',
+    detail:'删除账号「'+(a?.name||id)+'」？\n对应 inbound 会从 Xray 配置移除。',
+    confirmText:'确认删除',danger:true}))return
   try{
-   await mutationWithRecoveryV3(()=>api(`/api/accounts/${id}`,{method:'DELETE'}),async()=>{const d=await api('/api/accounts');return!(d.accounts||[]).some(x=>Number(x.id)===id)})
-   const synced=await refreshAccountsAfterDeleteV3()
-   toast(synced?'账号已删除':'删除已完成，列表暂未刷新，请稍后重载')
+   await XportOperation.run({
+    title:'正在删除账号',detail:a?.name||String(id),
+    perform:()=>mutationWithRecoveryV3(()=>api(`/api/accounts/${id}`,{method:'DELETE'}),async()=>{const d=await api('/api/accounts');return!(d.accounts||[]).some(x=>Number(x.id)===id)}),
+    verify:async()=>{if(!await refreshAccountsAfterDeleteV3())throw new Error('列表暂时无法刷新')}
+   })
+   toast('账号已删除')
    void loadOverview(false,true).catch(()=>{})
    void loadOnlineConnectionsV3(false)
   }catch(e){
-   // Refresh after an ambiguous response, but never issue DELETE a second time.
-   await refreshAccountsAfterDeleteV3()
+   // A lost response is ambiguous: never issue DELETE a second time.
+   if(!e.applied)await refreshAccountsAfterDeleteV3()
    toast('删除结果未确认：'+e.message,true)
   }
 }

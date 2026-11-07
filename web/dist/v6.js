@@ -85,12 +85,19 @@ openAccountModalV3=async function(a=null){
   const expertData=(details?.dataset.loaded==='1'&&details._expertData)?expertBodyFromFormV3(details._expertData):null
   const b=f.querySelector('button[type=submit]');b.disabled=true;b.textContent='应用中…';const before=new Set(state.accounts.map(x=>Number(x.id)))
   try{
+   await XportOperation.run({
+    title:full.id?'正在保存账号':'正在创建账号',
+    detail:(body.name||'账号')+' · '+(body.port||'自动端口')+' / '+String(p).toUpperCase(),
+    perform:async()=>{
    const result=await mutationWithRecoveryV3(()=>full.id?api(`/api/accounts/${full.id}`,{method:'PUT',body:JSON.stringify(body)}):api('/api/accounts',{method:'POST',body:JSON.stringify(body)}),async()=>{if(full.id){const cur=await api(`/api/accounts/${full.id}`);return cur.name===body.name&&Number(cur.port)===(body.port||Number(cur.port))}const d=await api('/api/accounts');return(d.accounts||[]).some(x=>!before.has(Number(x.id))&&x.name===body.name)})
    let savedID=Number(full.id||result.value?.id||0)
    if(!savedID&&!full.id){const d=await api('/api/accounts');const created=(d.accounts||[]).find(x=>!before.has(Number(x.id))&&x.name===body.name);savedID=Number(created?.id||0)}
    if(expertData&&savedID)await mutationWithRecoveryV3(()=>api(`/api/accounts/${savedID}/expert`,{method:'PUT',body:JSON.stringify(expertData)}),async()=>Boolean(await api(`/api/accounts/${savedID}/expert`)))
-   closeModal();await loadAccounts();await loadOverview();await loadOnlineConnectionsV3(false);toast(full.id?'账号已更新':'账号已创建')
-  }catch(x){toast(x.message,true);b.disabled=false;b.textContent=full.id?'保存并应用':'创建并应用'}
+    },
+    verify:()=>XportOperation.refreshAccounts()
+   })
+   closeModal();await loadOnlineConnectionsV3(false);toast(full.id?'账号已更新':'账号已创建')
+  }catch(x){toast(x.message,true);if(!x.applied){b.disabled=false;b.textContent=full.id?'保存并应用':'创建并应用'}}
  }
 }
 openAccountModal=openAccountModalV3
@@ -111,12 +118,38 @@ async function loadSettingsV6(){
  }catch(e){toast(e.message,true)}
 }
 async function saveSettingsV6(e){
- e.preventDefault();const f=e.currentTarget,port=String(formValue(f,'panelListen')||'').trim()
- if(!/^\d+$/.test(port)||Number(port)<1||Number(port)>65535){toast('面板端口必须是 1–65535',true);return}
- const changing=settingsCredentialChangedV6(f),current=changing?String(formValue(f,'currentPassword')||''):''
- if(changing&&!current){syncAdminReauthV6();f.elements.namedItem('currentPassword')?.focus();toast('修改管理员账号或密码时需要确认当前密码',true);return}
- const body={panelListen:joinPanelListenV6(xportPanelListenHostV6,port),panelBasePath:formValue(f,'panelBasePath'),panelDomain:formValue(f,'panelDomain'),panelCertFile:formValue(f,'panelCertFile'),panelKeyFile:formValue(f,'panelKeyFile'),xrayApiPort:Number(formValue(f,'xrayApiPort')),portMin:Number(formValue(f,'portMin')),portMax:Number(formValue(f,'portMax')),defaultRealitySni:formValue(f,'defaultRealitySni'),defaultRealityDest:formValue(f,'defaultRealityDest'),adminUsername:formValue(f,'adminUsername'),currentPassword:current,newPassword:formValue(f,'newPassword')}
- try{const d=await api('/api/settings',{method:'PUT',body:JSON.stringify(body)});await loadSettingsV6();toast(d.restartRequired?'设置已保存；重启 X-port 后生效':'设置已保存')}catch(x){toast(x.message,true)}
+ e.preventDefault()
+ const f=e.currentTarget,port=String(formValue(f,'panelListen')||'').trim()
+ if(!/^\d+$/.test(port)||Number(port)<1||Number(port)>65535){
+  toast('面板端口必须是 1–65535',true);return
+ }
+ const changing=settingsCredentialChangedV6(f)
+ const current=changing?String(formValue(f,'currentPassword')||''):''
+ if(changing&&!current){
+  syncAdminReauthV6()
+  f.elements.namedItem('currentPassword')?.focus()
+  toast('修改管理员账号或密码时需要确认当前密码',true)
+  return
+ }
+ const body={panelListen:joinPanelListenV6(xportPanelListenHostV6,port),
+  panelBasePath:formValue(f,'panelBasePath'),panelDomain:formValue(f,'panelDomain'),
+  panelCertFile:formValue(f,'panelCertFile'),panelKeyFile:formValue(f,'panelKeyFile'),
+  xrayApiPort:Number(formValue(f,'xrayApiPort')),
+  portMin:Number(formValue(f,'portMin')),portMax:Number(formValue(f,'portMax')),
+  defaultRealitySni:formValue(f,'defaultRealitySni'),
+  defaultRealityDest:formValue(f,'defaultRealityDest'),
+  adminUsername:formValue(f,'adminUsername'),currentPassword:current,
+  newPassword:formValue(f,'newPassword')}
+ try{
+  const d=await XportOperation.run({
+   title:'正在保存系统设置',detail:'提交面板参数并核对最新配置',
+   perform:()=>api('/api/settings',{method:'PUT',body:JSON.stringify(body)}),
+   // Credential changes may invalidate the current session immediately.
+   verify:changing?undefined:async()=>{await api('/api/settings');await loadSettingsV6()}
+  })
+  if(changing){const pw=f.elements.namedItem('currentPassword'),newPw=f.elements.namedItem('newPassword');if(pw)pw.value='';if(newPw)newPw.value=''}
+  toast(d.restartRequired?'设置已保存，重启 X-port 后生效':'设置已保存')
+ }catch(x){toast(x.message,true)}
 }
 
 function initV6(){

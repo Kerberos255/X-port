@@ -56,9 +56,27 @@ cat > "$TMP/__mock.js" <<'JS'
   globalThis.__legacyCloneHits = 0
   globalThis.__fwConfirmCalls = 0
   globalThis.__fwConfirmResult = false
+  globalThis.__fwWriteHold = false
+  globalThis.__fwReleaseWrite = null
+  globalThis.__accountToggleHold = false
+  globalThis.__accountReleaseWrite = null
+  globalThis.__accountToggleCalls = 0
+  globalThis.__accountDeleteCalls = 0
+  globalThis.__accountDeleteHold = false
+  globalThis.__accountDeleteRelease = null
+  globalThis.__mockAccountDeleted = false
+  globalThis.__fwControlPending = false
+  globalThis.__pendingConfirmSeenWhileBusy = null
   globalThis.__xportServerVersion = 'browser-test'
   globalThis.__xportPending = false
-  globalThis.confirm = () => { globalThis.__fwConfirmCalls++; return globalThis.__fwConfirmResult }
+  globalThis.confirm = message => {
+    globalThis.__fwConfirmCalls++
+    if(globalThis.__fwControlPending && String(message).includes('规则已临时修改')){
+      globalThis.__pendingConfirmSeenWhileBusy=Boolean(document.querySelector('#operation-progress')?.open)
+      return false
+    }
+    return globalThis.__fwConfirmResult
+  }
   let fwNote = '主节点 · REALITY'
   globalThis.fetch = (input, init = {}) => {
     const u = new URL(typeof input === 'string' ? input : input.url, location.href)
@@ -70,8 +88,23 @@ cat > "$TMP/__mock.js" <<'JS'
         networkRx:0, networkTx:0, xrayVersion:'test', xrayActive:true},
       accounts: {total:1, enabled:1}, xportVersion:'browser-test'
     })
-    if (path === '/api/accounts' && method === 'GET') return json({accounts:[account]})
+    if (path === '/api/accounts' && method === 'GET') return json({accounts:globalThis.__mockAccountDeleted?[]:[account]})
+    if (path === '/api/accounts/1' && method === 'DELETE') {
+      globalThis.__accountDeleteCalls++
+      if(globalThis.__accountDeleteHold)
+        return new Promise(resolve=>{globalThis.__accountDeleteRelease=()=>{globalThis.__mockAccountDeleted=true;resolve(json({ok:true}))}})
+      globalThis.__mockAccountDeleted=true
+      return json({ok:true})
+    }
     if (path === '/api/accounts/1' && method === 'GET') return json(account)
+    if (path === '/api/accounts/1/enabled' && method === 'PATCH') {
+      globalThis.__accountToggleCalls++
+      const next=Boolean(JSON.parse(init.body||'{}').enabled)
+      if(globalThis.__accountToggleHold)
+        return new Promise(resolve=>{globalThis.__accountReleaseWrite=()=>{account.enabled=next;resolve(json({ok:true}))}})
+      account.enabled=next
+      return json({ok:true})
+    }
     if (path === '/api/accounts/1/expert' && method === 'GET') return json(expert)
     if (path === '/api/accounts/online') return json({connections:{}})
     if (path === '/api/accounts/port-suggestion') return json({port:23741,min:20000,max:60000})
@@ -95,11 +128,16 @@ cat > "$TMP/__mock.js" <<'JS'
     }
     if (path === '/api/firewall/purpose' && method === 'PUT') return json({purpose:JSON.parse(init.body).purpose})
     if (path === '/api/firewall/raw' && method === 'GET') return json({ruleset:'table inet firewalld {\\n chain INPUT { type filter hook input priority 10; }\\n}'})
-    if (path === '/api/firewall/rules' && method === 'POST') { globalThis.__fwMutationCalls=(globalThis.__fwMutationCalls||0)+1; return json({ok:true}) }
+    if (path === '/api/firewall/rules' && method === 'POST') {
+      globalThis.__fwMutationCalls=(globalThis.__fwMutationCalls||0)+1
+      if(globalThis.__fwWriteHold)
+        return new Promise(resolve=>{globalThis.__fwReleaseWrite=()=>resolve(json({ok:true,pending:false}))})
+      return json({ok:true})
+    }
     if (path === '/api/firewall/control' && method === 'POST') {
       globalThis.__fwControlCalls=(globalThis.__fwControlCalls||0)+1
       globalThis.__fwLastControl=JSON.parse(init.body||'{}')
-      return json({ok:true,pending:false})
+      return json({ok:true,pending:globalThis.__fwControlPending,id:'test-protected',token:'test-token'})
     }
     if (path === '/api/firewall/edit' && method === 'POST') {
       globalThis.__fwEditCalls=(globalThis.__fwEditCalls||0)+1
@@ -118,6 +156,19 @@ cat > "$TMP/__mock.js" <<'JS'
     if (path === '/api/xray/config') return json({config:{routing:{},dns:{},outbounds:[],policy:{}}})
     return json({ok:true})
   }
+  // Act on the real custom confirmation rather than a browser-native
+  // confirm(). This also proves the dialog was actually opened.
+  const confirmDialog=document.querySelector('#operation-confirm')
+  const nativeShow=confirmDialog.showModal.bind(confirmDialog)
+  confirmDialog.showModal=()=>{
+    nativeShow()
+    globalThis.__fwConfirmCalls++
+    const text=confirmDialog.querySelector('#operation-confirm-detail').textContent
+    const pending=globalThis.__fwControlPending&&text.includes('120 秒')
+    if(pending)globalThis.__pendingConfirmSeenWhileBusy=Boolean(document.querySelector('#operation-progress')?.open)
+    const agree=pending?false:Boolean(globalThis.__fwConfirmResult)
+    queueMicrotask(()=>confirmDialog.querySelector(agree?'#operation-confirm-apply':'#operation-confirm-cancel').click())
+  }
 })()
 JS
 
@@ -127,6 +178,9 @@ cat > "$TMP/__driver.js" <<'JS'
     document.documentElement.dataset.browserRegression = status
     document.documentElement.dataset.browserRegressionDetail = detail
   }
+  mark('running','driver initialized')
+  window.addEventListener('error',e=>mark('error',String(e.message||'script error')))
+  window.addEventListener('unhandledrejection',e=>mark('rejection',String(e.reason||'unhandled rejection')))
   const sleep = ms => new Promise(r => setTimeout(r, ms))
   async function waitFor(selector, timeout=3000) {
     const end = Date.now() + timeout
@@ -377,6 +431,101 @@ cat > "$TMP/__driver.js" <<'JS'
       if(!detail.textContent.includes('xray')||!detail.textContent.includes('1242'))throw new Error('process/PID details missing')
       detail.querySelector('button[value="cancel"]').click()
 
+      // Shared progress is truly centered, modal and non-dismissible.
+      // A deferred Xray toggle exercises the real API write path.
+      const progress=document.querySelector('#operation-progress')
+      if(!progress||!window.XportOperation)throw new Error('shared operation progress missing')
+      document.querySelector('#nav [data-page="accounts"]').click()
+      const accountToggle=await waitFor('.account-row .account-toggle')
+      globalThis.__accountToggleHold=true
+      const accountPromise=toggleAccountV3(1,false,accountToggle)
+      await waitFor('#operation-progress[open]')
+      if(!progress.querySelector('#operation-progress-title').textContent.includes('停用账号'))
+        throw new Error('account toggle missing operation-specific title')
+      const bounds=progress.getBoundingClientRect()
+      if(Math.abs((bounds.top+bounds.bottom)/2-innerHeight/2)>Math.max(28,innerHeight*.08)||
+         Math.abs((bounds.left+bounds.right)/2-innerWidth/2)>Math.max(28,innerWidth*.08))
+        throw new Error('operation progress must be centered in viewport')
+      if(getComputedStyle(progress).position!=='fixed' || !progress.open)
+        throw new Error('operation progress must be modal')
+      const canceled=new Event('cancel',{cancelable:true})
+      progress.dispatchEvent(canceled)
+      if(!canceled.defaultPrevented||!progress.open)throw new Error('progress dialog must block Escape dismissal')
+      const oldWrites=globalThis.__accountToggleCalls
+      await XportOperation.run({
+        title:'不应执行',perform:async()=>{globalThis.__accountToggleCalls++}
+      }).then(()=>{throw new Error('parallel operation unexpectedly succeeded')},
+        err=>{if(!/正在执行/.test(err.message))throw err})
+      if(globalThis.__accountToggleCalls!==oldWrites)
+        throw new Error('duplicate account write was not blocked')
+      globalThis.__accountReleaseWrite()
+      await accountPromise
+      globalThis.__accountToggleHold=false
+      if(progress.open||XportOperation.busy)
+        throw new Error('progress did not close after refreshed account list')
+      // Ordinary validation and success notices share the centered visual style,
+      // but never trap focus or block the page.
+      const notice=document.querySelector('#toast')
+      toast('端口必须是 1–65535',true)
+      if(notice.classList.contains('hidden')||notice.getAttribute('role')!=='alert')
+        throw new Error('validation error notice is not accessible')
+      const noticeRect=notice.getBoundingClientRect()
+      if(Math.abs((noticeRect.top+noticeRect.bottom)/2-innerHeight/2)>Math.max(25,innerHeight*.06) ||
+         Math.abs((noticeRect.left+noticeRect.right)/2-innerWidth/2)>Math.max(25,innerWidth*.06))
+        throw new Error('validation notice is not centered')
+      if(getComputedStyle(notice).pointerEvents!=='none' || parseFloat(getComputedStyle(notice).fontSize)<13)
+        throw new Error('notice must be legible and nonblocking')
+      const oldNoticeTheme=document.documentElement.dataset.theme
+      document.documentElement.dataset.theme='light'
+      const lightNotice=getComputedStyle(notice)
+      if(lightNotice.color!=='rgb(146, 45, 64)')
+        throw new Error('light warning notice has insufficient theme contrast: '+lightNotice.color)
+      document.documentElement.dataset.theme=oldNoticeTheme
+      toast('账号已创建')
+      if(notice.getAttribute('role')!=='status'||notice.classList.contains('bad'))
+        throw new Error('success notice state was not reset')
+      notice.classList.add('hidden')
+      // Input prompts use the same centered confirmation surface.
+      globalThis.__fwConfirmResult=true
+      const entered=await XportOperation.input({
+        title:'批量导出账号',detail:'输入域名',
+        defaultValue:'example.com',confirmText:'开始导出'
+      })
+      globalThis.__fwConfirmResult=false
+      if(entered!=='example.com'||document.querySelector('.operation-confirm-input'))
+        throw new Error('centered input did not return its value or clean up')
+      // Account modals must be centered and usable, not small/top-edge sheets.
+      await openAccountModalV3(state.accounts.find(a=>a.id===1))
+      const accountModal=document.querySelector('#modal .modal-card')
+      if(!accountModal||!document.querySelector('#account-form'))
+        throw new Error('account form modal missing')
+      const accountRect=accountModal.getBoundingClientRect()
+      if(Math.abs((accountRect.top+accountRect.bottom)/2-innerHeight/2)>Math.max(32,innerHeight*.08)||
+         accountRect.width<600||accountRect.right>innerWidth)
+        throw new Error('desktop account editor must be centered and spacious')
+      document.querySelector('#modal-close').click()
+      // Exercise the actual firewall add flow with a held write response.
+      document.querySelector('#nav [data-page="firewall"]').click()
+      globalThis.__fwConfirmResult=true
+      globalThis.__fwWriteHold=true
+      const priorRules=globalThis.__fwMutationCalls||0
+      document.querySelector('#fw-add').click()
+      const firewallAdd=await waitFor('#fw-add-dialog[open]')
+      firewallAdd.querySelector('#fw-add-port').value='53341'
+      firewallAdd.querySelector('#fw-add-policy').value='allow'
+      firewallAdd.querySelector('#fw-confirm-add').click()
+      await waitFor('#operation-progress[open]')
+      if(!progress.querySelector('#operation-progress-title').textContent.includes('添加防火墙规则')||
+         (globalThis.__fwMutationCalls||0)!==priorRules+1)
+        throw new Error('firewall add must display modal progress once')
+      if(!globalThis.__fwReleaseWrite)throw new Error('held firewall write did not start')
+      globalThis.__fwReleaseWrite()
+      globalThis.__fwWriteHold=false
+      await sleep(75)
+      if(progress.open||XportOperation.busy)
+        throw new Error('firewall add progress did not close after status refresh')
+      globalThis.__fwConfirmResult=false
+
       const oldTheme=document.documentElement.dataset.theme
       document.documentElement.dataset.theme='light'
       const chip=document.querySelector('#fw-rows .fw-source')
@@ -465,6 +614,46 @@ cat > "$TMP/__driver.js" <<'JS'
          globalThis.__fwLastEdit?.revision!=='111122223333444455556666')
         throw new Error('confirmed external edit did not include revision and explicit consent')
       if((globalThis.__fwMutationCalls||0)!==beforeDeny)throw new Error('external edit fell back to legacy allow path')
+      // Native recovery confirmation must be offered after the
+      // non-dismissible operation progress overlay is released.
+      globalThis.__fwControlPending=true
+      globalThis.__fwConfirmResult=true
+      const activeToggle=document.querySelector('#fw-rows button.fw-switch[data-fw-id="firewalld:public:2053/tcp"]')
+      if(!activeToggle)throw new Error('test rule toggle missing')
+      activeToggle.click()
+      await sleep(120)
+      if(globalThis.__pendingConfirmSeenWhileBusy!==false)
+        throw new Error('firewall recovery confirmation appeared while operation progress was modal')
+      if(document.querySelector('#operation-progress')?.open)
+        throw new Error('firewall recovery confirmation left progress locked')
+      globalThis.__fwControlPending=false
+      globalThis.__fwConfirmResult=false
+      document.querySelector('#nav [data-page="accounts"]').click()
+      const deleteButton=await waitFor('.account-row button[data-act="delete"]')
+      const prevDelete=globalThis.__accountDeleteCalls
+      deleteButton.click()
+      await sleep(45)
+      if(globalThis.__accountDeleteCalls!==prevDelete)
+        throw new Error('canceled centered account delete confirmation sent a write')
+      globalThis.__accountDeleteHold=true
+      globalThis.__fwConfirmResult=true
+      deleteButton.click()
+      await waitFor('#operation-progress[open]')
+      if(!progress.querySelector('#operation-progress-title').textContent.includes('删除账号')||
+         globalThis.__accountDeleteCalls!==prevDelete+1)
+        throw new Error('confirmed delete must show centered progress and send exactly once')
+      globalThis.__accountDeleteRelease()
+      globalThis.__accountDeleteHold=false
+      await sleep(100)
+      if(progress.open||XportOperation.busy||document.querySelector('.account-row'))
+        throw new Error('account delete did not finish and refresh after its single write')
+      // A verification failure must release the modal but prevent blind retry.
+      const uncertain=await XportOperation.run({
+        title:'状态核对测试',perform:async()=>({ok:true}),
+        verify:async()=>{throw new Error('simulated read failure')}
+      }).then(()=>null,err=>err)
+      if(!uncertain?.applied||progress.open||XportOperation.busy)
+        throw new Error('verification failure left modal stuck or falsely signaled a clean success')
       globalThis.__fwConfirmResult=false
       mark('pass', `clonePort=${portInput.value};legacyHits=0;fallbackDest=${dest};layout=contained;globalXray=ok;firewallEdits=guarded`)
     } catch (err) {
@@ -473,6 +662,8 @@ cat > "$TMP/__driver.js" <<'JS'
   }, {once:true})
 })()
 JS
+
+node --check "$TMP/__driver.js"
 
 (
   cd "$TMP"
@@ -492,6 +683,13 @@ DOM="$TMP/dom.html"
 }
 if ! grep -q 'data-browser-regression="pass"' "$DOM"; then
   echo "Browser regression failed" >&2
+  python3 - "$DOM" <<'PY'
+import re,sys
+text=open(sys.argv[1],encoding='utf-8',errors='replace').read()
+html=re.search(r'<html\b[^>]*>',text,re.I)
+print('Browser html state: '+(html.group(0)[:1800] if html else '<missing>'),file=sys.stderr)
+print('Browser DOM bytes: '+str(len(text))+' first: '+repr(text[:400]),file=sys.stderr)
+PY
   grep -o 'data-browser-regression[^>]*' "$DOM" >&2 || true
   cat "$TMP/browser.log" >&2
   exit 1

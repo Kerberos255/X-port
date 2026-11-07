@@ -1,0 +1,131 @@
+/* A single centered progress dialog for the entire control plane. */
+#operation-progress{
+ position:fixed;inset:0;margin:auto;width:min(470px,calc(100vw - 36px));
+ max-height:min(85dvh,520px);border:1px solid rgba(128,176,218,.35);
+ border-radius:17px;padding:29px 27px 26px;color:#e9f4ff;
+ background:linear-gradient(145deg,#162237,#0d1625);
+ box-shadow:0 30px 95px rgba(0,0,0,.49);
+}
+#operation-progress::backdrop{
+ background:rgba(2,8,18,.78);backdrop-filter:blur(6px)
+}
+.operation-progress-main{display:flex;gap:19px;align-items:flex-start}
+.operation-spinner{
+ display:block;flex:0 0 48px;width:48px;height:48px;border-radius:50%;
+ border:4px solid rgba(89,181,219,.18);border-top-color:#6de2db;
+ animation:xport-operation-spin .85s linear infinite;
+}
+@keyframes xport-operation-spin{to{transform:rotate(360deg)}}
+.operation-progress-copy{min-width:0;display:grid;gap:9px;flex:1}
+#operation-progress-title{font-size:19px;line-height:1.35;font-weight:700;margin:0;color:inherit}
+#operation-progress-detail{font-size:13px;line-height:1.6;color:#b8cbe1;margin:0;overflow-wrap:anywhere}
+#operation-progress-stage{margin:5px 0 0;padding-top:13px;border-top:1px solid rgba(137,174,212,.17);
+ font-size:12px;color:#83cbd3;line-height:1.5}
+html[data-theme="light"] #operation-progress{
+ color:#25415c;background:linear-gradient(145deg,#fff,#f4f9ff);
+ border-color:#b9cfe3;box-shadow:0 28px 75px rgba(21,53,90,.22)
+}
+html[data-theme="light"] #operation-progress-detail{color:#56718b}
+html[data-theme="light"] #operation-progress-stage{color:#267c89;border-top-color:#dce6ef}
+@media(prefers-reduced-motion:reduce){.operation-spinner{animation:none;border-top-color:#6de2db}}
+
+/* Confirmations use the same visual center and width as progress. */
+#operation-confirm{
+ position:fixed;inset:0;margin:auto;width:min(470px,calc(100vw - 36px));
+ max-height:min(85dvh,520px);padding:26px 27px 22px;
+ border:1px solid rgba(128,176,218,.35);border-radius:17px;
+ color:#e9f4ff;background:linear-gradient(145deg,#162237,#0d1625);
+ box-shadow:0 30px 95px rgba(0,0,0,.49)
+}
+#operation-confirm::backdrop{background:rgba(2,8,18,.78);backdrop-filter:blur(6px)}
+.operation-confirm-copy{min-width:0;display:grid;gap:10px}
+.operation-confirm-kicker{font-size:10px;font-weight:700;letter-spacing:1.2px;color:#70c9ca}
+#operation-confirm-title{font-size:19px;line-height:1.35;font-weight:750;margin:0}
+#operation-confirm-detail{font-size:13px;line-height:1.65;white-space:pre-line;
+ color:#b8cbe1;margin:0;overflow-wrap:anywhere}
+.operation-confirm-actions{display:flex;justify-content:flex-end;flex-wrap:wrap;
+ gap:9px;margin-top:23px;padding-top:17px;border-top:1px solid rgba(137,174,212,.17)}
+.operation-confirm-actions .btn{min-width:92px;font-size:13px;min-height:39px}
+.operation-confirm-actions .btn.danger{background:rgba(211,81,98,.18);
+ border-color:rgba(235,127,141,.45);color:#ffb4ba;font-weight:700}
+html[data-theme="light"] #operation-confirm{color:#25415c;background:linear-gradient(145deg,#fff,#f4f9ff);
+ border-color:#b9cfe3;box-shadow:0 28px 75px rgba(21,53,90,.22)}
+html[data-theme="light"] #operation-confirm-detail{color:#56718b}
+html[data-theme="light"] .operation-confirm-actions{border-top-color:#dce6ef}
+html[data-theme="light"] .operation-confirm-actions .btn.danger{color:#a62e46;background:#fff0f2}
+@media(max-width:700px){
+ #operation-confirm{width:calc(100vw - 28px);padding:23px 19px}
+ #operation-confirm-title{font-size:17px}
+ .operation-confirm-actions{gap:8px}
+ .operation-confirm-actions .btn{min-width:86px}
+}
+
+/* Existing account forms / clone / share dialogs centered instead of top sheets. */
+#modal.modal{place-items:center;padding:clamp(12px,3vw,28px)}
+#modal .modal-card{width:min(560px,100%);max-width:100%;max-height:86dvh;
+ border-radius:17px;padding:26px 27px;overscroll-behavior:contain}
+#modal .modal-card:has(#account-form){width:min(750px,100%)}
+@media(max-width:700px){
+ #modal.modal{place-items:center;padding:12px}
+ #modal .modal-card{width:100%;max-width:none;max-height:86dvh;
+  border-radius:16px;padding:20px 17px;overflow:auto}
+ #modal .modal-card:has(#account-form) #modal-body,
+ #modal .modal-card .account-editor-form{max-height:calc(86dvh - 42px)}
+ #operation-progress{width:calc(100vw - 28px);padding:25px 19px}
+ .operation-progress-main{gap:14px}
+ .operation-spinner{flex-basis:40px;width:40px;height:40px;border-width:3px}
+ #operation-progress-title{font-size:17px}
+}
+
+/* One visual language: centered nonblocking notices, blocking progress for writes. */
+#toast.toast:not(.hidden){
+ position:fixed;top:50%;left:50%;right:auto;bottom:auto;
+ transform:translate(-50%,-50%);min-width:min(340px,calc(100vw - 32px));
+ width:max-content;max-width:min(470px,calc(100vw - 32px));
+ box-sizing:border-box;display:flex;gap:15px;align-items:center;
+ padding:19px 21px;border:1px solid rgba(128,176,218,.35);
+ border-radius:17px;background:linear-gradient(145deg,#162237,#0d1625);
+ color:#e9f4ff;box-shadow:0 24px 72px rgba(0,0,0,.38);
+ font-size:14px;font-weight:550;line-height:1.55;
+ z-index:100;pointer-events:none;
+}
+#toast.toast.bad:not(.hidden){
+ background:linear-gradient(145deg,#32202b,#221823);
+ color:#ffe1e4;border-color:rgba(235,127,141,.47);
+}
+#toast.toast .toast-icon{
+ width:34px;height:34px;flex:0 0 34px;
+ font-size:17px;color:#79e2c4;background:rgba(98,220,168,.12);
+}
+#toast.toast.bad .toast-icon{color:#ffb0bd;background:rgba(238,124,137,.14)}
+#toast.toast .toast-message{font-size:14px;line-height:1.55;min-width:0;overflow-wrap:anywhere}
+html[data-theme="light"] #toast.toast:not(.hidden){
+ background:linear-gradient(145deg,#fff,#f4f9ff);
+ color:#25415c;border-color:#b9cfe3;
+ box-shadow:0 24px 70px rgba(21,53,90,.23);
+}
+html[data-theme="light"] #toast.toast.bad:not(.hidden){
+ background:linear-gradient(145deg,#fff8f9,#fff0f2);
+ color:#922d40;border-color:#e5aeb9;
+}
+html[data-theme="light"] #toast.toast .toast-icon{color:#166d58;background:#e1f5ef}
+html[data-theme="light"] #toast.toast.bad .toast-icon{color:#a92c45;background:#ffdde5}
+#operation-progress,#operation-confirm{outline:none}
+html[data-theme="light"] #operation-progress::backdrop,
+html[data-theme="light"] #operation-confirm::backdrop{
+ background:rgba(23,42,67,.42);backdrop-filter:blur(5px);
+}
+.operation-confirm-input{
+ display:block;width:100%;box-sizing:border-box;margin-top:16px;
+ border:1px solid rgba(128,176,218,.35);background:#0c1727;
+ border-radius:9px;padding:11px 12px;color:#e9f4ff;
+ font:inherit;font-size:14px;outline-offset:2px;
+}
+html[data-theme="light"] .operation-confirm-input{
+ color:#25415c;background:#fff;border-color:#b9cfe3;
+}
+@media(max-width:700px){
+ #toast.toast:not(.hidden){width:calc(100vw - 28px);min-width:0;padding:17px 18px;gap:12px}
+ #toast.toast .toast-icon{width:30px;height:30px;flex-basis:30px;font-size:15px}
+ #toast.toast .toast-message{font-size:13px}
+}

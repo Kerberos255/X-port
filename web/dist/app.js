@@ -54,15 +54,68 @@ async function openShareModal(id){const a=state.accounts.find(x=>x.id===id),defa
 
 async function checkUpdate(manual=false){const latest=$('#update-latest'),note=$('#update-note'),btn=$('#do-update');latest.textContent='检查中';btn.disabled=true;try{const d=await api('/api/xray/update');state.update=d;$('#update-current').textContent=d.current?`v${String(d.current).replace(/^v/,'')}`:'未安装';latest.textContent=d.latest?`v${String(d.latest).replace(/^v/,'')}`:'—';note.textContent=d.available?`发现${d.prerelease?'预发布':''}新版本 · ${d.asset}`:'当前已是最新版本';btn.disabled=!d.available;btn.textContent=d.available?'更新 Xray':'已是最新';if(manual)toast(d.available?'发现可用更新':'Xray 已是最新')}catch(e){latest.textContent='检查失败';note.textContent=e.message;if(manual)toast(e.message,true)}}
 async function updateXray(){if(!state.update?.available){await checkUpdate(true);if(!state.update?.available)return}if(!confirm(`将 Xray 从 ${state.update.current||'当前版本'} 更新到 ${state.update.latest}。\n新核心会先测试当前配置，失败自动回滚。继续吗？`))return;const b=$('#do-update');b.disabled=true;b.textContent='更新中…';try{const d=await api('/api/xray/update',{method:'POST',body:'{}'});state.update=d;toast(`Xray 已更新到 ${d.current}`);await loadOverview();await checkUpdate()}catch(e){toast(e.message,true);b.disabled=false;b.textContent='重试更新'}}
-async function restartXray(){if(!confirm('重启 Xray 服务？现有连接可能短暂中断。'))return;try{await api('/api/xray/restart',{method:'POST',body:'{}'});toast('Xray 已重启');setTimeout(()=>loadOverview(),1000)}catch(e){toast(e.message,true)}}
+async function restartXray(){
+ if(!await XportOperation.ask({
+  title:'确认重启 Xray',
+  detail:'现有代理连接可能短暂中断，重启失败会显示具体错误。',
+  confirmText:'确认重启'
+ }))return
+ try{
+  await XportOperation.run({
+   title:'正在重启 Xray',detail:'等待核心重新启动并核对运行状态',
+   perform:()=>api('/api/xray/restart',{method:'POST',body:'{}'}),
+   verify:async()=>{
+    await new Promise(resolve=>setTimeout(resolve,1000))
+    await api('/api/overview')
+    await loadOverview(false,true)
+   }
+  })
+  toast('Xray 已重启')
+ }catch(e){toast(e.message,true)}
+}
 async function loadLogs(){try{const service=$('#log-service').value,lines=$('#log-lines').value,d=await api(`/api/logs?service=${encodeURIComponent(service)}&lines=${lines}`);$('#log-output').textContent=d.logs||'(无日志)'}catch(e){$('#log-output').textContent=e.message;toast(e.message,true)}}
 function downloadLogs(){const service=$('#log-service').value,lines=$('#log-lines').value;location.href=`/api/logs?service=${encodeURIComponent(service)}&lines=${lines}&download=1`}
 
 async function loadSettings(){try{const d=await api('/api/settings'),f=$('#settings-form');for(const [k,v] of Object.entries(d)){const el=f.elements.namedItem(k);if(el)el.value=v??''}f.elements.currentPassword.value='';f.elements.newPassword.value=''}catch(e){toast(e.message,true)}}
 async function saveSettings(e){e.preventDefault();const f=e.currentTarget,body={panelListen:formValue(f,'panelListen'),xrayApiPort:Number(formValue(f,'xrayApiPort')),portMin:Number(formValue(f,'portMin')),portMax:Number(formValue(f,'portMax')),defaultRealitySni:formValue(f,'defaultRealitySni'),defaultRealityDest:formValue(f,'defaultRealityDest'),adminUsername:formValue(f,'adminUsername'),currentPassword:formValue(f,'currentPassword'),newPassword:formValue(f,'newPassword')};try{const d=await api('/api/settings',{method:'PUT',body:JSON.stringify(body)});f.elements.currentPassword.value='';f.elements.newPassword.value='';toast(d.restartRequired?'设置已保存；相关监听设置重启 X-port 后生效':'设置已保存')}catch(x){toast(x.message,true)}}
 async function loadBackups(){try{const d=await api('/api/backups'),list=$('#backup-list'),arr=d.backups||[];if(!arr.length){list.innerHTML='<div class="empty small"><b>暂无手动备份</b></div>';return}list.innerHTML=arr.map(x=>`<div class="backup-row" data-name="${esc(x.name)}"><div><b>${esc(x.name)}</b><small>${new Date(x.createdAt).toLocaleString()} · ${fmtBytes(x.size)}</small></div><div class="row-actions"><button class="icon-btn" data-act="download" title="下载">↓</button><button class="icon-btn" data-act="restore" title="恢复">↺</button><button class="icon-btn" data-act="delete" title="删除">×</button></div></div>`).join('');$$('.backup-row').forEach(row=>row.onclick=e=>{const b=e.target.closest('button[data-act]');if(!b)return;const n=row.dataset.name;if(b.dataset.act==='download')location.href=`/api/backups/${encodeURIComponent(n)}/download`;if(b.dataset.act==='restore')void restoreBackup(n);if(b.dataset.act==='delete')void deleteBackup(n)})}catch(e){toast(e.message,true)}}
-async function createBackup(){try{await api('/api/backups',{method:'POST',body:'{}'});toast('备份已创建');await loadBackups()}catch(e){toast(e.message,true)}}
-async function restoreBackup(name){if(!confirm(`恢复备份 ${name}？\n恢复前会自动再创建一个当前状态快照。`))return;try{await api(`/api/backups/${encodeURIComponent(name)}/restore`,{method:'POST',body:'{}'});toast('恢复成功，请重新登录');setTimeout(()=>showLogin(),400)}catch(e){toast(e.message,true)}}
-async function deleteBackup(name){if(!confirm(`删除备份 ${name}？`))return;try{await api(`/api/backups/${encodeURIComponent(name)}`,{method:'DELETE'});toast('备份已删除');await loadBackups()}catch(e){toast(e.message,true)}}
-
+async function createBackup(){
+ try{
+  await XportOperation.run({
+   title:'正在创建备份',detail:'保存系统快照并核对备份列表',
+   perform:()=>api('/api/backups',{method:'POST',body:'{}'}),
+   verify:async()=>{await api('/api/backups');await loadBackups()}
+  })
+  toast('备份已创建')
+ }catch(e){toast(e.message,true)}
+}
+async function restoreBackup(name){
+ if(!await XportOperation.ask({
+  title:'确认恢复备份',
+  detail:'恢复备份「'+name+'」？\n系统会先创建当前状态快照。恢复后需要重新登录。',
+  confirmText:'确认恢复',danger:true
+ }))return
+ try{
+  await XportOperation.run({
+   title:'正在恢复备份',detail:'写入备份数据并等待服务器确认',
+   perform:()=>api('/api/backups/'+encodeURIComponent(name)+'/restore',{method:'POST',body:'{}'})
+  })
+  toast('备份已恢复，请重新登录')
+  setTimeout(()=>showLogin(),400)
+ }catch(e){toast('恢复结果未确认：'+e.message,true)}
+}
+async function deleteBackup(name){
+ if(!await XportOperation.ask({
+  title:'确认删除备份',detail:'确定删除备份「'+name+'」？',
+  confirmText:'确认删除',danger:true
+ }))return
+ try{
+  await XportOperation.run({
+   title:'正在删除备份',detail:'删除备份并核对备份列表',
+   perform:()=>api('/api/backups/'+encodeURIComponent(name),{method:'DELETE'}),
+   verify:async()=>{await api('/api/backups');await loadBackups()}
+  })
+  toast('备份已删除')
+ }catch(e){toast(e.message,true)}
+}
 document.addEventListener('DOMContentLoaded',boot)

@@ -95,8 +95,18 @@
       if(result==='reload'){reloadTo(info.version)}
       else if(result==='pending')notice('防火墙还有未确认的恢复任务；确认完成后自动刷新。')
       else if(result==='editing'){
-        if(manual && window.confirm('页面可能存在未保存的输入。确认放弃这些更改并刷新吗？'))
-          reloadTo(info.version)
+        let accepted=false
+        if(manual && window.XportOperation && !window.XportOperation.busy &&
+           !window.XportOperation.confirming){
+          try{
+            accepted=await window.XportOperation.ask({
+              title:'确认刷新面板',
+              detail:'页面存在未保存的输入。放弃更改并重新加载最新版本？',
+              confirmText:'放弃并刷新',danger:true
+            })
+          }catch{}
+        }
+        if(accepted)reloadTo(info.version)
         else notice('检测到正在编辑或尚未保存的输入，请确认后手动刷新。')
       }
       else if(result==='same')hideNotice()
