@@ -62,7 +62,7 @@
   function ruleToggle(r) {
     const active=Boolean(!r.paused&&r.runtime&&r.permanent)
     const locked=Boolean(!r.canToggle||r.conflict||r.pausedDrift||!editable())
-    return '<button type="button" class="fw-switch '+(active?'on':'')+'" role="switch" aria-checked="'+active+'" aria-label="'+html(r.port+'/'+r.protocol)+' 规则生效" data-fw-act="toggle" data-fw-id="'+html(r.id)+'" aria-disabled="'+locked+'" '+(locked?'disabled title="外部、管理端口或冲突规则受保护"':'title="切换此规则的生效状态（120 秒安全恢复）"')+'><span></span></button>'+(locked?'<small class="fw-switch-caption">保护中</small>':'')
+    return '<button type="button" class="fw-switch '+(active?'on':'')+'" role="switch" aria-checked="'+active+'" aria-label="'+html(portText(r)+'/'+r.protocol)+' 规则生效" data-fw-act="toggle" data-fw-id="'+html(r.id)+'" aria-disabled="'+locked+'" '+(locked?'disabled title="外部、管理端口、范围或冲突规则受保护"':'title="切换此规则的生效状态（120 秒安全恢复）"')+'><span></span></button>'+(locked?'<small class="fw-switch-caption">'+(r.rangeStart?'范围只读':'保护中')+'</small>':'')
   }
   function source(r) { return (r.managed ? 'X-port · ' : '外部 · ') + (r.backend === 'firewalld' ? 'firewalld · '+r.zone : r.backend) }
   function shortSource(r) { return (r.managed ? 'X-port · ' : '外部 · ') + r.backend }
@@ -285,7 +285,10 @@
     const allowed=canEditExternal(r)
     el('fw-policy-title').textContent='编辑 '+portText(r)+'/'+r.protocol.toUpperCase()
     el('fw-policy-subtitle').textContent=r.managed?'X-port 自管规则（端口请在原账号配置中调整）':'外部规则 · 共享 firewalld'
-    el('fw-policy-port').value=r.port
+    el('fw-policy-port').value=r.rangeStart?'':r.port
+    el('fw-policy-port').placeholder=r.rangeStart?portText(r)+'（范围只读）':'端口号'
+    el('fw-policy-port').disabled=!allowed
+    el('fw-policy-proto').disabled=!allowed
     el('fw-policy-proto').value=r.protocol
     el('fw-policy-action').value=policy(r)
     el('fw-policy-action').disabled=true
