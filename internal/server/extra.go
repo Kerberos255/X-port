@@ -36,7 +36,8 @@ func (s *Server) registerExtraRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/xray/geodata", s.require(http.HandlerFunc(s.updateGeodata)))
 	mux.Handle("POST /api/backups/import", s.require(http.HandlerFunc(s.importBackup)))
 	mux.Handle("POST /api/xport/restart", s.require(http.HandlerFunc(s.restartPanel)))
-	mux.Handle("GET /api/xport/version", s.require(http.HandlerFunc(s.panelVersion)))
+	mux.Handle("GET /api/xport/version", http.HandlerFunc(s.panelVersion))
+	mux.Handle("GET /api/xport/update-state", s.require(http.HandlerFunc(s.panelUpdateState)))
 	mux.Handle("GET /api/xport/update", s.require(http.HandlerFunc(s.checkPanelUpdate)))
 	mux.Handle("POST /api/xport/update", s.require(http.HandlerFunc(s.updatePanel)))
 	s.registerUXRoutes(mux)
@@ -135,10 +136,16 @@ func (s *Server) hasPendingFirewallChanges()(bool,error){
  }
  return false,nil
 }
+// The public version probe intentionally exposes only the already-public
+// binary version. Sessions are in-memory and disappear after a restart;
+// an authenticated version probe would be unable to detect that restart.
 func (s *Server) panelVersion(w http.ResponseWriter,r *http.Request){
+ writeJSON(w,200,map[string]any{"version":buildinfo.Current})
+}
+func (s *Server) panelUpdateState(w http.ResponseWriter,r *http.Request){
  pending,err:=s.hasPendingFirewallChanges()
  if err!=nil{writeError(w,500,"cannot verify pending firewall changes");return}
- writeJSON(w,200,map[string]any{"version":buildinfo.Current,"firewallPending":pending})
+ writeJSON(w,200,map[string]any{"firewallPending":pending})
 }
 
 func panelSelfUpdater() (*selfupdate.Updater, error) {
