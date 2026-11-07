@@ -156,6 +156,33 @@ func TestFirewallReadMapsAccountsAndListenerUsage(t *testing.T) {
      rule.Protected!=want.Protected{t.Fatalf("unexpected rule: %+v",rule)}
  }
 
+ // Even an enabled Xray account must not bypass Docker-published port
+ // protection. The rule may be present and listening, yet belong to more
+ // than one control plane. An unknown ss snapshot must disable toggles too.
+ if err:=st.SetSetting("firewall_owned:firewalld:public:2053/tcp","v1");err!=nil{t.Fatal(err)}
+ assertToggle:=func(expected bool,why string){
+  out:=httptest.NewRecorder()
+  h.ServeHTTP(out,req)
+  if out.Code!=http.StatusOK{t.Fatalf("%s: GET %d %s",why,out.Code,out.Body.String())}
+  var payload struct{Rules []struct{
+   ID string `json:"id"`
+   CanToggle bool `json:"canToggle"`
+   Protected bool `json:"protected"`
+  }}
+  if err:=json.Unmarshal(out.Body.Bytes(),&payload);err!=nil{t.Fatal(err)}
+  for _,item:=range payload.Rules{
+   if item.ID!="firewalld:public:2053/tcp"{continue}
+   if item.CanToggle!=expected||!item.Protected{
+    t.Fatalf("%s: unexpected toggle/protection: %+v",why,item)
+   }
+   return
+  }
+  t.Fatalf("%s: missing Xray fixture rule",why)
+ }
+ assertToggle(true,"single owned Xray listener")
+ t.Setenv("XPORT_TEST_DOCKER_PORT","2053")
+ assertToggle(false,"Docker mapping must override Xray toggle")
+ t.Setenv("XPORT_TEST_DOCKER_PORT","")
  // An ss failure must never make ports appear idle and safe to remove.
  t.Setenv("XPORT_TEST_SOCKET_ERROR","1")
  unknown:=httptest.NewRecorder()
@@ -170,6 +197,7 @@ func TestFirewallReadMapsAccountsAndListenerUsage(t *testing.T) {
  for _,item:=range fallback.Rules{
   if item.Usage!="unknown"||!item.Protected{t.Fatalf("failed socket inspection must be unknown and protected: %+v",item)}
  }
+ assertToggle(false,"unknown socket state must disable toggle")
 
  // A confirmed paused DROP is absent from firewalld but must remain
  // visible and resumable in X-port's read model. This caught the CentOS
@@ -208,6 +236,22 @@ func TestFirewallReadMapsAccountsAndListenerUsage(t *testing.T) {
   }
  }
  if count!=1{t.Fatalf("paused DROP absent or duplicated: count=%d rules=%+v",count,view.Rules)}
+ // A paused rule is still protected when Docker owns the corresponding
+ // host port; it must not offer a misleading resume switch.
+ t.Setenv("XPORT_TEST_DOCKER_PORT","53342")
+ dockerResponse:=httptest.NewRecorder()
+ h.ServeHTTP(dockerResponse,req)
+ if dockerResponse.Code!=http.StatusOK{t.Fatalf("Docker paused read %d: %s",dockerResponse.Code,dockerResponse.Body.String())}
+ var guarded struct{Rules []struct{
+  ID string `json:"id"`
+  Protected bool `json:"protected"`
+  CanToggle bool `json:"canToggle"`
+ }}
+ if err:=json.Unmarshal(dockerResponse.Body.Bytes(),&guarded);err!=nil{t.Fatal(err)}
+ for _,item:=range guarded.Rules{
+  if item.ID==paused.ID&&(!item.Protected||item.CanToggle){t.Fatalf("paused Docker port not guarded: %+v",item)}
+ }
+
 }
 
 func TestAccountFirewallTransportAndPortCollisions(t *testing.T){
