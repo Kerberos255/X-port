@@ -52,6 +52,9 @@ cat > "$TMP/__mock.js" <<'JS'
     tlsRejectUnknownSni:false, tlsCertificatesJson:'[]'
   }
   globalThis.__legacyCloneHits = 0
+  globalThis.__fwConfirmCalls = 0
+  globalThis.__fwConfirmResult = false
+  globalThis.confirm = () => { globalThis.__fwConfirmCalls++; return globalThis.__fwConfirmResult }
   let fwNote = '主节点 · REALITY'
   globalThis.fetch = (input, init = {}) => {
     const u = new URL(typeof input === 'string' ? input : input.url, location.href)
@@ -73,7 +76,7 @@ cat > "$TMP/__mock.js" <<'JS'
       notice:'预览：简单端口规则展示；底层链可能影响结果',rules:[
         {id:'firewalld:public:22/tcp',port:22,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'SSH（常见端口，未核实）',purposeSource:'assumed',note:'远程管理',protected:true,xray:false},
         {id:'firewalld:public:443/tcp',port:443,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'HTTPS',purposeSource:'manual',note:'网站入口',protected:false,xray:false},
-        {id:'firewalld:public:2053/tcp',port:2053,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'Xray · VLESS',purposeSource:'xray',note:fwNote,protected:false,managed:true,xray:true,usage:'used',action:'allow',accountId:1,accountName:'Alpha inbound',accountEnabled:true},
+        {id:'firewalld:public:2053/tcp',port:2053,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'Xray · VLESS',purposeSource:'xray',note:fwNote,protected:false,managed:true,xray:true,usage:'used',action:'allow',kind:'port',canToggle:true,accountId:1,accountName:'Alpha inbound',accountEnabled:true},
         {id:'firewalld:public:8443/tcp',port:8443,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:false,access:'区域：public',purpose:'Xray · Trojan',purposeSource:'xray',note:'临时放行，需同步',protected:false,xray:true},
         {id:'firewalld:public:51820/udp',port:51820,protocol:'udp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'未识别',purposeSource:'unknown',note:'WireGuard 站点互联',protected:false,xray:false,usage:'unused',action:'deny'}
       ]})
@@ -84,6 +87,11 @@ cat > "$TMP/__mock.js" <<'JS'
     if (path === '/api/firewall/purpose' && method === 'PUT') return json({purpose:JSON.parse(init.body).purpose})
     if (path === '/api/firewall/raw' && method === 'GET') return json({ruleset:'table inet firewalld {\\n chain INPUT { type filter hook input priority 10; }\\n}'})
     if (path === '/api/firewall/rules' && method === 'POST') { globalThis.__fwMutationCalls=(globalThis.__fwMutationCalls||0)+1; return json({ok:true}) }
+    if (path === '/api/firewall/control' && method === 'POST') {
+      globalThis.__fwControlCalls=(globalThis.__fwControlCalls||0)+1
+      globalThis.__fwLastControl=JSON.parse(init.body||'{}')
+      return json({ok:true,pending:false})
+    }
     if (path === '/api/xray/update' && method === 'GET') return json({current:'test',latest:'test',available:false})
     if (path === '/api/xray/geodata' && method === 'GET') return json({current:'test',latest:'test',available:false})
     if (path === '/api/settings') return json({panelListen:'127.0.0.1:8080',panelBasePath:'/',panelCertFile:'',panelKeyFile:'',panelDomain:'',panelTLS:false,xrayApiPort:10085,portMin:20000,portMax:60000,defaultRealitySni:'',defaultRealityDest:'',adminUsername:'admin'})
@@ -302,13 +310,31 @@ cat > "$TMP/__driver.js" <<'JS'
       await waitFor('#fw-diagnostic[hidden]')
       if(document.querySelector('#fw-add').disabled) throw new Error('write access did not recover')
       const beforeDeny=globalThis.__fwMutationCalls||0
+      const beforeControl=globalThis.__fwControlCalls||0
+      const beforeConfirm=globalThis.__fwConfirmCalls||0
       document.querySelector('#fw-add').click()
       const create=await waitFor('#fw-add-dialog[open]')
       create.querySelector('#fw-add-port').value='18666'
       create.querySelector('#fw-add-policy').value='deny'
       create.close('apply')
       await sleep(80)
+      if(globalThis.__fwConfirmCalls<=beforeConfirm) throw new Error('deny option did not require confirmation')
+      if((globalThis.__fwControlCalls||0)!==beforeControl) throw new Error('declined deny confirmation sent an API write')
       if((globalThis.__fwMutationCalls||0)!==beforeDeny) throw new Error('deny option unexpectedly sent an allow mutation')
+      globalThis.__fwConfirmResult=true
+      document.querySelector('#fw-add').click()
+      const confirmed=await waitFor('#fw-add-dialog[open]')
+      confirmed.querySelector('#fw-add-port').value='18667'
+      confirmed.querySelector('#fw-add-policy').value='deny'
+      confirmed.close('apply')
+      await sleep(120)
+      if((globalThis.__fwControlCalls||0)!==beforeControl+1 ||
+         globalThis.__fwLastControl?.action!=='add-drop' ||
+         globalThis.__fwLastControl?.port!==18667 ||
+         globalThis.__fwLastControl?.protocol!=='tcp')
+        throw new Error('confirmed deny did not call dedicated DROP policy endpoint')
+      if((globalThis.__fwMutationCalls||0)!==beforeDeny) throw new Error('DROP fell back to legacy allow endpoint')
+      globalThis.__fwConfirmResult=false
       const activeLink=await waitFor('#fw-rows button.fw-account-link[data-fw-account="1"]')
       activeLink.click()
       const accountEditor=await waitFor('#account-form')
