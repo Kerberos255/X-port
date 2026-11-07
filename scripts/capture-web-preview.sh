@@ -192,6 +192,19 @@ cat > "$TMP/__preview.js" <<'JS'
           throw new Error('compact sidebar brand text not hidden')
         if (!selected?.title) throw new Error('compact nav is missing accessible hover label')
       }
+      if (preview === 'firewall' && innerWidth >= 1300){
+        const wrap=document.querySelector('#page-firewall .fw-table-wrap')
+        const table=document.querySelector('#page-firewall .fw-table')
+        if(!wrap||!table||table.scrollWidth>wrap.clientWidth+2)
+          throw new Error('wide desktop must show all firewall columns without clipping')
+        if(table.querySelectorAll('thead th').length!==9)
+          throw new Error('IP family column not rendered in desktop table')
+      }
+      if (preview === 'firewall' && innerWidth > 700 && innerWidth < 1150){
+        const hint=document.querySelector('#page-firewall .fw-scroll-hint')
+        if(!hint||getComputedStyle(hint).display==='none')
+          throw new Error('tablet needs an explicit scroll hint')
+      }
       if (preview === 'firewall' &&
           document.documentElement.scrollWidth > innerWidth + 2) {
         throw new Error('mobile horizontal overflow: '+document.documentElement.scrollWidth+' > '+innerWidth)
