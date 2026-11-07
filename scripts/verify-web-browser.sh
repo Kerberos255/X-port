@@ -316,9 +316,10 @@ cat > "$TMP/__driver.js" <<'JS'
       const create=await waitFor('#fw-add-dialog[open]')
       create.querySelector('#fw-add-port').value='18666'
       create.querySelector('#fw-add-policy').value='deny'
-      create.close('apply')
-      await sleep(80)
-      if(globalThis.__fwConfirmCalls<=beforeConfirm) throw new Error('deny option did not require confirmation')
+      create.querySelector('#fw-confirm-add').click()
+      await sleep(160)
+      if(globalThis.__fwConfirmCalls<=beforeConfirm)
+        throw new Error('deny option did not require confirmation: closed='+!create.open+' value='+create.returnValue+' policy='+create.querySelector('#fw-add-policy').value+' writable='+!document.querySelector('#fw-add').disabled)
       if((globalThis.__fwControlCalls||0)!==beforeControl) throw new Error('declined deny confirmation sent an API write')
       if((globalThis.__fwMutationCalls||0)!==beforeDeny) throw new Error('deny option unexpectedly sent an allow mutation')
       globalThis.__fwConfirmResult=true
@@ -326,8 +327,8 @@ cat > "$TMP/__driver.js" <<'JS'
       const confirmed=await waitFor('#fw-add-dialog[open]')
       confirmed.querySelector('#fw-add-port').value='18667'
       confirmed.querySelector('#fw-add-policy').value='deny'
-      confirmed.close('apply')
-      await sleep(120)
+      confirmed.querySelector('#fw-confirm-add').click()
+      await sleep(160)
       if((globalThis.__fwControlCalls||0)!==beforeControl+1 ||
          globalThis.__fwLastControl?.action!=='add-drop' ||
          globalThis.__fwLastControl?.port!==18667 ||
