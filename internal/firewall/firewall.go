@@ -288,7 +288,11 @@ func Inspect(ctx context.Context)(Snapshot,error){
 			r:=seen[key];if r==nil{r=&Rule{ID:"ufw:"+key,Port:p,Protocol:proto,Backend:"ufw",Runtime:true,Permanent:true,Access:"所有来源"};seen[key]=r}
 			if v6{r.IPv6=true}else{r.IPv4=true}
 		}
-		for _,r:=range seen{r.Action="allow";r.Kind="port";r.Family="both";snap.Rules=append(snap.Rules,*r)}
+		for _,r:=range seen{
+   r.Action="allow";r.Kind="port"
+   if r.IPv4&&!r.IPv6{r.Family="ipv4"}else if r.IPv6&&!r.IPv4{r.Family="ipv6"}else{r.Family="both"}
+   snap.Rules=append(snap.Rules,*r)
+  }
 		snap.Notice="UFW 仅列出无来源限制的明确放行规则；其他规则须经原管理器检查。"
 	case "nftables","iptables":
 		snap.Notice="原生规则只读；检测到对应命令不代表系统防火墙已启用。"
@@ -320,8 +324,18 @@ func parseSimpleRichRule(raw,zone string)(Rule,bool){
 func markRuleConflicts(rules []Rule){
  groups:=make(map[string][]int)
  for i,r:=range rules{
-  key:=r.Backend+"\x00"+r.Zone+"\x00"+r.Protocol
-  groups[key]=append(groups[key],i)
+  // Only the address families actually covered by a rule may conflict.
+  // Explicit IPv4 and IPv6 Rich rules for the same port are disjoint.
+  base:=r.Backend+"\x00"+r.Zone+"\x00"+r.Protocol+"\x00"
+  switch r.Family {
+  case "ipv4": groups[base+"ipv4"]=append(groups[base+"ipv4"],i)
+  case "ipv6": groups[base+"ipv6"]=append(groups[base+"ipv6"],i)
+  default:
+   // A simple firewalld port allowance covers both families. Missing or
+   // unsupported family data is treated conservatively as dual-family.
+   groups[base+"ipv4"]=append(groups[base+"ipv4"],i)
+   groups[base+"ipv6"]=append(groups[base+"ipv6"],i)
+  }
  }
  for _,indices:=range groups{
   sort.Slice(indices,func(i,j int)bool{
