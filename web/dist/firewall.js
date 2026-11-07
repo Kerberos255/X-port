@@ -13,8 +13,22 @@
   function editable() { return state.data?.writable === true && (state.data?.backend === 'firewalld' || state.data?.backend === 'ufw') }
   function status(r) { return r.pausedDrift?'状态冲突':r.paused?'已暂停':r.runtime !== r.permanent ? '需检查' : (r.runtime ? '已配置' : '未生效') }
   function stateBadge(r) { return '<span class="fw-state '+(r.runtime !== r.permanent ? 'warn' : '')+'">'+status(r)+'</span>' }
+  function portText(r){return r.rangeStart && r.rangeEnd ? r.rangeStart+'–'+r.rangeEnd : String(r.port)}
+  function usageDescription(d){return d.container ? 'Docker: '+(d.name||'容器')+' ('+d.port+')' :
+    (d.name || '进程未识别')+(d.pid ? ' ('+d.pid+')':'')+' · '+d.port+'/'+d.protocol}
   function usageBadge(r) {
-    if(r.usage==='used')return '<span class="fw-usage used"><span class="fw-usage-dot"></span>已使用</span>'
+    const entries=Array.isArray(r.usageDetails)?r.usageDetails:[]
+    if(entries.length){
+      const first=entries[0]
+      const dockerOnly=entries.every(d=>d.container)
+      const title=entries.map(usageDescription).join('；')
+      const full=title+(r.usageOverflow ? '；另外 '+r.usageOverflow+' 条' : '')
+      return '<button class="fw-usage fw-usage-link used" type="button" data-fw-act="detail" data-fw-id="'+html(r.id)+'" title="'+html(full)+'">'+
+        '<span class="fw-usage-dot"></span><span class="fw-usage-owner">'+html(dockerOnly?'Docker: '+first.name:(first.name||'进程未识别'))+
+        '</span><small>('+html(first.pid||first.port)+')</small></button>'+
+        (entries.length+r.usageOverflow>1?'<span class="fw-usage-extra">+'+(entries.length+r.usageOverflow-1)+'</span>':'')
+    }
+    if(r.usage==='used')return '<span class="fw-usage used"><span class="fw-usage-dot"></span>已监听 · 进程未识别</span>'
     if(r.usage==='unused')return '<span class="fw-usage idle"><span class="fw-usage-dot"></span>未发现监听</span>'
     return '<span class="fw-usage unknown"><span class="fw-usage-dot"></span>无法检测</span>'
   }
@@ -57,7 +71,8 @@
       if (state.filter === 'xray' && !r.xray) return false
       if (state.filter === 'warn' && !needsCheck(r)) return false
       const term = state.term.toLowerCase().trim()
-      return !term || [r.port,r.protocol,r.purpose,r.accountName,r.note,r.zone,r.access,r.backend,r.usage].join(' ').toLowerCase().includes(term)
+      return !term || [r.port,r.rangeStart,r.rangeEnd,r.protocol,r.purpose,r.accountName,r.note,r.zone,r.access,r.backend,r.usage,
+        ...(r.usageDetails||[]).map(d=>d.name)].join(' ').toLowerCase().includes(term)
     })
   }
   function fieldButton(r, key) {
@@ -74,14 +89,15 @@
     el('fw-zone').textContent = data?.defaultZone || (data?.backend === 'ufw' ? 'UFW 规则' : '—')
     el('fw-engine-state').textContent = !data ? '—' : (data.writable ? '● 可管理' : (data.active ? '只读 · 检查' : '只读 / 未启用'))
     const diagnostic=el('fw-diagnostic')
-    diagnostic.hidden = !data?.unsafeReason
-    el('fw-diagnostic-reason').textContent = data?.unsafeReason || ''
+    diagnostic.hidden = !data?.unsafeReason && !data?.discoveryWarning
+    el('fw-diagnostic-reason').textContent = data?.unsafeReason || data?.discoveryWarning || ''
     el('fw-total').textContent = rules().length
     el('fw-active').textContent = rules().filter(r=>r.usage==='used').length
     el('fw-xray-count').textContent = rules().filter(r=>r.xray).length
     el('fw-warn-count').textContent = rules().filter(needsCheck).length + (data?.unsafeReason ? 1 : 0)
     el('fw-add').disabled = !editable()
-    el('fw-notice').textContent = data?.notice || '无法读取防火墙状态'
+    el('fw-notice').textContent = (data?.notice || '无法读取防火墙状态')+
+      (data?.discoveryWarning ? ' · '+data.discoveryWarning : '')
     const pending = Array.isArray(data?.pending) ? data.pending : []
     let pendingBox = el('fw-pending')
     if (!pendingBox) {
@@ -97,7 +113,7 @@
     const filtered = shown()
     el('fw-count').textContent = '显示 '+filtered.length+' / '+rules().length+' 条规则；备注与用途保存在 X-port 数据库中'
     el('fw-rows').innerHTML = filtered.length ? filtered.map(r => '<tr>'+
-      '<td data-label="端口 / 协议"><div class="fw-port-cell"><strong>'+html(r.port)+'</strong><small>/ '+html(r.protocol.toUpperCase())+'</small></div></td>'+
+      '<td data-label="端口 / 协议"><div class="fw-port-cell"><strong>'+html(portText(r))+'</strong><small>/ '+html(r.protocol.toUpperCase())+'</small></div></td>'+
       '<td data-label="关联账号 / 用途">'+accountCell(r)+'</td>'+
       '<td data-label="使用情况">'+usageBadge(r)+'</td>'+
       '<td data-label="策略">'+policyBadge(r)+'</td>'+
@@ -150,16 +166,19 @@
     const r=rules().find(x=>x.id===id)
     if(!r)return
     state.detail=r
-    el('fw-detail-title').textContent=r.port+' / '+r.protocol.toUpperCase()
+    el('fw-detail-title').textContent=portText(r)+' / '+r.protocol.toUpperCase()
     const badge=el('fw-detail-badge')
     badge.textContent=status(r)
     badge.classList.toggle('warn',r.runtime!==r.permanent)
-    el('fw-detail-summary').textContent=r.managed
+    el('fw-detail-summary').textContent=r.rangeStart
+      ? '这是端口范围规则，仅展示配置和监听情况。范围规则不能通过当前页面删除或修改。'
+      : r.managed
       ? '由 X-port 创建的端口规则；修改前仍需检查服务和网络连通性。'
       : '由系统或其他管理器维护。可修改用途和备注，删除操作保留在原管理器中。'
     const groups=[
-      ['基本信息',[['用途',label(r)],['关联账号',r.accountAmbiguous?'多个候选，无法唯一定位':(r.accountName||'无关联')],['监听状态',r.usage==='used'?'检测到同协议监听':r.usage==='unused'?'未检测到同协议监听':'无法确认'],['备注',r.note||'未填写'],['规则来源',source(r)],['访问来源',r.access||'未确认']]],
+      ['基本信息',[['用途',label(r)],['关联账号',r.accountAmbiguous?'多个候选，无法唯一定位':(r.accountName||'无关联')],['监听状态',r.usage==='used'?'检测到相关监听或发布端口':r.usage==='unused'?'未检测到同协议监听':'无法确认'],['备注',r.note||'未填写'],['规则来源',source(r)],['访问来源',r.access||'未确认']]],
       ['规则状态',[['策略',policy(r)==='deny'?'拒绝 · DROP':policy(r)==='reject'?'拒绝 · REJECT':policy(r)==='conflict'?'存在重叠策略':policy(r)==='allow'?'允许':'需检查'],['运行时',r.runtime?'已配置':'不存在'],['永久配置',r.permanent?'已配置':'不存在'],['地址族',r.family==='both'?'IPv4 + IPv6':r.family==='ipv4'?'IPv4':r.family==='ipv6'?'IPv6':r.backend==='ufw'?(r.ipv4?'IPv4 ':'')+(r.ipv6?'IPv6':''):'由 firewalld Zone 决定']]],
+      ['关联进程与容器',[['已识别',(r.usageDetails||[]).map(usageDescription).join('；')||'暂无'],['其他关联',r.usageOverflow ? '另外 '+r.usageOverflow+' 条' : '无'],['端口范围',r.rangeStart ? portText(r)+'/'+r.protocol : '单端口']]],
       ['安全保护',[['规则归属',r.managed?'X-port 管理':'外部或未知（不可删除）'],['端口保护',r.protected?'已启用':'未检测到本机监听']]]
     ]
     el('fw-detail-body').innerHTML=groups.map(([heading,fields])=>
@@ -167,7 +186,7 @@
       fields.map(([name,value])=>'<div class="fw-detail-row"><dt>'+html(name)+'</dt><dd>'+html(value)+'</dd></div>').join('')+
       '</dl></section>'
     ).join('')
-    el('fw-detail-remove').hidden = !editable() || r.protected || !r.managed
+    el('fw-detail-remove').hidden = !editable() || r.protected || !r.managed || Boolean(r.rangeStart)
     el('fw-detail-dialog').returnValue = ''
     el('fw-detail-dialog').showModal()
   }
@@ -218,7 +237,7 @@
   let selectedEditRule=null
   let externalEditBusy=false
   function canEditExternal(r){
-    return Boolean(r&&!r.managed&&r.kind==='port'&&r.action==='allow'&&
+    return Boolean(r&&!r.managed&&!r.rangeStart&&r.kind==='port'&&r.action==='allow'&&
       r.runtime&&r.permanent&&!r.conflict&&!r.protected&&
       !r.paused&&r.backend==='firewalld'&&
       !state.data?.opaqueRichZones?.[r.zone]&&
@@ -264,7 +283,7 @@
     if(!r)return
     selectedEditRule=r
     const allowed=canEditExternal(r)
-    el('fw-policy-title').textContent='编辑 '+r.port+'/'+r.protocol.toUpperCase()
+    el('fw-policy-title').textContent='编辑 '+portText(r)+'/'+r.protocol.toUpperCase()
     el('fw-policy-subtitle').textContent=r.managed?'X-port 自管规则（端口请在原账号配置中调整）':'外部规则 · 共享 firewalld'
     el('fw-policy-port').value=r.port
     el('fw-policy-proto').value=r.protocol
@@ -277,7 +296,7 @@
       ? '仅支持无监听的简单允许规则修改端口与协议。120 秒内必须确认连接；原管理器备注不会自动迁移。'
       : r.protected?'检测到实际监听或管理端口，危险编辑已锁定。':
         r.managed?'Xray/自管规则应通过其原有配置界面修改端口。':
-        '复杂策略、端口冲突或无法验证状态，暂不支持直接修改。'
+        '端口范围、复杂策略、端口冲突或无法验证状态，暂不支持直接修改。'
     el('fw-policy-save').disabled=true
     el('fw-policy-save').title=allowed?'勾选外部规则确认后保存':'此规则不符合安全编辑条件'
     el('fw-policy-dialog').showModal()
