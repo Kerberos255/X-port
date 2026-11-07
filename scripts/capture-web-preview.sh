@@ -142,7 +142,7 @@ cat > "$TMP/__preview.js" <<'JS'
         if (!note.hidden) throw new Error('internal update note should be hidden')
         const status=await waitFor('#xray-page-update-state')
         if (!(status.textContent||'').trim()) throw new Error('Xray update state missing')
-      } else if (preview === 'firewall' || preview === 'firewall-light' || preview === 'firewall-detail-light' || preview === 'firewall-editor-light' || preview === 'firewall-create-light' || preview === 'firewall-long-ipv6' || preview === 'firewall-long-ipv6-light') {
+      } else if (preview === 'firewall' || preview === 'firewall-light' || preview === 'firewall-detail-light' || preview === 'firewall-editor-light' || preview === 'firewall-create-light' || preview === 'firewall-long-ipv6' || preview === 'firewall-long-ipv6-light' || preview === 'firewall-long-range') {
         document.querySelector('#nav [data-page="firewall"]').click()
         await waitFor('#fw-rows tr button[data-fw-act="edit"]')
         if (preview.startsWith('firewall-long-ipv6')) {
@@ -155,6 +155,19 @@ cat > "$TMP/__preview.js" <<'JS'
               getComputedStyle(label).whiteSpace!=='nowrap' ||
               label.scrollWidth<=label.clientWidth)
             throw new Error('long IPv6 is not truncated to a single line')
+          label.closest('tr').scrollIntoView({block:'center',inline:'nearest'})
+        }
+        if (preview === 'firewall-long-range') {
+          const row=document.querySelector('#fw-rows button[data-fw-id="firewalld:public:39000-40000/tcp"][data-fw-act="detail"]')?.closest('tr')
+          const number=row?.querySelector('.fw-port-cell strong')
+          const protocol=row?.querySelector('.fw-port-cell small')
+          if (!number || !protocol || number.textContent!=='39000–40000' ||
+              protocol.textContent.trim()!=='TCP' ||
+              getComputedStyle(number).whiteSpace!=='nowrap' ||
+              number.scrollWidth>number.clientWidth+1 ||
+              number.getBoundingClientRect().bottom>protocol.getBoundingClientRect().top+1)
+            throw new Error('long port range and protocol did not fit on separate lines')
+          row.scrollIntoView({block:'center',inline:'nearest'})
         }
         if (preview === 'firewall-detail-light') {
           document.querySelector('#fw-rows button[data-fw-act="detail"][data-fw-id="firewalld:public:2053/tcp"]').click()
@@ -216,7 +229,7 @@ cat > "$TMP/__preview.js" <<'JS'
         if(!hint||getComputedStyle(hint).display==='none')
           throw new Error('tablet needs an explicit scroll hint')
       }
-      if ((preview === 'firewall' || preview.startsWith('firewall-long-ipv6')) &&
+      if ((preview === 'firewall' || preview.startsWith('firewall-long-ipv6') || preview === 'firewall-long-range') &&
           document.documentElement.scrollWidth > innerWidth + 2) {
         throw new Error('mobile horizontal overflow: '+document.documentElement.scrollWidth+' > '+innerWidth)
       }
@@ -260,9 +273,10 @@ capture firewall-desktop firewall
 capture firewall-light firewall-light
 capture firewall-long-ipv6 firewall-long-ipv6
 capture firewall-long-ipv6-light firewall-long-ipv6-light
+capture firewall-long-range firewall-long-range
 # Screenshots can be written even if injected preview assertions fail;
 # require the Chromium DOM success sentinel for both long-address themes.
-for preview in firewall-long-ipv6 firewall-long-ipv6-light; do
+for preview in firewall-long-ipv6 firewall-long-ipv6-light firewall-long-range; do
   "$BROWSER" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage \
     --window-size=1440,1000 --force-device-scale-factor=1 --virtual-time-budget=6500 \
     --dump-dom "http://127.0.0.1:$PORT/?preview=$preview" \
@@ -288,6 +302,15 @@ capture firewall-create-light firewall-create-light
 [[ -s "$OUT/firewall-long-ipv6-mobile.png" ]] || {
   cat "$TMP/firewall-long-ipv6-mobile.log" >&2
   echo "Long IPv6 mobile screenshot missing" >&2
+  exit 1
+}
+"$BROWSER" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage \
+  --window-size=390,844 --force-device-scale-factor=1 --virtual-time-budget=6500 \
+  --screenshot="$OUT/firewall-long-range-mobile.png" "http://127.0.0.1:$PORT/?preview=firewall-long-range" \
+  >/dev/null 2>"$TMP/firewall-long-range-mobile.log"
+[[ -s "$OUT/firewall-long-range-mobile.png" ]] || {
+  cat "$TMP/firewall-long-range-mobile.log" >&2
+  echo "Long port-range mobile screenshot missing" >&2
   exit 1
 }
 "$BROWSER" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage \
