@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -86,25 +87,33 @@ func (s *Server) Handler() http.Handler {
 	if s.static != nil {
 		files := http.FileServerFS(s.static)
 		mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-			// Never reuse an outdated HTML entry point across releases.
-			// Individual JS/CSS assets use bumped versioned URLs.
-			if r.URL.Path == "/" || r.URL.Path == "/index.html" {
-				w.Header().Set("Cache-Control", "no-store, max-age=0")
-			}
 			if strings.HasPrefix(r.URL.Path, "/api/") {
 				http.NotFound(w, r)
 				return
 			}
-			if r.URL.Path != "/" {
+			if r.Method != http.MethodGet && r.Method != http.MethodHead {
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				return
+			}
+			if r.URL.Path != "/" && r.URL.Path != "/index.html" {
 				if f, err := s.static.Open(strings.TrimPrefix(r.URL.Path, "/")); err == nil {
 					f.Close()
 					files.ServeHTTP(w, r)
 					return
 				}
 			}
+			// Stamp the real running binary version into the HTML (and
+			// versioned asset URLs). No manual frontend version bumps are
+			// needed, even when a release changes only the Go binary.
+			index, err := fs.ReadFile(s.static, "index.html")
+			if err != nil {
+				http.NotFound(w, r)
+				return
+			}
+			index = bytes.ReplaceAll(index, []byte("__XPORT_VERSION__"), []byte(buildinfo.Current))
 			w.Header().Set("Cache-Control", "no-store, max-age=0")
-			r.URL.Path = "/"
-			files.ServeHTTP(w, r)
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			http.ServeContent(w, r, "index.html", time.Time{}, bytes.NewReader(index))
 		})
 	}
 	handler := http.Handler(mux)
