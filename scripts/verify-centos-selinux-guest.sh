@@ -126,7 +126,7 @@ STAGE=discovery-process-e2e
 python3 -m http.server 53440 --bind 127.0.0.1 >/run/xport-ci-python-http.log 2>&1 &
 probe_pid=$!
 for i in $(seq 1 20); do
- if ss -H -lntp | grep -q ':53440 '; then break; fi
+ if ss -H -lntp | grep -F ':53440 ' >/dev/null; then break; fi
  sleep .2
 done
 firewall-cmd --zone="$ZONE" --add-port=53440/tcp >/dev/null
@@ -156,7 +156,8 @@ STAGE=nonstandard-ssh-protection
 cp -p /etc/ssh/sshd_config /run/xport-ci-sshd-config.orig
 { printf 'Port 53571\n'; cat /run/xport-ci-sshd-config.orig; } >/etc/ssh/sshd_config
 restorecon /etc/ssh/sshd_config >/dev/null 2>&1 || true
-sshd -T | grep -Fxq 'port 53571'
+sshd -T >/run/xport-ci-effective-sshd.conf
+grep -Fxq 'port 53571' /run/xport-ci-effective-sshd.conf
 firewall-cmd --zone="$ZONE" --add-port=53571/tcp >/dev/null
 firewall-cmd --permanent --zone="$ZONE" --add-port=53571/tcp >/dev/null
 curl -fsS -b /run/xport-ci.cookie "$BASE/api/firewall" >/run/xport-ci-ssh-guard.json
@@ -201,7 +202,7 @@ code="$(curl -sS -b /run/xport-ci.cookie -H "Origin: $BASE" -H 'Content-Type: ap
 if [[ "$code" != 409 ]]; then cat /run/xport-ci-range-overlap.json; echo "range overlap HTTP $code"; exit 1; fi
 # firewalld query-port may report YES for a member of a pre-existing
 # range; inspect the exact native list to prove no separate port was added.
-firewall-cmd --zone="$ZONE" --list-ports | tr ' ' '\n' | grep -Fxq '39000-40000/tcp'
+firewall-cmd --zone="$ZONE" --list-ports | tr ' ' '\n' | grep -Fx '39000-40000/tcp' >/dev/null
 test -z "$(firewall-cmd --zone="$ZONE" --list-ports | tr ' ' '\n' | grep -Fx '39300/tcp' || true)"
 firewall-cmd --zone="$ZONE" --remove-port=39000-40000/tcp >/dev/null
 firewall-cmd --permanent --zone="$ZONE" --remove-port=39000-40000/tcp >/dev/null
