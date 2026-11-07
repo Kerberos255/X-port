@@ -178,6 +178,9 @@ cat > "$TMP/__driver.js" <<'JS'
     document.documentElement.dataset.browserRegression = status
     document.documentElement.dataset.browserRegressionDetail = detail
   }
+  mark('running','driver initialized')
+  window.addEventListener('error',e=>mark('error',String(e.message||'script error')))
+  window.addEventListener('unhandledrejection',e=>mark('rejection',String(e.reason||'unhandled rejection')))
   const sleep = ms => new Promise(r => setTimeout(r, ms))
   async function waitFor(selector, timeout=3000) {
     const end = Date.now() + timeout
@@ -678,6 +681,12 @@ DOM="$TMP/dom.html"
 }
 if ! grep -q 'data-browser-regression="pass"' "$DOM"; then
   echo "Browser regression failed" >&2
+  python3 - "$DOM" <<'PY'
+import re,sys
+text=open(sys.argv[1],encoding='utf-8',errors='replace').read()
+html=re.search(r'<html\\b[^>]*>',text,re.I)
+print('Browser html state: '+(html.group(0)[:1800] if html else '<missing>'),file=sys.stderr)
+PY
   grep -o 'data-browser-regression[^>]*' "$DOM" >&2 || true
   cat "$TMP/browser.log" >&2
   exit 1
