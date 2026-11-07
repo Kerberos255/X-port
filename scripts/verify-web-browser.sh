@@ -75,7 +75,7 @@ cat > "$TMP/__mock.js" <<'JS'
       backend:'firewalld',active:true,writable:!globalThis.__fwReadOnly,unsafeReason:globalThis.__fwReadOnly?'独立 INPUT 过滤链需要检查':'',managers:['firewalld'],defaultZone:'public',zones:['public'],services:{public:['ssh']},
       notice:'预览：简单端口规则展示；底层链可能影响结果',rules:[
         {id:'firewalld:public:22/tcp',port:22,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'SSH（常见端口，未核实）',purposeSource:'assumed',note:'远程管理',protected:true,xray:false},
-        {id:'firewalld:public:443/tcp',port:443,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'HTTPS',purposeSource:'manual',note:'网站入口',protected:false,xray:false},
+        {id:'firewalld:public:443/tcp',port:443,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'HTTPS',purposeSource:'manual',note:'网站入口',protected:false,xray:false,kind:'port',action:'allow',managed:false,revision:'111122223333444455556666'},
         {id:'firewalld:public:2053/tcp',port:2053,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'Xray · VLESS',purposeSource:'xray',note:fwNote,protected:false,managed:true,xray:true,usage:'used',action:'allow',kind:'port',canToggle:true,accountId:1,accountName:'Alpha inbound',accountEnabled:true},
         {id:'firewalld:public:8443/tcp',port:8443,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:false,access:'区域：public',purpose:'Xray · Trojan',purposeSource:'xray',note:'临时放行，需同步',protected:false,xray:true},
         {id:'firewalld:public:51820/udp',port:51820,protocol:'udp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'未识别',purposeSource:'unknown',note:'WireGuard 站点互联',protected:false,xray:false,usage:'unused',action:'deny'}
@@ -90,6 +90,11 @@ cat > "$TMP/__mock.js" <<'JS'
     if (path === '/api/firewall/control' && method === 'POST') {
       globalThis.__fwControlCalls=(globalThis.__fwControlCalls||0)+1
       globalThis.__fwLastControl=JSON.parse(init.body||'{}')
+      return json({ok:true,pending:false})
+    }
+    if (path === '/api/firewall/edit' && method === 'POST') {
+      globalThis.__fwEditCalls=(globalThis.__fwEditCalls||0)+1
+      globalThis.__fwLastEdit=JSON.parse(init.body||'{}')
       return json({ok:true,pending:false})
     }
     if (path === '/api/xray/update' && method === 'GET') return json({current:'test',latest:'test',available:false})
@@ -344,7 +349,37 @@ cat > "$TMP/__driver.js" <<'JS'
       if(accountEditor.querySelector('input[name="name"]')?.value!=='alpha')
         throw new Error('account link did not open the exact account editor')
       document.querySelector('#modal-close').click()
-      mark('pass', `clonePort=${portInput.value};legacyHits=0;fallbackDest=${dest};layout=contained;globalXray=ok`)
+
+      document.querySelector('#nav [data-page="firewall"]').click()
+      await waitFor('#fw-rows button[data-fw-act="configure"][data-fw-id="firewalld:public:443/tcp"]')
+      const editExternal=async (newPort,approve) => {
+        document.querySelector('#fw-rows button[data-fw-act="configure"][data-fw-id="firewalld:public:443/tcp"]').click()
+        const dialog=await waitFor('#fw-policy-dialog[open]')
+        const save=dialog.querySelector('#fw-policy-save')
+        if(!save.disabled)throw new Error('external edit allowed without acknowledgment')
+        dialog.querySelector('#fw-policy-port').value=String(newPort)
+        const ack=dialog.querySelector('#fw-external-confirm')
+        if(dialog.querySelector('#fw-external-confirm-label').hidden)throw new Error('external edit consent is hidden')
+        ack.checked=true
+        ack.dispatchEvent(new Event('change',{bubbles:true}))
+        if(save.disabled)throw new Error('safe external edit cannot be submitted after consent')
+        globalThis.__fwConfirmResult=approve
+        save.click()
+        await sleep(180)
+      }
+      const beforeEdit=globalThis.__fwEditCalls||0
+      await editExternal(444,false)
+      if((globalThis.__fwEditCalls||0)!==beforeEdit)throw new Error('declined external edit mutated firewall')
+      await editExternal(445,true)
+      if((globalThis.__fwEditCalls||0)!==beforeEdit+1 ||
+         globalThis.__fwLastEdit?.newPort!==445 ||
+         globalThis.__fwLastEdit?.newProtocol!=='tcp' ||
+         globalThis.__fwLastEdit?.externalAcknowledged!==true ||
+         globalThis.__fwLastEdit?.revision!=='111122223333444455556666')
+        throw new Error('confirmed external edit did not include revision and explicit consent')
+      if((globalThis.__fwMutationCalls||0)!==beforeDeny)throw new Error('external edit fell back to legacy allow path')
+      globalThis.__fwConfirmResult=false
+      mark('pass', `clonePort=${portInput.value};legacyHits=0;fallbackDest=${dest};layout=contained;globalXray=ok;firewallEdits=guarded`)
     } catch (err) {
       mark('fail', String(err && err.message || err))
     }
