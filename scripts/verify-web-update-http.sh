@@ -143,6 +143,23 @@ sleep 12
 [[ "$("$TMP/live/xport" version)" == 0.2.9 ]]
 [[ "$(sudo systemctl show "$UNIT.service" -p RestrictAddressFamilies --value)" != *AF_NETLINK* ]]
 curl -fsS -c "$TMP/cookies2" -H 'Content-Type: application/json' --data "$payload" "$BASE/api/login" >/dev/null
+# The replacement binary must serve its actual new version to the
+# browser, not an old cached HTML entry point or a fixed-reload timer.
+curl -fsS -b "$TMP/cookies2" "$BASE/api/xport/version" > "$TMP/version.json"
+curl -fsS -D "$TMP/index.headers" "$BASE/" -o "$TMP/new-index.html"
+python3 - "$TMP/version.json" "$TMP/index.headers" "$TMP/new-index.html" <<'PY'
+import json,sys
+from pathlib import Path
+version=json.loads(Path(sys.argv[1]).read_text())
+headers=Path(sys.argv[2]).read_text().lower()
+html=Path(sys.argv[3]).read_text()
+assert version=={"version":"0.2.9","firewallPending":False},version
+assert "cache-control: no-store" in headers,headers
+assert 'name="xport-build-version" content="0.2.9"' in html,html[:600]
+assert "/version-monitor.js?v=0.2.9" in html
+assert "__XPORT_VERSION__" not in html
+print("Web update serves fresh release-stamped HTML and version probe")
+PY
 curl -fsS -b "$TMP/cookies2" "$BASE/api/firewall" > "$TMP/firewall.json"
 python3 - "$TMP/firewall.json" <<'PY'
 import json,sys
