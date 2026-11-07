@@ -56,6 +56,11 @@ cat > "$TMP/__mock.js" <<'JS'
   globalThis.__legacyCloneHits = 0
   globalThis.__fwConfirmCalls = 0
   globalThis.__fwConfirmResult = false
+  globalThis.__fwWriteHold = false
+  globalThis.__fwReleaseWrite = null
+  globalThis.__accountToggleHold = false
+  globalThis.__accountReleaseWrite = null
+  globalThis.__accountToggleCalls = 0
   globalThis.__xportServerVersion = 'browser-test'
   globalThis.__xportPending = false
   globalThis.confirm = () => { globalThis.__fwConfirmCalls++; return globalThis.__fwConfirmResult }
@@ -72,6 +77,14 @@ cat > "$TMP/__mock.js" <<'JS'
     })
     if (path === '/api/accounts' && method === 'GET') return json({accounts:[account]})
     if (path === '/api/accounts/1' && method === 'GET') return json(account)
+    if (path === '/api/accounts/1/enabled' && method === 'PATCH') {
+      globalThis.__accountToggleCalls++
+      const next=Boolean(JSON.parse(init.body||'{}').enabled)
+      if(globalThis.__accountToggleHold)
+        return new Promise(resolve=>{globalThis.__accountReleaseWrite=()=>{account.enabled=next;resolve(json({ok:true}))}})
+      account.enabled=next
+      return json({ok:true})
+    }
     if (path === '/api/accounts/1/expert' && method === 'GET') return json(expert)
     if (path === '/api/accounts/online') return json({connections:{}})
     if (path === '/api/accounts/port-suggestion') return json({port:23741,min:20000,max:60000})
@@ -95,7 +108,12 @@ cat > "$TMP/__mock.js" <<'JS'
     }
     if (path === '/api/firewall/purpose' && method === 'PUT') return json({purpose:JSON.parse(init.body).purpose})
     if (path === '/api/firewall/raw' && method === 'GET') return json({ruleset:'table inet firewalld {\\n chain INPUT { type filter hook input priority 10; }\\n}'})
-    if (path === '/api/firewall/rules' && method === 'POST') { globalThis.__fwMutationCalls=(globalThis.__fwMutationCalls||0)+1; return json({ok:true}) }
+    if (path === '/api/firewall/rules' && method === 'POST') {
+      globalThis.__fwMutationCalls=(globalThis.__fwMutationCalls||0)+1
+      if(globalThis.__fwWriteHold)
+        return new Promise(resolve=>{globalThis.__fwReleaseWrite=()=>resolve(json({ok:true,pending:false}))})
+      return json({ok:true})
+    }
     if (path === '/api/firewall/control' && method === 'POST') {
       globalThis.__fwControlCalls=(globalThis.__fwControlCalls||0)+1
       globalThis.__fwLastControl=JSON.parse(init.body||'{}')
@@ -376,6 +394,71 @@ cat > "$TMP/__driver.js" <<'JS'
       if(!detail.querySelector('.fw-detail-summary')?.textContent.includes('X-port')) throw new Error('detail summary missing')
       if(!detail.textContent.includes('xray')||!detail.textContent.includes('1242'))throw new Error('process/PID details missing')
       detail.querySelector('button[value="cancel"]').click()
+
+      // Shared progress is truly centered, modal and non-dismissible.
+      // A deferred Xray toggle exercises the real API write path.
+      const progress=document.querySelector('#operation-progress')
+      if(!progress||!window.XportOperation)throw new Error('shared operation progress missing')
+      document.querySelector('#nav [data-page="accounts"]').click()
+      const accountToggle=await waitFor('.account-row .account-toggle')
+      globalThis.__accountToggleHold=true
+      const accountPromise=toggleAccountV3(1,false,accountToggle)
+      await waitFor('#operation-progress[open]')
+      if(!progress.querySelector('#operation-progress-title').textContent.includes('停用账号'))
+        throw new Error('account toggle missing operation-specific title')
+      const bounds=progress.getBoundingClientRect()
+      if(Math.abs((bounds.top+bounds.bottom)/2-innerHeight/2)>Math.max(28,innerHeight*.08)||
+         Math.abs((bounds.left+bounds.right)/2-innerWidth/2)>Math.max(28,innerWidth*.08))
+        throw new Error('operation progress must be centered in viewport')
+      if(getComputedStyle(progress).position!=='fixed' || !progress.open)
+        throw new Error('operation progress must be modal')
+      const canceled=new Event('cancel',{cancelable:true})
+      progress.dispatchEvent(canceled)
+      if(!canceled.defaultPrevented||!progress.open)throw new Error('progress dialog must block Escape dismissal')
+      const oldWrites=globalThis.__accountToggleCalls
+      await XportOperation.run({
+        title:'不应执行',perform:async()=>{globalThis.__accountToggleCalls++}
+      }).then(()=>{throw new Error('parallel operation unexpectedly succeeded')},
+        err=>{if(!/正在执行/.test(err.message))throw err})
+      if(globalThis.__accountToggleCalls!==oldWrites)
+        throw new Error('duplicate account write was not blocked')
+      globalThis.__accountReleaseWrite()
+      await accountPromise
+      globalThis.__accountToggleHold=false
+      if(progress.open||XportOperation.busy)
+        throw new Error('progress did not close after refreshed account list')
+      // Account modals must be centered and usable, not small/top-edge sheets.
+      await openAccountModalV3(state.accounts.find(a=>a.id===1))
+      const accountModal=document.querySelector('#modal .modal-card')
+      if(!accountModal||!document.querySelector('#account-form'))
+        throw new Error('account form modal missing')
+      const accountRect=accountModal.getBoundingClientRect()
+      if(Math.abs((accountRect.top+accountRect.bottom)/2-innerHeight/2)>Math.max(32,innerHeight*.08)||
+         accountRect.width<600||accountRect.right>innerWidth)
+        throw new Error('desktop account editor must be centered and spacious')
+      document.querySelector('#modal-close').click()
+      // Exercise the actual firewall add flow with a held write response.
+      document.querySelector('#nav [data-page="firewall"]').click()
+      globalThis.__fwConfirmResult=true
+      globalThis.__fwWriteHold=true
+      const priorRules=globalThis.__fwMutationCalls||0
+      document.querySelector('#fw-add').click()
+      const firewallAdd=await waitFor('#fw-add-dialog[open]')
+      firewallAdd.querySelector('#fw-add-port').value='53341'
+      firewallAdd.querySelector('#fw-add-policy').value='allow'
+      firewallAdd.querySelector('#fw-confirm-add').click()
+      await waitFor('#operation-progress[open]')
+      if(!progress.querySelector('#operation-progress-title').textContent.includes('添加防火墙规则')||
+         (globalThis.__fwMutationCalls||0)!==priorRules+1)
+        throw new Error('firewall add must display modal progress once')
+      if(!globalThis.__fwReleaseWrite)throw new Error('held firewall write did not start')
+      globalThis.__fwReleaseWrite()
+      globalThis.__fwWriteHold=false
+      await sleep(75)
+      if(progress.open||XportOperation.busy)
+        throw new Error('firewall add progress did not close after status refresh')
+      globalThis.__fwConfirmResult=false
+      document.querySelector('#nav [data-page="firewall"]').click()
 
       const oldTheme=document.documentElement.dataset.theme
       document.documentElement.dataset.theme='light'
