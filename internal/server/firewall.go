@@ -143,6 +143,12 @@ func discoveredSSHPort(d firewall.Discovery,p int)bool{
  for _,n:=range d.SSHPorts{if n==p{return true}}
  return false
 }
+func discoveredDockerPort(d firewall.Discovery,p int)bool{
+ // Conservatively guard a numeric host port across TCP and UDP. A Docker
+ // mapping may be reachable through NAT even without a local socket owner.
+ for _,n:=range d.Docker{if n.Port==p{return true}}
+ return false
+}
 func (s *Server) firewallRead(w http.ResponseWriter,r *http.Request){
  ctx,cancel:=context.WithTimeout(r.Context(),15*time.Second);defer cancel()
  snap,err:=ops.InspectFirewall(ctx,s.store.Dir());if err!=nil{log.Printf("firewall inspection unavailable: %v",err);writeError(w,502,"failed to inspect firewall rules");return}
@@ -214,7 +220,8 @@ func (s *Server) firewallRead(w http.ResponseWriter,r *http.Request){
    AccountID:account.ID,AccountName:account.Name,AccountEnabled:account.Enabled,
    AccountAmbiguous:ambiguous,Usage:usage,UsageDetails:details,UsageOverflow:overflow,Revision:firewallRuleRevision(rr),
     CanToggle:snap.Backend=="firewalld"&&!snap.OpaqueRichZones[rr.Zone]&&settings["firewall_owned:"+rr.ID]=="v1"&&!rr.Conflict&&
-      !rr.IsRange()&&!ssh&&discoveryWarning==""&&rr.Port!=22&&rr.Port!=s.firewallGuardPort()&&
+      !rr.IsRange()&&!ssh&&!discoveredDockerPort(discovery,rr.Port)&&
+      discoveryWarning==""&&listeningError==nil&&rr.Port!=22&&rr.Port!=s.firewallGuardPort()&&
       (rr.Kind=="port"||rr.Kind=="rich")&&
       (!protected||(xray&&!ambiguous&&account.Enabled)),
   })
@@ -262,14 +269,18 @@ func (s *Server) firewallRead(w http.ResponseWriter,r *http.Request){
   rules=append(rules,firewallViewRule{
    Rule:paused,Purpose:settings["firewall_purpose:"+paused.ID],
    PurposeSource:"manual",Note:settings["firewall_note:"+paused.ID],
-   Protected:paused.Port==22||discoveredSSHPort(discovery,paused.Port)||paused.Port==s.firewallGuardPort()||discoveryWarning!="",
+   Protected:paused.Port==22||discoveredSSHPort(discovery,paused.Port)||
+     discoveredDockerPort(discovery,paused.Port)||paused.Port==s.firewallGuardPort()||
+     discoveryWarning!=""||listeningError!=nil||listening[paused.Port],
    Managed:true,Xray:len(account)>0,AccountID:accountID,AccountName:name,
    AccountEnabled:enabled,AccountAmbiguous:len(account)>1,Usage:usage,UsageDetails:details,UsageOverflow:overflow,
    Paused:true,PausedDrift:conflicting,
    Revision:firewallRuleRevision(paused),
    CanToggle:snap.Backend=="firewalld"&&!snap.OpaqueRichZones[paused.Zone]&&!conflicting&&
-     discoveryWarning==""&&!discoveredSSHPort(discovery,paused.Port)&&paused.Port!=22&&paused.Port!=s.firewallGuardPort()&&
-     (validAllow||(listeningError==nil&&!listening[paused.Port])),
+     discoveryWarning==""&&listeningError==nil&&
+     !discoveredSSHPort(discovery,paused.Port)&&!discoveredDockerPort(discovery,paused.Port)&&
+     paused.Port!=22&&paused.Port!=s.firewallGuardPort()&&
+     (validAllow||!listening[paused.Port]),
   })
  }
  writeJSON(w,200,firewallView{Snapshot:snap,Rules:rules,Pending:pendingFromSettings(settings),DiscoveryWarning:discoveryWarning})
