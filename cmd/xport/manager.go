@@ -61,7 +61,7 @@ func dispatchManager(args []string) (bool, int) {
 
 func isManagerCommand(cmd string) bool {
 	switch cmd {
-	case "menu", "status", "start", "stop", "restart", "restart-xray", "logs", "autostart", "settings", "admin", "update", "update-xray", "update-geodata", "backup", "firewall", "firewall-apply", "firewall-inspect", "firewall-raw", "firewall-listeners", "firewall-restore", "repair", "uninstall":
+	case "menu", "status", "start", "stop", "restart", "restart-xray", "logs", "autostart", "settings", "admin", "update", "update-xray", "update-geodata", "backup", "firewall", "firewall-apply", "firewall-inspect", "firewall-policy", "firewall-raw", "firewall-listeners", "firewall-sockets", "firewall-restore", "repair", "uninstall":
 		return true
 	default:
 		return false
@@ -104,10 +104,14 @@ func runManagerCommand(cmd string, args []string) error {
 		return firewallApplyHelper(args)
 	case "firewall-inspect":
 		return firewallHelperInspect(args)
+	case "firewall-policy":
+		return firewallPolicyHelper(args)
 	case "firewall-raw":
 		return firewallHelperRaw(args)
 	case "firewall-listeners":
 		return firewallHelperListeners(args)
+	case "firewall-sockets":
+		return firewallHelperSockets(args)
 	case "firewall-restore":
 		return firewallRestoreHelper(args)
 	case "repair":
@@ -895,6 +899,16 @@ func firewallApplyHelper(args []string) error {
  return firewall.Change(ctx,args[0],port,args[2],args[3])
 }
 
+func firewallPolicyHelper(args []string)error{
+ if err:=requireRoot();err!=nil{return err}
+ if len(args)!=4{return errors.New("usage: xport firewall-policy add|remove PORT tcp|udp ZONE")}
+ port,err:=strconv.Atoi(args[1])
+ if err!=nil||!firewall.ValidRule(port,args[2])||!firewall.ValidZone(args[3]){return errors.New("invalid port/protocol/zone")}
+ if args[0]!="add"&&args[0]!="remove"{return errors.New("unsupported policy action")}
+ ctx,cancel:=context.WithTimeout(context.Background(),50*time.Second);defer cancel()
+ return firewall.ChangeSimpleDrop(ctx,args[0],port,args[2],args[3])
+}
+
 func firewallHelperInspect(args []string)error{
  if err:=requireRoot();err!=nil{return err}
  if len(args)>0{return errors.New("firewall-inspect takes no arguments")}
@@ -915,6 +929,13 @@ func firewallHelperListeners(args []string)error{
  ctx,cancel:=context.WithTimeout(context.Background(),10*time.Second);defer cancel()
  ports,err:=firewall.ListeningPorts(ctx);if err!=nil{return err}
  return json.NewEncoder(os.Stdout).Encode(ports)
+}
+func firewallHelperSockets(args []string)error{
+ if err:=requireRoot();err!=nil{return err}
+ if len(args)>0{return errors.New("firewall-sockets takes no arguments")}
+ ctx,cancel:=context.WithTimeout(context.Background(),10*time.Second);defer cancel()
+ sockets,err:=firewall.ListeningSockets(ctx);if err!=nil{return err}
+ return json.NewEncoder(os.Stdout).Encode(sockets)
 }
 
 func firewallRestoreHelper(args []string)error{

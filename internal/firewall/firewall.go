@@ -28,6 +28,10 @@ type Rule struct {
 	Access string `json:"access"`
 	IPv4 bool `json:"ipv4"`
 	IPv6 bool `json:"ipv6"`
+ Action string `json:"action,omitempty"` // allow, deny (drop), reject
+ Kind string `json:"kind,omitempty"` // port or rich
+ Family string `json:"family,omitempty"` // both, ipv4, ipv6
+ Conflict bool `json:"conflict,omitempty"`
 }
 type Snapshot struct {
 	Backend string `json:"backend"`
@@ -38,6 +42,7 @@ type Snapshot struct {
 	DefaultZone string `json:"defaultZone,omitempty"`
 	Zones []string `json:"zones"`
 	Services map[string][]string `json:"services,omitempty"`
+ OpaqueRichZones map[string]bool `json:"opaqueRichZones,omitempty"`
 	Rules []Rule `json:"rules"`
 	Notice string `json:"notice"`
 }
@@ -217,6 +222,7 @@ func Inspect(ctx context.Context)(Snapshot,error){
 		zones:=map[string]bool{def:true};for _,z:=range activeZones(act){zones[z]=true}
 		for z:=range zones{snap.Zones=append(snap.Zones,z)};sort.Strings(snap.Zones)
 		snap.Services=map[string][]string{}
+        snap.OpaqueRichZones=map[string]bool{}
 		for _,zone:=range snap.Zones{
 			rt,err:=command(ctx,"firewall-cmd","--zone="+zone,"--list-ports");if err!=nil{return snap,err}
 			pm,err:=command(ctx,"firewall-cmd","--permanent","--zone="+zone,"--list-ports");if err!=nil{return snap,err}
@@ -229,7 +235,29 @@ func Inspect(ctx context.Context)(Snapshot,error){
 					if batch.runtime{r.Runtime=true}else{r.Permanent=true}
 				}
 			}
-			for _,r:=range entries{snap.Rules=append(snap.Rules,*r)}
+			for _,r:=range entries{r.Kind="port";r.Action="allow";r.Family="both";snap.Rules=append(snap.Rules,*r)}
+            richEntries:=map[string]*Rule{}
+            for _,batch:=range []bool{false,true}{
+              args:=[]string{"--zone="+zone,"--list-rich-rules"}
+              if batch{args=append([]string{"--permanent"},args...)}
+              richText,err:=command(ctx,"firewall-cmd",args...)
+              if err!=nil{
+               snap.Writable=false
+               snap.UnsafeReason="无法读取 firewalld 富规则；暂时禁止网页写入"
+               continue
+              }
+              for _,line:=range strings.Split(richText,"\n"){
+                rich,ok:=parseSimpleRichRule(line,zone)
+                if !ok{
+                 if strings.TrimSpace(line)!=""{snap.OpaqueRichZones[zone]=true}
+                 continue
+                }
+                item:=richEntries[rich.ID]
+                if item==nil{r:=rich;item=&r;richEntries[rich.ID]=item}
+                if batch{item.Permanent=true}else{item.Runtime=true}
+              }
+            }
+            for _,r:=range richEntries{snap.Rules=append(snap.Rules,*r)}
 			if srv,err:=command(ctx,"firewall-cmd","--zone="+zone,"--list-services");err==nil{snap.Services[zone]=strings.Fields(srv)}
 		}
 	case "ufw":
@@ -242,7 +270,7 @@ func Inspect(ctx context.Context)(Snapshot,error){
 			r:=seen[key];if r==nil{r=&Rule{ID:"ufw:"+key,Port:p,Protocol:proto,Backend:"ufw",Runtime:true,Permanent:true,Access:"所有来源"};seen[key]=r}
 			if v6{r.IPv6=true}else{r.IPv4=true}
 		}
-		for _,r:=range seen{snap.Rules=append(snap.Rules,*r)}
+		for _,r:=range seen{r.Action="allow";r.Kind="port";r.Family="both";snap.Rules=append(snap.Rules,*r)}
 		snap.Notice="UFW 仅列出无来源限制的明确放行规则；其他规则须经原管理器检查。"
 	case "nftables","iptables":
 		snap.Notice="原生规则只读；检测到对应命令不代表系统防火墙已启用。"
@@ -250,8 +278,37 @@ func Inspect(ctx context.Context)(Snapshot,error){
 		snap.Notice="未发现活动的受支持防火墙管理器。"
 	}
 	sort.Slice(snap.Rules,func(i,j int)bool{a,b:=snap.Rules[i],snap.Rules[j];if a.Port!=b.Port{return a.Port<b.Port};if a.Protocol!=b.Protocol{return a.Protocol<b.Protocol};return a.Zone<b.Zone})
+ markRuleConflicts(snap.Rules)
 	return snap,nil
 }
+
+// Only these unqualified all-source single-port rich rules can be shown as
+// ordinary policies. Rules with sources, priorities, logging or ranges stay
+// outside this simplified management view.
+var simpleRichRuleRE = regexp.MustCompile(`^rule(?: family="(ipv4|ipv6)")? port port="([1-9][0-9]{0,4})" protocol="(tcp|udp)" (accept|drop|reject)$`)
+func parseSimpleRichRule(raw,zone string)(Rule,bool){
+ match:=simpleRichRuleRE.FindStringSubmatch(strings.TrimSpace(raw))
+ if match==nil{return Rule{},false}
+ p,err:=strconv.Atoi(match[2])
+ if err!=nil||!ValidRule(p,match[3]){return Rule{},false}
+ family:=match[1];if family==""{family="both"}
+ action:=match[4];if action=="drop"{action="deny"}
+ id:=fmt.Sprintf("firewalld:%s:rich:%d/%s:%s:%s",zone,p,match[3],action,family)
+ return Rule{ID:id,Port:p,Protocol:match[3],Zone:zone,Backend:"firewalld",
+  Access:"区域："+zone,Family:family,Kind:"rich",Action:action},true
+}
+func markRuleConflicts(rules []Rule){
+ groups:=make(map[string][]int)
+ for i,r:=range rules{
+  key:=fmt.Sprintf("%s/%s/%d/%s",r.Backend,r.Zone,r.Port,r.Protocol)
+  groups[key]=append(groups[key],i)
+ }
+ for _,indices:=range groups{
+  if len(indices)<2{continue}
+  for _,i:=range indices{rules[i].Conflict=true}
+ }
+}
+
 func containsRule(s Snapshot,p int,proto,zone string)(Rule,bool){
 	for _,r:=range s.Rules{if r.Port==p&&r.Protocol==proto&&r.Zone==zone{return r,true}}
 	return Rule{},false
@@ -267,6 +324,10 @@ func Change(ctx context.Context,action string,p int,proto,zone string)error{
 	snap,err:=Inspect(ctx);if err!=nil{return err}
 	if !snap.Writable{return fmt.Errorf("firewall is read-only: %s",snap.UnsafeReason)}
 	r,exists:=containsRule(snap,p,proto,zone)
+ if snap.Backend=="firewalld"&&snap.OpaqueRichZones[zone]{
+  return errors.New("zone contains unsupported rich rules; normal port changes blocked")
+ }
+ if exists&&(r.Kind=="rich"||r.Action!="allow"||r.Conflict){return errors.New("ambiguous or conflicting port/rich rules; use original manager")}
 	switch snap.Backend {
 	case "firewalld":
 		if !ValidZone(zone){return errors.New("invalid zone")}
@@ -296,6 +357,52 @@ func Change(ctx context.Context,action string,p int,proto,zone string)error{
 	}
 	return nil
 }
+// RichDropText constructs one deterministic dual-family port policy.
+// No shell is involved: the entire text is a single firewall-cmd argument.
+func RichDropText(port int,proto string)(string,error){
+ if !ValidRule(port,proto){return "",errors.New("invalid port/protocol")}
+ return fmt.Sprintf(`rule port port="%d" protocol="%s" drop`,port,proto),nil
+}
+// ChangeSimpleDrop manages only X-port's narrow all-sources dual-family DROP
+// rules. A missing or conflicting rule is never silently overwritten.
+func ChangeSimpleDrop(ctx context.Context,action string,port int,proto,zone string)error{
+ if action!="add"&&action!="remove"{return errors.New("invalid action")}
+ if !ValidRule(port,proto)||!ValidZone(zone){return errors.New("invalid port/protocol/zone")}
+ snap,err:=Inspect(ctx);if err!=nil{return err}
+ if !snap.Writable||snap.Backend!="firewalld"{return errors.New("firewalld unavailable or read-only")}
+ if snap.OpaqueRichZones[zone]{return errors.New("zone contains unsupported rich rules; policy modification blocked")}
+ zoneFound:=false;for _,z:=range snap.Zones{if z==zone{zoneFound=true;break}}
+ if !zoneFound{return errors.New("unknown firewalld zone")}
+ matching:=[]Rule{}
+ for _,r:=range snap.Rules{
+  // Another active zone might already expose the same port. Changing one
+  // zone cannot be presented as an unambiguous global allow/deny policy.
+  if action=="add"&&r.Port==port&&r.Protocol==proto&&r.Zone!=zone{
+   return errors.New("same port is configured in another zone")
+  }
+
+  if r.Port==port&&r.Protocol==proto&&r.Zone==zone{matching=append(matching,r)}
+ }
+ if action=="add"{
+  if len(matching)!=0{return errors.New("port already has a rule or conflicting policy")}
+ }else{
+  if len(matching)!=1||matching[0].Kind!="rich"||matching[0].Action!="deny"||
+     matching[0].Family!="both"||!matching[0].Runtime||!matching[0].Permanent||matching[0].Conflict{
+   return errors.New("exact dual-family DROP rule not present or ambiguous")
+  }
+ }
+ rich,err:=RichDropText(port,proto);if err!=nil{return err}
+ flag,undo:="--add-rich-rule=","--remove-rich-rule="
+ if action=="remove"{flag,undo=undo,flag}
+ if _,err:=command(ctx,"firewall-cmd","--zone="+zone,flag+rich);err!=nil{return err}
+ if _,err:=command(ctx,"firewall-cmd","--permanent","--zone="+zone,flag+rich);err!=nil{
+  _,rb:=command(ctx,"firewall-cmd","--zone="+zone,undo+rich)
+  if rb!=nil{return fmt.Errorf("permanent rich update failed and rollback failed: %w",err)}
+  return fmt.Errorf("permanent rich update failed; runtime restored: %w",err)
+ }
+ return nil
+}
+
 func Raw(ctx context.Context)(string,error){
 	if hasTool("nft"){return command(ctx,"nft","-a","list","ruleset")}
 	if hasTool("iptables-save"){return command(ctx,"iptables-save")}
@@ -318,31 +425,54 @@ func ufwPortLine(line string)(port int,proto string,broad,v6,ok bool){
 
 // ListeningPorts lists all host TCP/UDP listening endpoints. If the
 // host cannot report them, removal fails closed to protect remote access.
+// ListeningSockets reports local listening endpoints per transport, rather
+// than treating TCP and UDP on the same numeric port as one service.
+func ListeningSockets(ctx context.Context)(map[string]bool,error){
+ if !hasTool("ss"){return nil,errors.New("ss command unavailable")}
+ out,err:=command(ctx,"ss","-H","-lnut")
+ if err!=nil{return nil,err}
+ return parseListeningSockets(out)
+}
+func parseListeningSockets(out string)(map[string]bool,error){
+ sockets:=make(map[string]bool)
+ for _,line:=range strings.Split(out,"\n"){
+  fields:=strings.Fields(line)
+  if len(fields)==0{continue}
+  protocol:=strings.ToLower(fields[0])
+  switch protocol {
+  case "tcp","tcp6": protocol="tcp"
+  case "udp","udp6": protocol="udp"
+  default: return nil,fmt.Errorf("unrecognized ss transport: %q",fields[0])
+  }
+  // ss -H -lnut: Netid State Recv-Q Send-Q LocalAddress:Port Peer.
+  // Never scan subsequent fields: the peer column may contain a port.
+  if len(fields)<5{return nil,errors.New("truncated ss socket row")}
+  local:=fields[4]
+  _,p,err:=net.SplitHostPort(local)
+  if err!=nil{
+   colon:=strings.LastIndex(local,":")
+   if colon<0{return nil,fmt.Errorf("unrecognized ss local endpoint")}
+   p=local[colon+1:]
+  }
+  port,err:=strconv.Atoi(p)
+  if err!=nil||!ValidRule(port,protocol){return nil,fmt.Errorf("invalid ss listening port")}
+  sockets[fmt.Sprintf("%s/%d",protocol,port)]=true
+ }
+ return sockets,nil
+}
+// ListeningPorts is deliberately conservative for mutation guards: any
+// listening transport on the same numeric port prevents accidental removal.
 func ListeningPorts(ctx context.Context)(map[int]bool,error){
-	if !hasTool("ss"){return nil,errors.New("ss command unavailable")}
-	out,err:=command(ctx,"ss","-H","-lnut")
-	if err!=nil{return nil,err}
-	ports:=map[int]bool{}
-	for _,line:=range strings.Split(out,"\n"){
-		fields:=strings.Fields(line)
-		if len(fields)<4{continue}
-		// ss output may start with "tcp"/"udp" (Netid) or directly with
-		// LISTEN. Find the first endpoint containing a numeric local port.
-		for _,local:=range fields[3:]{
-			if !strings.Contains(local,":"){continue}
-			_,port,err:=net.SplitHostPort(local)
-			if err!=nil{
-				i:=strings.LastIndex(local,":")
-				if i<0{continue}
-				port=local[i+1:]
-			}
-			if n,err:=strconv.Atoi(port);err==nil&&n>0&&n<=65535{
-				ports[n]=true
-				break
-			}
-		}
-	}
-	return ports,nil
+ sockets,err:=ListeningSockets(ctx)
+ if err!=nil{return nil,err}
+ ports:=make(map[int]bool)
+ for key:=range sockets{
+  index:=strings.IndexByte(key,'/')
+  if index<0{continue}
+  n,err:=strconv.Atoi(key[index+1:])
+  if err==nil{ports[n]=true}
+ }
+ return ports,nil
 }
 
  // Restore is a narrowly-scoped emergency re-open operation. It is called

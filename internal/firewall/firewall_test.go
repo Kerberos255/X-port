@@ -174,6 +174,31 @@ printf 'udp UNCONN 0 0 [::]:2053 [::]:*\n'
  t.Setenv("PATH",dir)
  ports,err:=ListeningPorts(context.Background());if err!=nil{t.Fatal(err)}
  if !ports[8080]||!ports[2053]{t.Fatalf("ports=%v",ports)}
+ sockets,err:=ListeningSockets(context.Background());if err!=nil{t.Fatal(err)}
+ if !sockets["tcp/8080"]||!sockets["udp/2053"]{t.Fatalf("sockets=%v",sockets)}
+ if sockets["udp/8080"]||sockets["tcp/2053"]{t.Fatalf("transport confusion: %v",sockets)}
+}
+
+func TestListeningSocketsMustReadLocalEndpointNotPeer(t *testing.T){
+ cases:=[]struct{name,raw string;key string;wantErr bool}{
+  {"IPv4 TCP","tcp LISTEN 0 128 127.0.0.1:8443 127.0.0.1:2053","tcp/8443",false},
+  {"IPv6 TCP","tcp LISTEN 0 128 [::]:443 [::]:*","tcp/443",false},
+  {"IPv4 UDP","udp UNCONN 0 0 0.0.0.0:443 0.0.0.0:*","udp/443",false},
+  {"IPv6 UDP","udp UNCONN 0 0 [::]:2053 [::]:*","udp/2053",false},
+  {"no local socket","tcp LISTEN 0 128 BAD 127.0.0.1:80","",true},
+  {"malformed local port","udp UNCONN 0 0 127.0.0.1:NaN 127.0.0.1:5000","",true},
+  {"unexpected protocol","raw UNCONN 0 0 127.0.0.1:80 127.0.0.1:*","",true},
+  {"truncated row","tcp LISTEN 0 128","",true},
+  {"no sockets","","",false},
+ }
+ for _,tt:=range cases{t.Run(tt.name,func(t *testing.T){
+  result,err:=parseListeningSockets(tt.raw)
+  if (err!=nil)!=tt.wantErr{t.Fatalf("error=%v wantErr=%t",err,tt.wantErr)}
+  if err==nil&&tt.key!=""&&!result[tt.key]{t.Fatalf("missing %s: %v",tt.key,result)}
+ })}
+ mixed,err:=parseListeningSockets("tcp LISTEN 0 128 *:7443 *:*\nudp UNCONN 0 0 [::]:7443 [::]:*")
+ if err!=nil{t.Fatal(err)}
+ if !mixed["tcp/7443"]||!mixed["udp/7443"]||len(mixed)!=2{t.Fatalf("shared port must preserve both transports: %v",mixed)}
 }
 func TestNativeInputChainBlocksWrites(t *testing.T){
  dir:=t.TempDir()
@@ -219,4 +244,85 @@ func TestUFWTopLevelOwnershipDetection(t *testing.T){
  modified,err:=json.Marshal(parsed);if err!=nil{t.Fatal(err)}
  conflict,err=independentInputChainsWithUFW(string(modified),true)
  if err!=nil||!conflict{t.Fatalf("foreign DROP must disable writing: %v %v",conflict,err)}
+}
+
+func TestSimpleRichRuleRecognition(t *testing.T){
+ cases:=[]struct{raw,zone,action,family string;port int;ok bool}{
+  {`rule port port="10401" protocol="tcp" drop`,"public","deny","both",10401,true},
+  {`rule family="ipv4" port port="2053" protocol="udp" reject`,"public","reject","ipv4",2053,true},
+  {`rule family="ipv6" port port="65535" protocol="tcp" accept`,"trusted","accept","ipv6",65535,true},
+  {`rule family="ipv4" source address="192.0.2.0/24" port port="10401" protocol="tcp" drop`,"public","","",0,false},
+  {`rule priority="-100" port port="10401" protocol="tcp" drop`,"public","","",0,false},
+  {`rule port port="10401" protocol="tcp" log drop`,"public","","",0,false},
+  {`rule port port="99999" protocol="tcp" drop`,"public","","",0,false},
+  {`rule port port="443" protocol="sctp" drop`,"public","","",0,false},
+  {`rule port port="443-446" protocol="tcp" drop`,"public","","",0,false},
+ }
+ for _,tc:=range cases{
+  t.Run(tc.raw,func(t *testing.T){
+   r,ok:=parseSimpleRichRule(tc.raw,tc.zone)
+   if ok!=tc.ok{t.Fatalf("ok=%v expected=%v",ok,tc.ok)}
+   if !ok{return}
+   if r.Action!=tc.action||r.Family!=tc.family||r.Kind!="rich"||r.Port!=tc.port||r.Zone!=tc.zone||r.ID==""{
+    t.Fatalf("parsed %+v",r)
+   }
+  })
+ }
+}
+func TestConflictingPortPoliciesFlagged(t *testing.T){
+ rules:=[]Rule{
+  {Port:443,Protocol:"tcp",Backend:"firewalld",Zone:"public",Action:"allow",Kind:"port"},
+  {Port:443,Protocol:"tcp",Backend:"firewalld",Zone:"public",Action:"deny",Kind:"rich"},
+  {Port:443,Protocol:"udp",Backend:"firewalld",Zone:"public",Action:"allow",Kind:"port"},
+  {Port:443,Protocol:"tcp",Backend:"firewalld",Zone:"trusted",Action:"allow",Kind:"port"},
+ }
+ markRuleConflicts(rules)
+ if !rules[0].Conflict||!rules[1].Conflict||rules[2].Conflict||rules[3].Conflict{
+  t.Fatalf("policy conflicts: %+v",rules)
+ }
+}
+
+func TestFirewalldRichSnapshotUsesBothRuntimeAndPermanent(t *testing.T){
+ dir:=t.TempDir()
+ // Mirror the exact canonical output observed in the failing CentOS 9 E2E,
+ // from both runtime and permanent firewalld, not a hand-built JSON snapshot.
+ cmd:=`#!/bin/sh
+case "$1" in
+ --state) echo running ;;
+ --get-default-zone) echo public ;;
+ --get-active-zones) printf 'public\n  interfaces: eth0\n' ;;
+ --zone=public)
+  case "$2" in
+   --list-ports) echo '' ;;
+   --list-rich-rules) echo 'rule port port="53342" protocol="tcp" drop' ;;
+   --list-services) echo ssh ;;
+   *) exit 2 ;;
+  esac ;;
+ --permanent)
+  case "$2" in
+   --zone=public)
+    case "$3" in
+     --list-ports) echo '' ;;
+     --list-rich-rules) echo 'rule port port="53342" protocol="tcp" drop' ;;
+     *) exit 2 ;;
+    esac ;;
+   *) exit 2 ;;
+  esac ;;
+ *) exit 2 ;;
+esac
+`
+ if err:=os.WriteFile(filepath.Join(dir,"firewall-cmd"),[]byte(cmd),0755);err!=nil{t.Fatal(err)}
+ t.Setenv("PATH",dir)
+ snap,err:=Inspect(context.Background())
+ if err!=nil{t.Fatal(err)}
+ if len(snap.Rules)!=1{
+  t.Fatalf("firewalld returned rich rules but snapshot did not: %+v",snap)
+ }
+ rich:=snap.Rules[0]
+ if rich.Port!=53342||rich.Protocol!="tcp"||rich.Kind!="rich"||
+    rich.Action!="deny"||rich.Family!="both"||!rich.Runtime||!rich.Permanent||
+    rich.ID!="firewalld:public:rich:53342/tcp:deny:both"{
+  t.Fatalf("rich rule misread: %+v",rich)
+ }
+ if snap.OpaqueRichZones["public"]{t.Fatalf("canonical DROP marked opaque: %+v",snap)}
 }

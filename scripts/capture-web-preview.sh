@@ -72,11 +72,13 @@ cat > "$TMP/__mock.js" <<'JS'
     if (path === '/api/firewall' && method === 'GET') return json({
       backend:'firewalld',active:true,writable:true,managers:['firewalld'],defaultZone:'public',zones:['public'],services:{public:['ssh']},
       notice:'预览：简单端口规则展示；底层链可能影响结果',rules:[
-        {id:'firewalld:public:22/tcp',port:22,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'SSH（常见端口，未核实）',purposeSource:'assumed',note:'远程管理',protected:true,xray:false},
-        {id:'firewalld:public:443/tcp',port:443,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'HTTPS',purposeSource:'manual',note:'网站入口',protected:false,xray:false},
-        {id:'firewalld:public:2053/tcp',port:2053,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'Xray · VLESS',purposeSource:'xray',note:fwNote,protected:false,managed:true,xray:true},
-        {id:'firewalld:public:8443/tcp',port:8443,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:false,access:'区域：public',purpose:'Xray · Trojan',purposeSource:'xray',note:'临时放行，需同步',protected:false,xray:true},
-        {id:'firewalld:public:51820/udp',port:51820,protocol:'udp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'未识别',purposeSource:'unknown',note:'WireGuard 站点互联',protected:false,xray:false}
+        {id:'firewalld:public:22/tcp',port:22,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'SSH',purposeSource:'assumed',note:'远程管理端口',protected:true,xray:false,usage:'used',action:'allow'},
+        {id:'firewalld:public:443/tcp',port:443,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'HTTPS · Nginx',purposeSource:'manual',note:'网站服务入口',protected:true,xray:false,usage:'used',action:'allow'},
+        {id:'firewalld:public:2053/tcp',port:2053,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'Xray · VLESS',purposeSource:'xray',note:fwNote,protected:false,managed:true,xray:true,accountId:1,accountName:'主节点 · REALITY',accountEnabled:true,usage:'used',action:'allow'},
+        {id:'firewalld:public:8443/tcp',port:8443,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:false,access:'区域：public',purpose:'Xray · Trojan',purposeSource:'xray',note:'待同步的运行时规则',protected:false,xray:true,usage:'unused',action:'allow'},
+        {id:'firewalld:public:10401/tcp',port:10401,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'Xray · VLESS',purposeSource:'xray',note:'边缘入口',protected:false,managed:true,xray:true,usage:'used',action:'allow',accountId:2,accountName:'Edge · 东京节点',accountEnabled:true},
+        {id:'firewalld:public:15432/tcp',port:15432,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'PostgreSQL',purposeSource:'manual',note:'限制应用服务访问',protected:false,xray:false,usage:'unused',action:'deny'},
+        {id:'firewalld:public:51820/udp',port:51820,protocol:'udp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'WireGuard',purposeSource:'manual',note:'站点互联',protected:false,xray:false,usage:'used',action:'allow'}
       ]})
     if (path === '/api/firewall/notes' && method === 'PUT') {
       fwNote = JSON.parse(init.body).note
@@ -137,12 +139,22 @@ cat > "$TMP/__preview.js" <<'JS'
         if (!note.hidden) throw new Error('internal update note should be hidden')
         const status=await waitFor('#xray-page-update-state')
         if (!(status.textContent||'').trim()) throw new Error('Xray update state missing')
-      } else if (preview === 'firewall' || preview === 'firewall-light' || preview === 'firewall-detail-light') {
+      } else if (preview === 'firewall' || preview === 'firewall-light' || preview === 'firewall-detail-light' || preview === 'firewall-editor-light' || preview === 'firewall-create-light') {
         document.querySelector('#nav [data-page="firewall"]').click()
         await waitFor('#fw-rows tr button[data-fw-act="edit"]')
         if (preview === 'firewall-detail-light') {
           document.querySelector('#fw-rows button[data-fw-act="detail"][data-fw-id="firewalld:public:2053/tcp"]').click()
           await waitFor('#fw-detail-dialog[open]')
+        }
+        if (preview === 'firewall-editor-light') {
+          document.querySelector('#fw-rows button[data-fw-act="configure"][data-fw-id="firewalld:public:10401/tcp"]').click()
+          await waitFor('#fw-policy-dialog[open]')
+        }
+        if (preview === 'firewall-create-light') {
+          document.querySelector('#fw-add').click()
+          await waitFor('#fw-add-dialog[open]')
+          document.querySelector('#fw-add-port').value=18666
+          document.querySelector('#fw-add-policy').value='deny'
         }
       } else if (preview === 'accounts' || preview === 'accounts-light') {
         document.querySelector('#nav [data-page="accounts"]').click()
@@ -168,7 +180,16 @@ cat > "$TMP/__preview.js" <<'JS'
         panel.scrollIntoView({block:'center', inline:'nearest'})
       }
       await sleep(700)
-      if (preview === 'firewall' && innerWidth <= 700 &&
+      if (preview === 'firewall' && innerWidth > 700 && innerWidth <= 1050) {
+        const selected=document.querySelector('#nav button.active')
+        const label=document.querySelector('.sidebar .brand > div')
+        if (selected && parseFloat(getComputedStyle(selected).fontSize) > 1)
+          throw new Error('compact sidebar active label is visible and may wrap')
+        if (label && getComputedStyle(label).display !== 'none')
+          throw new Error('compact sidebar brand text not hidden')
+        if (!selected?.title) throw new Error('compact nav is missing accessible hover label')
+      }
+      if (preview === 'firewall' &&
           document.documentElement.scrollWidth > innerWidth + 2) {
         throw new Error('mobile horizontal overflow: '+document.documentElement.scrollWidth+' > '+innerWidth)
       }
@@ -211,6 +232,8 @@ capture xray-global xray
 capture firewall-desktop firewall
 capture firewall-light firewall-light
 capture firewall-detail-light firewall-detail-light
+capture firewall-editor-light firewall-editor-light
+capture firewall-create-light firewall-create-light
 # The integrated firewall screen also needs narrow-viewport validation.
 "$BROWSER" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage \
   --window-size=390,844 --force-device-scale-factor=1 --virtual-time-budget=6500 \
@@ -226,5 +249,25 @@ grep -Fq 'data-preview-ready="firewall"' "$TMP/firewall-mobile-dom.html" || {
   echo "Mobile preview did not pass layout checks" >&2
   exit 1
 }
+# Verify both compact and tablet layouts are scroll-safe. The full rule
+# table may scroll within its container, but the document must not overflow.
+for size in 360x780 768x1024; do
+  width="${size%x*}"
+  height="${size#*x}"
+  "$BROWSER" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage \
+    --window-size="$width,$height" --force-device-scale-factor=1 --virtual-time-budget=6500 \
+    --screenshot="$OUT/firewall-$size.png" "http://127.0.0.1:$PORT/?preview=firewall" \
+    >/dev/null 2>"$TMP/firewall-$size.log"
+  [[ -s "$OUT/firewall-$size.png" ]] || { cat "$TMP/firewall-$size.log" >&2; exit 1; }
+  "$BROWSER" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage \
+    --window-size="$width,$height" --force-device-scale-factor=1 --virtual-time-budget=6500 \
+    --dump-dom "http://127.0.0.1:$PORT/?preview=firewall" \
+    >"$TMP/firewall-$size.html" 2>"$TMP/firewall-$size-dom.log"
+  grep -Fq 'data-preview-ready="firewall"' "$TMP/firewall-$size.html" || {
+    grep -o 'data-preview-error="[^"]*"' "$TMP/firewall-$size.html" || true
+    echo "Viewport regression failed: $size" >&2
+    exit 1
+  }
+done
 printf 'GitHub runner UI screenshots:\n'
 ls -lh "$OUT"/*.png

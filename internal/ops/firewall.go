@@ -71,6 +71,14 @@ func ApplyFirewall(ctx context.Context, dataDir,action string,port int,proto,zon
  _,err:=firewallHelper(ctx,dataDir,"firewall-apply",action,strconv.Itoa(port),proto,zone)
  return err
 }
+// ApplySimpleDrop is intentionally separate from normal port allowances.
+// It is not exposed as an unchecked Web action.
+func ApplySimpleDrop(ctx context.Context,dataDir,action string,port int,proto,zone string)error{
+ if action!="add"&&action!="remove"{return errors.New("invalid DROP action")}
+ if !firewall.ValidRule(port,proto)||!firewall.ValidZone(zone){return errors.New("invalid DROP port/protocol/zone")}
+ _,err:=firewallHelper(ctx,dataDir,"firewall-policy",action,strconv.Itoa(port),proto,zone)
+ return err
+}
 func InspectFirewall(ctx context.Context, dataDir string)(firewall.Snapshot,error){
  out,err:=firewallHelper(ctx,dataDir,"firewall-inspect")
  if err!=nil{return firewall.Snapshot{},err}
@@ -87,4 +95,12 @@ func FirewallListeners(ctx context.Context, dataDir string)(map[int]bool,error){
  var ports map[int]bool
  if err=json.Unmarshal([]byte(out),&ports);err!=nil{return nil,fmt.Errorf("invalid listening port data: %w",err)}
  return ports,nil
+}
+func FirewallSockets(ctx context.Context, dataDir string)(map[string]bool,error){
+ out,err:=firewallHelper(ctx,dataDir,"firewall-sockets")
+ if err!=nil{return nil,err}
+ var sockets map[string]bool
+ if err=json.Unmarshal([]byte(out),&sockets);err!=nil{return nil,fmt.Errorf("invalid listening socket data: %w",err)}
+ if sockets==nil{return nil,errors.New("empty listening socket reply")}
+ return sockets,nil
 }

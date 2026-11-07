@@ -11,6 +11,7 @@ import (
  "strings"
  "time"
 
+ "github.com/Kerberos255/X-port/internal/firewall"
  "github.com/Kerberos255/X-port/internal/ops"
 )
 
@@ -19,6 +20,9 @@ type firewallPending struct {
  Token string `json:"token"`
  Unit string `json:"unit"`
  Deadline int64 `json:"deadline"`
+ Kind string `json:"kind,omitempty"`
+ Rule firewall.Rule `json:"rule,omitempty"`
+ Destination firewall.Rule `json:"destination,omitempty"`
 }
 func firewallPendingKey(id string)string{return "firewall_pending:"+id}
 func newFirewallToken()(string,error){
@@ -27,12 +31,29 @@ func newFirewallToken()(string,error){
  return hex.EncodeToString(b),nil
 }
 func (s *Server) firewallPendingSave(id,unit string,deadline int64)(firewallPending,error){
+ return s.firewallPendingSaveKind(id,unit,deadline,"remove-allow",firewall.Rule{})
+}
+func (s *Server) firewallPendingSaveKind(id,unit string,deadline int64,kind string,rule firewall.Rule)(firewallPending,error){
  token,err:=newFirewallToken();if err!=nil{return firewallPending{},err}
- entry:=firewallPending{ID:id,Token:token,Unit:unit,Deadline:deadline}
+ if id==""||unit==""||deadline<=0{return firewallPending{},errors.New("invalid pending firewall action")}
+ entry:=firewallPending{ID:id,Token:token,Unit:unit,Deadline:deadline,Kind:kind,Rule:rule}
  raw,err:=json.Marshal(entry);if err!=nil{return firewallPending{},err}
  err=s.store.SetSetting(firewallPendingKey(id),string(raw))
  return entry,err
 }
+func firewallPausedKey(id string)string{return "firewall_paused:"+id}
+func (s *Server) firewallPendingExternalEdit(source,destination firewall.Rule,unit string,deadline int64)(firewallPending,error){
+ token,err:=newFirewallToken();if err!=nil{return firewallPending{},err}
+ if source.ID==""||destination.ID==""||unit==""||deadline<=0{
+  return firewallPending{},errors.New("invalid external edit recovery state")
+ }
+ p:=firewallPending{ID:source.ID,Token:token,Unit:unit,Deadline:deadline,
+  Kind:"edit-external",Rule:source,Destination:destination}
+ raw,err:=json.Marshal(p);if err!=nil{return firewallPending{},err}
+ err=s.store.SetSetting(firewallPendingKey(source.ID),string(raw))
+ return p,err
+}
+
 func pendingFromSettings(settings map[string]string)[]firewallPending{
  var results []firewallPending
  for key,value:=range settings{
@@ -55,24 +76,111 @@ func (s *Server) firewallRuleConfirm(w http.ResponseWriter,r *http.Request){
  if err=json.Unmarshal([]byte(raw),&p);err!=nil||p.ID!=in.ID||subtle.ConstantTimeCompare([]byte(p.Token),[]byte(in.Token))!=1{
   writeError(w,403,"invalid pending action token");return
  }
+ switch p.Kind{
+ case "","remove-allow","add-drop","remove-drop","pause-allow","pause-drop","edit-external":
+ default:writeError(w,409,"unrecognized pending action");return
+ }
  if time.Now().UnixMilli()>=p.Deadline{writeError(w,409,"confirmation expired; automatic restoration may have started");return}
  ctx,cancel:=context.WithTimeout(r.Context(),35*time.Second);defer cancel()
  snap,err:=ops.InspectFirewall(ctx,s.store.Dir())
- if err!=nil{writeError(w,502,"cannot verify removal before confirmation");return}
- for _,rule:=range snap.Rules{if rule.ID==p.ID{writeError(w,409,"rule already restored; confirmation rejected");return}}
- if err:=ops.CancelFirewallRestore(ctx,p.Unit);err!=nil{writeError(w,409,err.Error());return}
- verified,err:=ops.InspectFirewall(ctx,s.store.Dir())
- if err!=nil{writeError(w,502,"recovery timer cancelled, but final rule state could not be verified");return}
- for _,rule:=range verified.Rules{
-  if rule.ID==p.ID{writeError(w,409,"rule restored during confirmation; refresh before retrying");return}
- }
- // Only once the external recovery timer is stopped do we clear metadata.
- for _,prefix:=range []string{"firewall_owned:","firewall_note:","firewall_purpose:","firewall_pending:"}{
-  if err:=s.store.SetSetting(prefix+p.ID,"");err!=nil{
-   writeError(w,500,"recovery cancelled, but metadata cleanup failed");return
+ if err!=nil{writeError(w,502,"cannot verify firewall before confirmation");return}
+ expectsPresent:=p.Kind=="add-drop"
+ correct:=func(snapshot firewall.Snapshot)bool{
+  if p.Kind=="edit-external"{
+   old,newRule:=p.Rule,p.Destination
+   if old.ID!=p.ID||newRule.ID==""||old.Kind!="port"||newRule.Kind!="port"||
+      old.Action!="allow"||newRule.Action!="allow"||
+      old.Backend!="firewalld"||newRule.Backend!="firewalld"||
+      old.Zone!=newRule.Zone||old.Zone==""||old.ID==newRule.ID{return false}
+   seenNew:=false
+   for _,item:=range snapshot.Rules{
+    if item.ID==old.ID{return false}
+    if item.ID==newRule.ID{
+     if item.Kind!="port"||item.Action!="allow"||!item.Runtime||!item.Permanent||item.Conflict{
+      return false
+     }
+     seenNew=true
+    }
+    if (item.Zone==old.Zone&&item.Port==old.Port&&item.Protocol==old.Protocol&&item.ID!=old.ID)||
+       (item.Zone==newRule.Zone&&item.Port==newRule.Port&&item.Protocol==newRule.Protocol&&item.ID!=newRule.ID){
+     return false
+    }
+   }
+   return seenNew
   }
+  present:=false
+  for _,rule:=range snapshot.Rules{
+   if rule.ID!=p.ID{
+    // If another manager replaces the target with a different rule on the
+    // same zone/port, this is no longer the state that was presented.
+    if p.Rule.Port>0&&rule.Zone==p.Rule.Zone&&rule.Port==p.Rule.Port&&rule.Protocol==p.Rule.Protocol{
+     return false
+    }
+    continue
+   }
+   if p.Kind=="add-drop"&&(rule.Action!="deny"||rule.Kind!="rich"||rule.Family!="both"||!rule.Runtime||!rule.Permanent||rule.Conflict){return false}
+   present=true
+  }
+  return present==expectsPresent
  }
- s.firewallAudit("remove",p.ID)
+ if !correct(snap){writeError(w,409,"rule state changed; confirmation rejected");return}
+ // Persist any resume metadata before disabling automatic recovery. If this
+ // DB operation fails the timer remains armed and the old state is restored.
+ stagedKey,stagedValue:="",""
+ if p.Kind=="pause-allow"||p.Kind=="pause-drop"{
+  if p.Rule.ID!=p.ID||
+     (p.Kind=="pause-allow"&&(p.Rule.Kind!="port"||p.Rule.Action!="allow"))||
+     (p.Kind=="pause-drop"&&(p.Rule.Kind!="rich"||p.Rule.Action!="deny"||p.Rule.Family!="both")){
+   writeError(w,409,"invalid paused rule snapshot");return
+  }
+  body,err:=json.Marshal(p.Rule)
+  if err!=nil{writeError(w,500,"cannot encode paused rule");return}
+  stagedKey,stagedValue=firewallPausedKey(p.ID),string(body)
+ }else if p.Kind=="add-drop"{
+  stagedKey,stagedValue="firewall_owned:"+p.ID,"v1"
+ }
+ if stagedKey!=""{
+  if err:=s.store.SetSetting(stagedKey,stagedValue);err!=nil{writeError(w,500,"cannot persist confirmation; recovery remains armed");return}
+ }
+ if err:=ops.CancelFirewallRestore(ctx,p.Unit);err!=nil{
+  if stagedKey!=""{_ = s.store.SetSetting(stagedKey,"")}
+  writeError(w,409,err.Error());return
+ }
+ verified,err:=ops.InspectFirewall(ctx,s.store.Dir())
+ if err!=nil{writeError(w,502,"recovery cancelled, but final rule state could not be verified");return}
+ if !correct(verified){writeError(w,409,"rule changed during confirmation; refresh before retrying");return}
+ // Pausing retains ownership and note, whereas permanent deletion drops it.
+ switch p.Kind{
+ case "edit-external":
+  // Both managers observe the same native rule after a refresh; X-port's
+  // local annotations are moved only after native recovery is cancelled.
+  for _,prefix:=range []string{"firewall_note:","firewall_purpose:"}{
+   value,_,err:=s.store.Setting(prefix+p.ID)
+   if err!=nil{writeError(w,500,"cannot read rule annotation");return}
+   if value!=""{
+    if err:=s.store.SetSetting(prefix+p.Destination.ID,value);err!=nil{
+     writeError(w,500,"cannot migrate rule annotation");return
+    }
+    if err:=s.store.SetSetting(prefix+p.ID,"");err!=nil{
+     writeError(w,500,"cannot clean original annotation");return
+    }
+   }
+  }
+  if err:=s.store.SetSetting(firewallPendingKey(p.ID),"");err!=nil{
+   writeError(w,500,"could not clear pending external edit");return
+  }
+  s.firewallAudit("edit-external",p.ID)
+ case "add-drop","pause-allow","pause-drop":
+  if err:=s.store.SetSetting(firewallPendingKey(p.ID),"");err!=nil{writeError(w,500,"could not clear pending state");return}
+  s.firewallAudit(p.Kind,p.ID)
+ case "","remove-allow","remove-drop":
+  for _,prefix:=range []string{"firewall_owned:","firewall_note:","firewall_purpose:","firewall_pending:","firewall_paused:"}{
+   if err:=s.store.SetSetting(prefix+p.ID,"");err!=nil{writeError(w,500,"recovery cancelled but metadata cleanup failed");return}
+  }
+  s.firewallAudit("remove",p.ID)
+ default:
+  writeError(w,409,"unrecognized pending action");return
+ }
  writeJSON(w,200,map[string]bool{"ok":true})
 }
 func (s *Server) ensureNoPending(id string)error{

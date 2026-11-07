@@ -79,7 +79,6 @@ curl -fsS "$BASE/" >/dev/null
 echo "[selinux-vm] X-port systemd service healthy"
 curl -fsS -c /run/xport-ci.cookie -H 'Content-Type: application/json' \
  -d '{"username":"ci-admin","password":"selinux-ci-pass-12345"}' "$BASE/api/login" >/dev/null
-
 STAGE=web-firewall-read
 echo "[selinux-vm] Inspecting Web firewall read with full failure diagnostics"
 read_code="$(curl -sS -b /run/xport-ci.cookie -o /run/xport-firewall.json -w '%{http_code}' "$BASE/api/firewall")"
@@ -112,6 +111,15 @@ import json
 with open("/run/xport-firewall.json") as f:d=json.load(f)
 assert d["backend"]=="firewalld" and d["writable"] is True,d
 print("[selinux-vm] Web firewall read passed in Enforcing")
+PY
+STAGE=listener-protocol-snapshot
+/usr/local/bin/xport firewall-sockets >/run/xport-ci-sockets.json
+python3 - <<'PY'
+import json
+data=json.load(open("/run/xport-ci-sockets.json"))
+assert data.get("tcp/28612") is True, data
+assert not data.get("udp/28612",False), data
+print("[selinux-vm] TCP panel listener is recognized independently from UDP")
 PY
 STAGE=foreign-input-fail-closed
 echo "[selinux-vm] Verifying separate INPUT filter blocks Web writes without changing rules"
@@ -175,6 +183,150 @@ if [[ "$runtime_query" != no || "$permanent_query" != no ]]; then
  exit 1
 fi
 echo "[selinux-vm] Web rule removal confirmed"
+
+# Exercise the independent authenticated rule control endpoint while SELinux
+# remains Enforcing. None of these ports are used for remote administration.
+STAGE=web-policy-control
+control_request(){
+ local payload="$1" output="$2" expected="$3" code
+ code="$(curl -sS -b /run/xport-ci.cookie -H "Origin: $BASE" \
+  -H 'Content-Type: application/json' -o "$output" -w '%{http_code}' \
+  -d "$payload" "$BASE/api/firewall/control")"
+ if [[ "$code" != "$expected" ]]; then
+  echo "[selinux-vm] control HTTP $code, expected $expected"
+  cat "$output"; exit 1
+ fi
+}
+confirm_control(){
+ local pending="$1"
+ python3 - "$pending" <<'PY'
+import json,sys
+p=json.load(open(sys.argv[1]))
+assert p["pending"] and len(p["token"])==32,p
+json.dump({"id":p["id"],"token":p["token"]},open("/run/control-confirm.json","w"))
+PY
+ local code
+ code="$(curl -sS -b /run/xport-ci.cookie -H "Origin: $BASE" \
+  -H 'Content-Type: application/json' -o /run/control-confirm-result.json -w '%{http_code}' \
+  -d @/run/control-confirm.json "$BASE/api/firewall/rules/confirm")"
+ if [[ "$code" != 200 ]]; then cat /run/control-confirm-result.json; exit 1; fi
+}
+drop_id="firewalld:$ZONE:rich:53342/tcp:deny:both"
+allow_id="firewalld:$ZONE:53343/tcp"
+control_request "$(printf '{"action":"add-drop","id":"%s","port":53342,"protocol":"tcp","zone":"%s"}' "$drop_id" "$ZONE")" /run/control-drop-add.json 202
+firewall-cmd --zone="$ZONE" --list-rich-rules | grep -F 'port="53342"'
+firewall-cmd --permanent --zone="$ZONE" --list-rich-rules | grep -F 'port="53342"'
+confirm_control /run/control-drop-add.json
+curl -fsS -b /run/xport-ci.cookie "$BASE/api/firewall" >/run/control-drop-list.json
+echo "[selinux-vm] Pre-assert DROP snapshot comparison"
+python3 - <<'PY'
+import json
+d=json.load(open("/run/control-drop-list.json"))
+print("WEB_SNAPSHOT:",json.dumps({"backend":d.get("backend"),"writable":d.get("writable"),
+ "unsafeReason":d.get("unsafeReason"),"opaqueRichZones":d.get("opaqueRichZones"),
+ "rules":d.get("rules")},ensure_ascii=False)[:5000],flush=True)
+PY
+/usr/local/bin/xport firewall-inspect >/run/control-drop-root-snapshot.json || true
+python3 - <<'PY'
+import json
+try:
+ d=json.load(open("/run/control-drop-root-snapshot.json"))
+ print("ROOT_SNAPSHOT:",json.dumps({"backend":d.get("backend"),"writable":d.get("writable"),
+  "unsafeReason":d.get("unsafeReason"),"opaqueRichZones":d.get("opaqueRichZones"),
+  "rules":d.get("rules")},ensure_ascii=False)[:5000],flush=True)
+except Exception as exc:
+ print("ROOT_INSPECT_ERROR:",str(exc),flush=True)
+PY
+if ! python3 - <<'PY'
+import json
+d=json.load(open("/run/control-drop-list.json"))
+r=[r for r in d["rules"] if r["port"]==53342 and r["protocol"]=="tcp"]
+assert len(r)==1 and r[0]["action"]=="deny" and r[0]["managed"],r
+PY
+then
+ echo "[selinux-vm] DROP read mismatch: comparing authenticated API vs root helper and firewalld"
+ python3 - <<'PY'
+import json
+d=json.load(open("/run/control-drop-list.json"))
+print("WEB:",json.dumps({"backend":d.get("backend"),"writable":d.get("writable"),"unsafeReason":d.get("unsafeReason"),
+ "opaqueRichZones":d.get("opaqueRichZones"),"rules":d.get("rules")},ensure_ascii=False)[:5000])
+PY
+ /usr/local/bin/xport firewall-inspect > /run/control-drop-root-snapshot.json || true
+ python3 - <<'PY'
+import json
+try:
+ d=json.load(open("/run/control-drop-root-snapshot.json"))
+ print("ROOT:",json.dumps({"backend":d.get("backend"),"writable":d.get("writable"),"unsafeReason":d.get("unsafeReason"),
+  "opaqueRichZones":d.get("opaqueRichZones"),"rules":d.get("rules")},ensure_ascii=False)[:5000])
+except Exception as exc: print("ROOT ERROR:",str(exc))
+PY
+ firewall-cmd --zone="$ZONE" --list-rich-rules || true
+ firewall-cmd --permanent --zone="$ZONE" --list-rich-rules || true
+ exit 1
+fi
+control_request "$(printf '{"action":"pause-drop","id":"%s","port":53342,"protocol":"tcp","zone":"%s"}' "$drop_id" "$ZONE")" /run/control-drop-pause.json 202
+test -z "$(firewall-cmd --zone="$ZONE" --list-rich-rules | grep -F 'port="53342"' || true)"
+confirm_control /run/control-drop-pause.json
+curl -fsS -b /run/xport-ci.cookie "$BASE/api/firewall" >/run/control-drop-paused.json
+python3 - <<'PY'
+import json
+d=json.load(open("/run/control-drop-paused.json"))
+r=[r for r in d["rules"] if r["port"]==53342 and r["protocol"]=="tcp"]
+assert len(r)==1 and r[0]["paused"] and r[0]["managed"] and r[0]["action"]=="deny",r
+PY
+control_request "$(printf '{"action":"resume-drop","id":"%s","port":53342,"protocol":"tcp","zone":"%s"}' "$drop_id" "$ZONE")" /run/control-drop-resume.json 200
+firewall-cmd --zone="$ZONE" --list-rich-rules | grep -F 'port="53342"'
+control_request "$(printf '{"action":"remove-drop","id":"%s","port":53342,"protocol":"tcp","zone":"%s"}' "$drop_id" "$ZONE")" /run/control-drop-remove.json 202
+confirm_control /run/control-drop-remove.json
+test -z "$(firewall-cmd --zone="$ZONE" --list-rich-rules | grep -F 'port="53342"' || true)"
+
+payload="$(printf '{"action":"add","port":53343,"protocol":"tcp","zone":"%s"}' "$ZONE")"
+code="$(curl -sS -b /run/xport-ci.cookie -H "Origin: $BASE" -H 'Content-Type: application/json' \
+ -o /run/control-allow-add.json -w '%{http_code}' -d "$payload" "$BASE/api/firewall/rules")"
+test "$code" = 200
+control_request "$(printf '{"action":"pause-allow","id":"%s","port":53343,"protocol":"tcp","zone":"%s"}' "$allow_id" "$ZONE")" /run/control-allow-pause.json 202
+test "$(firewall-cmd --zone="$ZONE" --query-port=53343/tcp || true)" = no
+confirm_control /run/control-allow-pause.json
+curl -fsS -b /run/xport-ci.cookie "$BASE/api/firewall" >/run/control-allow-paused.json
+python3 - <<'PY'
+import json
+d=json.load(open("/run/control-allow-paused.json"))
+r=[r for r in d["rules"] if r["port"]==53343 and r["protocol"]=="tcp"]
+assert len(r)==1 and r[0]["paused"] and r[0]["action"]=="allow",r
+PY
+control_request "$(printf '{"action":"resume-allow","id":"%s","port":53343,"protocol":"tcp","zone":"%s"}' "$allow_id" "$ZONE")" /run/control-allow-resume.json 200
+test "$(firewall-cmd --zone="$ZONE" --query-port=53343/tcp || true)" = yes
+test "$(firewall-cmd --permanent --zone="$ZONE" --query-port=53343/tcp || true)" = yes
+control_request "$(printf '{"action":"pause-allow","id":"%s","port":22,"protocol":"tcp","zone":"%s"}' "$allow_id" "$ZONE")" /run/control-protected.json 409
+echo "[selinux-vm] DROP creation, pause/resume, removal and allow pause/resume passed"
+
+# Confirm the DROP-add watchdog really runs without any X-port binary.
+# Only the standalone SELinux VM performs this additional full timer.
+if [[ ! -f /run/xport-ci-seed/panel-test.sh ]]; then
+ STAGE=drop-recovery-without-panel-binary
+ timeout_id="firewalld:$ZONE:rich:53344/tcp:deny:both"
+ control_request "$(printf '{"action":"add-drop","id":"%s","port":53344,"protocol":"tcp","zone":"%s"}' "$timeout_id" "$ZONE")" /run/control-drop-timeout.json 202
+ test -n "$(firewall-cmd --zone="$ZONE" --list-rich-rules | grep -F 'port="53344"')"
+ mv /usr/local/bin/xport /usr/local/bin/xport.drop-timer
+ restored=0
+ # systemd targets 120s. Under KVM/CI load the native firewalld D-Bus
+ # command can finish later; observe real runtime+permanent state with a
+ # bounded grace period rather than declaring failure while service runs.
+ for i in $(seq 1 185); do
+  if [[ -z "$(firewall-cmd --zone="$ZONE" --list-rich-rules | grep -F 'port="53344"' || true)" ]] &&
+     [[ -z "$(firewall-cmd --permanent --zone="$ZONE" --list-rich-rules | grep -F 'port="53344"' || true)" ]]; then
+   restored=1; break
+  fi
+  sleep 1
+ done
+ mv /usr/local/bin/xport.drop-timer /usr/local/bin/xport
+ if [[ "$restored" != 1 ]]; then
+  echo "[selinux-vm] Native DROP watchdog failed to remove unconfirmed rule"
+  exit 1
+ fi
+ echo "[selinux-vm] Real 120-second DROP watchdog removed rule while panel binary was absent"
+fi
+
 # Validate an actual 120-second Web recovery while the panel binary
 # is temporarily absent. Run once in the standalone SELinux guest, not the
 # second VM which also installs 1Panel.
@@ -194,19 +346,29 @@ if [[ ! -f /run/xport-ci-seed/panel-test.sh ]]; then
  [[ "$code" == 202 ]] || { cat /run/timer-remove.json; exit 1; }
  test "$(firewall-cmd --zone="$ZONE" --query-port="$restore_port"/tcp || true)" = no
  test "$(firewall-cmd --permanent --zone="$ZONE" --query-port="$restore_port"/tcp || true)" = no
- timer_unit="$(python3 -c 'import json; print(json.load(open("/run/timer-remove.json"))["id"])')"
- # The precise timer unit is intentionally not a public Web API field.
- # Read it from the authenticated panel's pending state within the VM.
- python3 - <<'PY'
-import json
-with open('/run/timer-remove.json') as f: d=json.load(f)
-assert d['pending'] and len(d['token']) == 32
+ # Verify the native systemd timer itself is precise; systemd defaults to
+ # AccuracySec=1min and can defer a promised 120-second restore.
+ curl -fsS -b /run/xport-ci.cookie "$BASE/api/firewall" >/run/timer-pending.json
+ timer_unit="$(python3 - "$ZONE" <<'PY'
+import json,sys
+pending=json.load(open('/run/timer-pending.json')).get('pending') or []
+matches=[p for p in pending if p.get('id')==f'firewalld:{sys.argv[1]}:53334/tcp']
+assert len(matches)==1 and matches[0].get('unit','').startswith('xport-fw-restore-'),matches
+print(matches[0]['unit'])
 PY
+ )"
+ timer_accuracy="$(systemctl show "$timer_unit.timer" --property=AccuracyUSec --value)"
+ if [[ "$timer_accuracy" != "1s" ]]; then
+  echo "[selinux-vm] Recovery timer precision unexpected: $timer_accuracy"
+  exit 1
+ fi
+ echo "[selinux-vm] Recovery timer accuracy is 1 second"
  echo "[selinux-vm] Recovery timers immediately after scheduling:"
  systemctl list-timers --all --no-pager 'xport-fw-restore-*' || true
  mv /usr/local/bin/xport /usr/local/bin/xport.timer-test
  restored=0
- for i in $(seq 1 135); do
+ # Use the same bounded completion grace for the legacy allow timer.
+ for i in $(seq 1 185); do
   runtime="$(firewall-cmd --zone="$ZONE" --query-port="$restore_port"/tcp || true)"
   if [[ "$runtime" == yes ]]; then
    permanent="$(firewall-cmd --permanent --zone="$ZONE" --query-port="$restore_port"/tcp || true)"
