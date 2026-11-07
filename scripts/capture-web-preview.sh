@@ -260,6 +260,19 @@ capture firewall-desktop firewall
 capture firewall-light firewall-light
 capture firewall-long-ipv6 firewall-long-ipv6
 capture firewall-long-ipv6-light firewall-long-ipv6-light
+# Screenshots can be written even if injected preview assertions fail;
+# require the Chromium DOM success sentinel for both long-address themes.
+for preview in firewall-long-ipv6 firewall-long-ipv6-light; do
+  "$BROWSER" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage \
+    --window-size=1440,1000 --force-device-scale-factor=1 --virtual-time-budget=6500 \
+    --dump-dom "http://127.0.0.1:$PORT/?preview=$preview" \
+    >"$TMP/$preview-dom.html" 2>"$TMP/$preview-dom.log"
+  if ! grep -Fq "data-preview-ready=\"$preview\"" "$TMP/$preview-dom.html"; then
+    grep -o 'data-preview-error="[^"]*"' "$TMP/$preview-dom.html" || true
+    echo "Long IPv6 preview failed: $preview" >&2
+    exit 1
+  fi
+done
 capture firewall-detail-light firewall-detail-light
 capture firewall-editor-light firewall-editor-light
 capture firewall-create-light firewall-create-light
@@ -277,6 +290,15 @@ capture firewall-create-light firewall-create-light
   echo "Long IPv6 mobile screenshot missing" >&2
   exit 1
 }
+"$BROWSER" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage \
+  --window-size=390,844 --force-device-scale-factor=1 --virtual-time-budget=6500 \
+  --dump-dom "http://127.0.0.1:$PORT/?preview=firewall-long-ipv6" \
+  >"$TMP/firewall-long-ipv6-mobile.html" 2>"$TMP/firewall-long-ipv6-mobile-dom.log"
+if ! grep -Fq 'data-preview-ready="firewall-long-ipv6"' "$TMP/firewall-long-ipv6-mobile.html"; then
+  grep -o 'data-preview-error="[^"]*"' "$TMP/firewall-long-ipv6-mobile.html" || true
+  echo "Long IPv6 mobile layout test failed" >&2
+  exit 1
+fi
 # A screenshot alone cannot detect horizontal overflow or failed JS.
 "$BROWSER" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage \
   --window-size=390,844 --force-device-scale-factor=1 --virtual-time-budget=6500 \
