@@ -76,9 +76,12 @@ cat > "$TMP/__mock.js" <<'JS'
       notice:'预览：简单端口规则展示；底层链可能影响结果',rules:[
         {id:'firewalld:public:22/tcp',port:22,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'SSH（常见端口，未核实）',purposeSource:'assumed',note:'远程管理',protected:true,xray:false},
         {id:'firewalld:public:443/tcp',port:443,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'HTTPS',purposeSource:'manual',note:'网站入口',protected:false,xray:false,kind:'port',action:'allow',managed:false,revision:'111122223333444455556666'},
-        {id:'firewalld:public:2053/tcp',port:2053,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'Xray · VLESS',purposeSource:'xray',note:fwNote,protected:false,managed:true,xray:true,usage:'used',action:'allow',kind:'port',canToggle:true,accountId:1,accountName:'Alpha inbound',accountEnabled:true},
+        {id:'firewalld:public:2053/tcp',port:2053,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'Xray · VLESS',purposeSource:'xray',note:fwNote,protected:false,managed:true,xray:true,usage:'used',usageDetails:[{port:2053,protocol:'tcp',pid:1242,name:'xray'}],action:'allow',kind:'port',canToggle:true,accountId:1,accountName:'Alpha inbound',accountEnabled:true},
         {id:'firewalld:public:8443/tcp',port:8443,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:false,access:'区域：public',purpose:'Xray · Trojan',purposeSource:'xray',note:'临时放行，需同步',protected:false,xray:true},
-        {id:'firewalld:public:51820/udp',port:51820,protocol:'udp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'未识别',purposeSource:'unknown',note:'WireGuard 站点互联',protected:false,xray:false,usage:'unused',action:'deny'}
+        {id:'firewalld:public:51820/udp',port:51820,protocol:'udp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'未识别',purposeSource:'unknown',note:'WireGuard 站点互联',protected:false,xray:false,usage:'unused',action:'deny'},
+        {id:'firewalld:public:22022/tcp',port:22022,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'SSH · 管理端口',purposeSource:'ssh',note:'',protected:true,xray:false,usage:'used',usageDetails:[{port:22022,protocol:'tcp',pid:29635,name:'sshd'}],action:'allow',kind:'port',canToggle:false},
+        {id:'firewalld:public:39000-40000/tcp',port:0,rangeStart:39000,rangeEnd:40000,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'FTP 被动模式 · Pure-FTPd（配置匹配）',purposeSource:'ftp-config',note:'',protected:true,xray:false,usage:'unused',action:'allow',kind:'port',canToggle:false},
+        {id:'firewalld:public:8444/tcp',port:8444,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'未识别',purposeSource:'unknown',note:'',protected:true,xray:false,usage:'used',usageDetails:[{port:8444,protocol:'tcp',name:'web-svc',container:true}],action:'allow',kind:'port',canToggle:false}
       ]})
     if (path === '/api/firewall/notes' && method === 'PUT') {
       fwNote = JSON.parse(init.body).note
@@ -269,6 +272,12 @@ cat > "$TMP/__driver.js" <<'JS'
       if(!accountLink||!accountLink.textContent.includes('Alpha inbound')) throw new Error('Xray account linkage is not visible')
       const accountRow=accountLink.closest('tr')
       if(!accountRow.querySelector('.fw-usage.used')||!accountRow.querySelector('.fw-policy.allow')) throw new Error('account usage or allow badge missing')
+      const sshRow=document.querySelector('#fw-rows button[data-fw-act="detail"][data-fw-id="firewalld:public:22022/tcp"]')?.closest('tr')
+      if(!sshRow?.textContent.includes('sshd')||!sshRow?.querySelector('button.fw-switch[disabled]')) throw new Error('nonstandard SSH process or protected state missing')
+      const ftpRow=document.querySelector('#fw-rows button[data-fw-act="detail"][data-fw-id="firewalld:public:39000-40000/tcp"]')?.closest('tr')
+      if(!ftpRow?.textContent.includes('39000–40000')||!ftpRow?.textContent.includes('FTP 被动模式')||!ftpRow?.querySelector('button.fw-switch[disabled]')) throw new Error('read-only passive FTP range missing')
+      const dockerRow=document.querySelector('#fw-rows button[data-fw-act="detail"][data-fw-id="firewalld:public:8444/tcp"]')?.closest('tr')
+      if(!dockerRow?.textContent.includes('Docker: web-svc')) throw new Error('Docker published port association missing')
       const denyRow=document.querySelector('#fw-rows button[data-fw-act="detail"][data-fw-id="firewalld:public:51820/udp"]')?.closest('tr')
       if(!denyRow?.querySelector('.fw-policy.deny')) throw new Error('deny strategy is not visible')
       const toggle=accountRow.querySelector('button.fw-switch')
@@ -285,9 +294,10 @@ cat > "$TMP/__driver.js" <<'JS'
       if(!detailButton) throw new Error('firewall detail action missing')
       detailButton.click()
       const detail=await waitFor('#fw-detail-dialog[open]')
-      if(detail.querySelectorAll('.fw-detail-section').length!==3) throw new Error('firewall detail groups missing')
+      if(detail.querySelectorAll('.fw-detail-section').length!==4) throw new Error('firewall detail groups missing')
       if(detail.getBoundingClientRect().width < 440 && innerWidth > 700) throw new Error('firewall detail dialog is too narrow')
       if(!detail.querySelector('.fw-detail-summary')?.textContent.includes('X-port')) throw new Error('detail summary missing')
+      if(!detail.textContent.includes('xray')||!detail.textContent.includes('1242'))throw new Error('process/PID details missing')
       detail.querySelector('button[value="cancel"]').click()
 
       const oldTheme=document.documentElement.dataset.theme
