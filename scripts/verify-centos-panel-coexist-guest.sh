@@ -189,7 +189,9 @@ firewall-cmd --zone="$ZONE" --query-port=19182/tcp | grep -Fxq yes
 # still must not depend on the X-port executable.
 mv /usr/local/bin/xport /usr/local/bin/xport.external-watchdog
 restored=0
-for i in $(seq 1 140); do
+# Allow systemd and firewalld to complete the actual 120s watchdog under
+# loaded KVM scheduling; both old and new runtime+permanent states are required.
+for i in $(seq 1 185); do
  old_rt="$(firewall-cmd --zone="$ZONE" --query-port=19181/tcp || true)"
  old_pm="$(firewall-cmd --permanent --zone="$ZONE" --query-port=19181/tcp || true)"
  new_rt="$(firewall-cmd --zone="$ZONE" --query-port=19182/tcp || true)"
