@@ -14,6 +14,22 @@
   function status(r) { return r.pausedDrift?'状态冲突':r.paused?'已暂停':r.runtime !== r.permanent ? '需检查' : (r.runtime ? '已配置' : '未生效') }
   function stateBadge(r) { return '<span class="fw-state '+(r.runtime !== r.permanent ? 'warn' : '')+'">'+status(r)+'</span>' }
   function portText(r){return r.rangeStart && r.rangeEnd ? r.rangeStart+'–'+r.rangeEnd : String(r.port)}
+  function addressFamily(r) {
+    if(r.family==='ipv4'||r.family==='ipv6')return r.family
+    if(r.backend==='ufw'&&r.ipv4&&!r.ipv6)return 'ipv4'
+    if(r.backend==='ufw'&&r.ipv6&&!r.ipv4)return 'ipv6'
+    return 'both'
+  }
+  function addressText(r){
+    const family=addressFamily(r)
+    return family==='ipv4'?'0.0.0.0/0':family==='ipv6'?'::/0':'0.0.0.0/0, ::/0'
+  }
+  function ipCell(r){
+    const family=addressFamily(r)
+    const ips=family==='ipv4'?['0.0.0.0/0']:family==='ipv6'?['::/0']:['0.0.0.0/0','::/0']
+    return '<div class="fw-ip-cell" title="允许的来源地址段；不代表本机绑定 IP">'+
+      ips.map(ip=>'<span>'+html(ip)+'</span>').join('')+'</div>'
+  }
   function usageDescription(d){return d.container ? 'Docker: '+(d.name||'容器')+' ('+d.port+')' :
     (d.name || '进程未识别')+(d.pid ? ' ('+d.pid+')':'')+' · '+d.port+'/'+d.protocol}
   function usageBadge(r) {
@@ -71,7 +87,7 @@
       if (state.filter === 'xray' && !r.xray) return false
       if (state.filter === 'warn' && !needsCheck(r)) return false
       const term = state.term.toLowerCase().trim()
-      return !term || [r.port,r.rangeStart,r.rangeEnd,r.protocol,r.purpose,r.accountName,r.note,r.zone,r.access,r.backend,r.usage,
+      return !term || [r.port,r.rangeStart,r.rangeEnd,r.protocol,addressText(r),r.family,r.purpose,r.accountName,r.note,r.zone,r.access,r.backend,r.usage,
         ...(r.usageDetails||[]).map(d=>d.name)].join(' ').toLowerCase().includes(term)
     })
   }
@@ -115,6 +131,7 @@
     el('fw-count').textContent = '显示 '+filtered.length+' / '+rules().length+' 条规则；备注与用途保存在 X-port 数据库中'
     el('fw-rows').innerHTML = filtered.length ? filtered.map(r => '<tr>'+
       '<td data-label="端口 / 协议"><div class="fw-port-cell"><strong>'+html(portText(r))+'</strong><small>/ '+html(r.protocol.toUpperCase())+'</small></div></td>'+
+      '<td data-label="IP / 地址族">'+ipCell(r)+'</td>'+
       '<td data-label="关联账号 / 用途">'+accountCell(r)+'</td>'+
       '<td data-label="使用情况">'+usageBadge(r)+'</td>'+
       '<td data-label="策略">'+policyBadge(r)+'</td>'+
@@ -122,7 +139,7 @@
       '<td data-label="规则生效"><div class="fw-toggle-cell">'+ruleToggle(r)+'</div></td>'+
       '<td data-label="备注">'+fieldButton(r,'note')+'</td>'+
       '<td data-label="操作"><div class="fw-actions"><button class="btn fw-mini ghost" data-fw-act="configure" data-fw-id="'+html(r.id)+'">编辑</button><button class="btn fw-mini ghost" data-fw-act="detail" data-fw-id="'+html(r.id)+'">详情</button></div></td>'+
-      '</tr>').join('') : '<tr><td colspan="8" class="muted">暂无匹配的规则。</td></tr>'
+      '</tr>').join('') : '<tr><td colspan="9" class="muted">暂无匹配的规则。</td></tr>'
     el('fw-xray-list').innerHTML = rules().filter(r=>r.xray).map(r => '<div class="fw-xray-line"><div><b>'+html(label(r))+'</b><small class="fw-sub">'+html(r.port)+' / '+html(r.protocol.toUpperCase())+' · '+html(source(r))+'</small></div>'+stateBadge(r)+'</div>').join('') || '<p class="fw-note">目前没有匹配到 Xray 账号的简单端口规则。</p>'
     if (state.editing) { const input = root.querySelector('.fw-edit-input'); if (input) {input.focus(); input.select()} }
   }
@@ -177,7 +194,7 @@
       ? '由 X-port 创建的端口规则；修改前仍需检查服务和网络连通性。'
       : '由系统或其他管理器维护。可修改用途和备注，删除操作保留在原管理器中。'
     const groups=[
-      ['基本信息',[['用途',label(r)],['关联账号',r.accountAmbiguous?'多个候选，无法唯一定位':(r.accountName||'无关联')],['监听状态',r.usage==='used'?'检测到相关监听或发布端口':r.usage==='unused'?'未检测到同协议监听':'无法确认'],['备注',r.note||'未填写'],['规则来源',source(r)],['访问来源',r.access||'未确认']]],
+      ['基本信息',[['用途',label(r)],['来源 IP',addressText(r)],['关联账号',r.accountAmbiguous?'多个候选，无法唯一定位':(r.accountName||'无关联')],['监听状态',r.usage==='used'?'检测到相关监听或发布端口':r.usage==='unused'?'未检测到同协议监听':'无法确认'],['备注',r.note||'未填写'],['规则来源',source(r)],['访问来源',r.access||'未确认']]],
       ['规则状态',[['策略',policy(r)==='deny'?'拒绝 · DROP':policy(r)==='reject'?'拒绝 · REJECT':policy(r)==='conflict'?'存在重叠策略':policy(r)==='allow'?'允许':'需检查'],['运行时',r.runtime?'已配置':'不存在'],['永久配置',r.permanent?'已配置':'不存在'],['地址族',r.family==='both'?'IPv4 + IPv6':r.family==='ipv4'?'IPv4':r.family==='ipv6'?'IPv6':r.backend==='ufw'?(r.ipv4?'IPv4 ':'')+(r.ipv6?'IPv6':''):'由 firewalld Zone 决定']]],
       ['关联进程与容器',[['已识别',(r.usageDetails||[]).map(usageDescription).join('；')||'暂无'],['其他关联',r.usageOverflow ? '另外 '+r.usageOverflow+' 条' : '无'],['端口范围',r.rangeStart ? portText(r)+'/'+r.protocol : '单端口']]],
       ['安全保护',[['规则归属',r.managed?'X-port 管理':'外部或未知（不可删除）'],['端口保护',r.protected?'已启用':'未检测到本机监听']]]

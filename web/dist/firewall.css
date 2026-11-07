@@ -323,3 +323,37 @@ html[data-theme="light"] #fw-policy-dialog .fw-external-confirm{
 #page-firewall .fw-port-cell strong{overflow-wrap:anywhere}
 html[data-theme="light"] #page-firewall .fw-usage-link{background:transparent;color:#168058}
 @media(max-width:700px){#page-firewall .fw-usage-owner{max-width:min(150px,38vw)}}
+
+/* A visible source-address column distinguishes IPv4 and IPv6 rules.
+   Keep labels readable, and put notes/actions on their own mobile rows. */
+#page-firewall .fw-ip-cell{display:grid;gap:3px;min-width:0;font-variant-numeric:tabular-nums}
+#page-firewall .fw-ip-cell span{display:block;font-size:12px;font-weight:600;line-height:1.35;
+ white-space:nowrap;color:#aac9e4}
+html[data-theme="light"] #page-firewall .fw-ip-cell span{color:#365c7d}
+@media(min-width:701px){
+ #page-firewall .fw-table{min-width:1050px}
+ #page-firewall .fw-table th:nth-child(1){width:10%}
+ #page-firewall .fw-table th:nth-child(2){width:12%}
+ #page-firewall .fw-table th:nth-child(3){width:17%}
+ #page-firewall .fw-table th:nth-child(4){width:12%}
+ #page-firewall .fw-table th:nth-child(5){width:9%}
+ #page-firewall .fw-table th:nth-child(6){width:9%}
+ #page-firewall .fw-table th:nth-child(7){width:10%}
+ #page-firewall .fw-table th:nth-child(8){width:9%}
+ #page-firewall .fw-table th:nth-child(9){width:12%}
+ #page-firewall .fw-table td:nth-child(5){overflow:visible}
+ #page-firewall .fw-table td:nth-child(6){overflow:hidden}
+}
+@media(max-width:700px){
+ #page-firewall .fw-table td:nth-child(7){grid-column:auto;border-top:0;padding-top:0}
+ #page-firewall .fw-table td:nth-child(8){grid-column:1/-1;border-top:1px solid var(--line);padding-top:10px}
+ #page-firewall .fw-table td:nth-child(9){grid-column:1/-1;text-align:right}
+ #page-firewall .fw-ip-cell span{font-size:12px}
+}
+
+/* The medium viewport intentionally scrolls only the table, not the page. */
+#page-firewall .fw-scroll-hint{display:none;margin:0 0 7px;color:var(--muted);
+ font-size:12px;line-height:1.4}
+@media(min-width:701px) and (max-width:1210px){
+ #page-firewall .fw-scroll-hint{display:block}
+}

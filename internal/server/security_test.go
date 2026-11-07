@@ -8,8 +8,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Kerberos255/X-port/internal/service"
+ "github.com/Kerberos255/X-port/internal/buildinfo"
 	"github.com/Kerberos255/X-port/internal/store"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -85,4 +87,66 @@ func TestForwardedHeadersIgnoredFromUntrustedPeer(t *testing.T) {
 	if got := s.requestScheme(req); got != "http" {
 		t.Fatalf("scheme trusted spoofed header: %q", got)
 	}
+}
+
+func TestVersionProbeAuthenticatedAndPendingGuard(t *testing.T){
+ s,h:=newSecurityTestServer(t)
+ request:=func(path string,cookie *http.Cookie)(int,map[string]any,string){
+  req:=httptest.NewRequest(http.MethodGet,"http://panel"+path,nil)
+  if cookie!=nil{req.AddCookie(cookie)}
+  rr:=httptest.NewRecorder();h.ServeHTTP(rr,req)
+  var out map[string]any
+  _=json.Unmarshal(rr.Body.Bytes(),&out)
+  return rr.Code,out,rr.Header().Get("Cache-Control")
+ }
+ // Session storage is process-local. The public version alone must still
+ // be readable after restart, without disclosing live firewall state.
+ code,v,cache:=request("/api/xport/version",nil)
+ if code!=200||v["version"]!=buildinfo.Current||len(v)!=1||!strings.Contains(cache,"no-store"){
+  t.Fatalf("public version=%d %v cache=%q",code,v,cache)
+ }
+ if code,_,_:=request("/api/xport/update-state",nil);code!=http.StatusUnauthorized{
+  t.Fatalf("pending-state endpoint must require login: %d",code)
+ }
+ cookie:=loginSecurityTest(t,h)
+ state:=func() map[string]any{
+  code,result,cache:=request("/api/xport/update-state",cookie)
+  if code!=200||!strings.Contains(cache,"no-store")||len(result)!=1{
+   t.Fatalf("guard=%d %v cache=%q",code,result,cache)
+  }
+  return result
+ }
+ if result:=state();result["firewallPending"]!=false{t.Fatalf("initial pending: %v",result)}
+ if err:=s.store.SetSetting("firewall_pending:test","unparseable-but-still-pending");err!=nil{t.Fatal(err)}
+ if result:=state();result["firewallPending"]!=true{t.Fatalf("invalid metadata must fail closed: %v",result)}
+ if err:=s.store.SetSetting("firewall_pending:test","");err!=nil{t.Fatal(err)}
+ if result:=state();result["firewallPending"]!=false{t.Fatalf("pending must clear: %v",result)}
+ future,_:=json.Marshal(firewallPending{ID:"test",Unit:"xport-ci.timer",Deadline:time.Now().Add(60*time.Second).UnixMilli()})
+ if err:=s.store.SetSetting("firewall_pending:test",string(future));err!=nil{t.Fatal(err)}
+ if result:=state();result["firewallPending"]!=true{t.Fatalf("active recovery blocks update: %v",result)}
+ expired,_:=json.Marshal(firewallPending{ID:"test",Unit:"xport-ci.timer",Deadline:time.Now().Add(-3*time.Minute).UnixMilli()})
+ if err:=s.store.SetSetting("firewall_pending:test",string(expired));err!=nil{t.Fatal(err)}
+ if result:=state();result["firewallPending"]!=false{t.Fatalf("old recovery metadata must expire: %v",result)}
+ // Even a logged-out client sees only the version, never pending metadata.
+ code,v,_=request("/api/xport/version",nil)
+ if code!=200||len(v)!=1||v["version"]!=buildinfo.Current{t.Fatalf("state leaked in public version: %v",v)}
+}
+
+func TestUpdatePanelRejectsPendingWithoutStaging(t *testing.T){
+ s,h:=newSecurityTestServer(t)
+ s.panelService="xport.service"
+ raw,_:=json.Marshal(firewallPending{ID:"firewalld:public:test",Unit:"xport-test.timer",
+  Deadline:time.Now().Add(2*time.Minute).UnixMilli()})
+ if err:=s.store.SetSetting("firewall_pending:test",string(raw));err!=nil{t.Fatal(err)}
+ cookie:=loginSecurityTest(t,h)
+ request:=httptest.NewRequest(http.MethodPost,"http://panel/api/xport/update",
+  strings.NewReader("{}"))
+ request.AddCookie(cookie)
+ request.Header.Set("Origin","http://panel")
+ request.Header.Set("Content-Type","application/json")
+ rec:=httptest.NewRecorder()
+ h.ServeHTTP(rec,request)
+ if rec.Code!=http.StatusConflict||!strings.Contains(rec.Body.String(),"firewall"){
+  t.Fatalf("pending firewall must reject update before Stage: %d %s",rec.Code,rec.Body.String())
+ }
 }

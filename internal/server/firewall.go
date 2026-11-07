@@ -207,7 +207,11 @@ func (s *Server) firewallRead(w http.ResponseWriter,r *http.Request){
   }
   if socketError==nil&&len(details)>0{usage="used"}
   if usage=="unused"&&(discoveryErr!=nil||discovery.DockerUncertain){usage="unknown"}
-  if !xray&&(rr.Port==22||ssh){purpose="SSH · 管理端口";source="ssh"}
+  if !xray&&ssh{
+   if usage=="used"{purpose="SSH · 管理端口";source="ssh"}else{
+    purpose="SSH · 已配置（未监听）";source="ssh-config"
+   }
+  }
   if rr.IsRange(){
    for _,ftp:=range discovery.FTPRanges{
     if rr.Protocol==ftp.Protocol&&rr.RangeStart==ftp.Start&&rr.RangeEnd==ftp.End{

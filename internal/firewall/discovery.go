@@ -140,8 +140,9 @@ func SSHProtection(ctx context.Context,processes []ListeningProcess)([]int,bool)
    p,_:=strconv.Atoi(m[1]);if ValidRule(p,"tcp"){ports[p]=true}
   }
  }
- // Default SSH remains protected even if no SSH daemon is installed.
- ports[22]=true
+ // Do not invent an SSH listener on port 22. The firewall layer
+ // independently reserves 22 as a conservative safety guard, while the
+ // inventory only labels ports supported by real configuration or sockets.
  return sortedPortKeys(ports),uncertain
 }
 func parseFTPRange(raw,protocol,service string)(ConfiguredRange,bool){
