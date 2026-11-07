@@ -76,3 +76,56 @@ html[data-theme="light"] .operation-confirm-actions .btn.danger{color:#a62e46;ba
  .operation-spinner{flex-basis:40px;width:40px;height:40px;border-width:3px}
  #operation-progress-title{font-size:17px}
 }
+
+/* One visual language: centered nonblocking notices, blocking progress for writes. */
+#toast.toast:not(.hidden){
+ position:fixed;top:50%;left:50%;right:auto;bottom:auto;
+ transform:translate(-50%,-50%);min-width:min(340px,calc(100vw - 32px));
+ width:max-content;max-width:min(470px,calc(100vw - 32px));
+ box-sizing:border-box;display:flex;gap:15px;align-items:center;
+ padding:19px 21px;border:1px solid rgba(128,176,218,.35);
+ border-radius:17px;background:linear-gradient(145deg,#162237,#0d1625);
+ color:#e9f4ff;box-shadow:0 24px 72px rgba(0,0,0,.38);
+ font-size:14px;font-weight:550;line-height:1.55;
+ z-index:100;pointer-events:none;
+}
+#toast.toast.bad:not(.hidden){
+ background:linear-gradient(145deg,#32202b,#221823);
+ color:#ffe1e4;border-color:rgba(235,127,141,.47);
+}
+#toast.toast .toast-icon{
+ width:34px;height:34px;flex:0 0 34px;
+ font-size:17px;color:#79e2c4;background:rgba(98,220,168,.12);
+}
+#toast.toast.bad .toast-icon{color:#ffb0bd;background:rgba(238,124,137,.14)}
+#toast.toast .toast-message{font-size:14px;line-height:1.55;min-width:0;overflow-wrap:anywhere}
+html[data-theme="light"] #toast.toast:not(.hidden){
+ background:linear-gradient(145deg,#fff,#f4f9ff);
+ color:#25415c;border-color:#b9cfe3;
+ box-shadow:0 24px 70px rgba(21,53,90,.23);
+}
+html[data-theme="light"] #toast.toast.bad:not(.hidden){
+ background:linear-gradient(145deg,#fff8f9,#fff0f2);
+ color:#922d40;border-color:#e5aeb9;
+}
+html[data-theme="light"] #toast.toast .toast-icon{color:#166d58;background:#e1f5ef}
+html[data-theme="light"] #toast.toast.bad .toast-icon{color:#a92c45;background:#ffdde5}
+#operation-progress,#operation-confirm{outline:none}
+html[data-theme="light"] #operation-progress::backdrop,
+html[data-theme="light"] #operation-confirm::backdrop{
+ background:rgba(23,42,67,.42);backdrop-filter:blur(5px);
+}
+.operation-confirm-input{
+ display:block;width:100%;box-sizing:border-box;margin-top:16px;
+ border:1px solid rgba(128,176,218,.35);background:#0c1727;
+ border-radius:9px;padding:11px 12px;color:#e9f4ff;
+ font:inherit;font-size:14px;outline-offset:2px;
+}
+html[data-theme="light"] .operation-confirm-input{
+ color:#25415c;background:#fff;border-color:#b9cfe3;
+}
+@media(max-width:700px){
+ #toast.toast:not(.hidden){width:calc(100vw - 28px);min-width:0;padding:17px 18px;gap:12px}
+ #toast.toast .toast-icon{width:30px;height:30px;flex-basis:30px;font-size:15px}
+ #toast.toast .toast-message{font-size:13px}
+}
