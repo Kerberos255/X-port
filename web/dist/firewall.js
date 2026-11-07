@@ -180,10 +180,13 @@
     if (edit.key==='note' && ([...value].length>120 || new TextEncoder().encode(value).length>360)) return toast('备注最多 120 字',true)
     if (edit.key==='purpose' && ([...value].length>60 || new TextEncoder().encode(value).length>180)) return toast('用途最多 60 字',true)
     try {
-      await request('/api/firewall/'+endpoint,'PUT',{id:edit.id,[edit.key]:value})
-      state.editing=null
+      await applyRule(edit.key==='note'?'正在保存规则备注':'正在更新规则用途','规则信息 · '+edit.id,
+        async()=>{
+          const result=await request('/api/firewall/'+endpoint,'PUT',{id:edit.id,[edit.key]:value})
+          state.editing=null
+          return result
+        })
       toast('保存成功')
-      await refresh()
     } catch(err) {toast(err.message,true)}
   }
   function openDetail(id) {
