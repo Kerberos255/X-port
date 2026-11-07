@@ -13,6 +13,6 @@ html[data-theme="light"] .xport-version-banner{background:#f7fbff;border-color:#
  box-shadow:0 15px 40px rgba(41,66,99,.19)}
 html[data-theme="light"] .xport-version-copy small{color:#486781}
 @media(max-width:700px){
- .xport-version-banner{right:10px;left:10px;bottom:10px;width:auto;padding:12px;gap:10px}
+ .xport-version-banner{right:10px;left:10px;bottom:calc(78px + env(safe-area-inset-bottom,0px));width:auto;padding:12px;gap:10px}
  .xport-version-banner .btn{min-width:90px}
 }
