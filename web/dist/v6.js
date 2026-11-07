@@ -85,12 +85,19 @@ openAccountModalV3=async function(a=null){
   const expertData=(details?.dataset.loaded==='1'&&details._expertData)?expertBodyFromFormV3(details._expertData):null
   const b=f.querySelector('button[type=submit]');b.disabled=true;b.textContent='应用中…';const before=new Set(state.accounts.map(x=>Number(x.id)))
   try{
+   await XportOperation.run({
+    title:full.id?'正在保存账号':'正在创建账号',
+    detail:(body.name||'账号')+' · '+(body.port||'自动端口')+' / '+String(p).toUpperCase(),
+    perform:async()=>{
    const result=await mutationWithRecoveryV3(()=>full.id?api(`/api/accounts/${full.id}`,{method:'PUT',body:JSON.stringify(body)}):api('/api/accounts',{method:'POST',body:JSON.stringify(body)}),async()=>{if(full.id){const cur=await api(`/api/accounts/${full.id}`);return cur.name===body.name&&Number(cur.port)===(body.port||Number(cur.port))}const d=await api('/api/accounts');return(d.accounts||[]).some(x=>!before.has(Number(x.id))&&x.name===body.name)})
    let savedID=Number(full.id||result.value?.id||0)
    if(!savedID&&!full.id){const d=await api('/api/accounts');const created=(d.accounts||[]).find(x=>!before.has(Number(x.id))&&x.name===body.name);savedID=Number(created?.id||0)}
    if(expertData&&savedID)await mutationWithRecoveryV3(()=>api(`/api/accounts/${savedID}/expert`,{method:'PUT',body:JSON.stringify(expertData)}),async()=>Boolean(await api(`/api/accounts/${savedID}/expert`)))
-   closeModal();await loadAccounts();await loadOverview();await loadOnlineConnectionsV3(false);toast(full.id?'账号已更新':'账号已创建')
-  }catch(x){toast(x.message,true);b.disabled=false;b.textContent=full.id?'保存并应用':'创建并应用'}
+    },
+    verify:()=>XportOperation.refreshAccounts()
+   })
+   closeModal();await loadOnlineConnectionsV3(false);toast(full.id?'账号已更新':'账号已创建')
+  }catch(x){toast(x.message,true);if(!x.applied){b.disabled=false;b.textContent=full.id?'保存并应用':'创建并应用'}}
  }
 }
 openAccountModal=openAccountModalV3
