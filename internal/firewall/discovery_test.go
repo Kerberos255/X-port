@@ -99,3 +99,22 @@ func TestPortRangesRemainReadOnly(t *testing.T){
  markRuleConflicts(a)
  if !a[0].Conflict||!a[1].Conflict||a[2].Conflict{t.Fatalf("range overlap classification: %+v",a)}
 }
+
+func TestDockerPublishedMappings(t *testing.T){
+ jsonLine:=`/web {"80/tcp":[{"HostIp":"0.0.0.0","HostPort":"18080"},{"HostIp":"::","HostPort":"18080"}],"53/udp":[{"HostIp":"0.0.0.0","HostPort":"15353"}],"9090/tcp":null}`
+ rows,err:=parseDockerInspect([]byte(jsonLine))
+ if err!=nil{t.Fatal(err)}
+ if len(rows)!=2{t.Fatalf("expected deduplicated TCP/UDP host mappings: %+v",rows)}
+ hasTCP,hasUDP:=false,false
+ for _,p:=range rows{
+  if p.Port==18080&&p.Protocol=="tcp"&&p.Container=="web"{hasTCP=true}
+  if p.Port==15353&&p.Protocol=="udp"&&p.Container=="web"{hasUDP=true}
+ }
+ if !hasTCP||!hasUDP{t.Fatalf("wrong host mappings: %+v",rows)}
+ for _,raw:=range []string{
+  `/web not-json`,
+  `missing-space`,
+ }{
+  if _,err:=parseDockerInspect([]byte(raw));err==nil{t.Errorf("malformed Docker inspect accepted: %s",raw)}
+ }
+}
