@@ -192,6 +192,8 @@ cat > "$TMP/__preview.js" <<'JS'
         await waitFor('.account-row')
         const bad=preview==='notice-error-light'
         toast(bad?'账号端口必须是 1–65535':'账号已创建',bad)
+        // Freeze the notice only in screenshot fixtures; real notifications auto-dismiss.
+        clearTimeout(toast.t)
         const node=await waitFor('#toast:not(.hidden)')
         const rect=node.getBoundingClientRect()
         if(Math.abs((rect.top+rect.bottom)/2-innerHeight/2)>Math.max(25,innerHeight*.06) ||
