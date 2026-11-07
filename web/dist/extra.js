@@ -172,7 +172,7 @@ async function updateXport(){
  // A pending 120-second native rollback must not be interrupted by a
  // binary replacement, even when the firewall page isn't open.
  try{
-  const guard=await api('/api/xport/version')
+  const guard=await api('/api/xport/update-state')
   if(guard.firewallPending){
    toast('防火墙存在待确认操作，请先确认连接或等待恢复，再更新面板',true)
    return
