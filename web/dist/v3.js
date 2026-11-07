@@ -28,7 +28,11 @@ async function mutationWithRecoveryV3(run,verify,requireXray=true){
  try{return {value:await run(),recovered:false}}
  catch(err){
   if(!isTransientNetworkErrorV3(err))throw err
-  toast('连接暂时中断，正在核实操作结果…')
+  // The native progress dialog is above ordinary toasts. Keep users
+  // informed there while we verify a write that may already have applied.
+  if(typeof XportOperation!=='undefined'&&XportOperation.busy)
+   XportOperation.setStage?.('连接暂时中断，正在核实操作结果…')
+  else toast('连接暂时中断，正在核实操作结果…')
   if(!await waitForPanelV3())throw new Error('面板仍无法连接，操作结果未确认；请恢复连接后刷新')
   let applied=false
   try{applied=Boolean(await verify())}catch{}
