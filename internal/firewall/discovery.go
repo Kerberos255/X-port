@@ -44,15 +44,60 @@ type PublishedPort struct {
 
 var ownerRE=regexp.MustCompile(`"([^"\n]{1,64})",pid=([0-9]{1,9})`)
 var sshPortRE=regexp.MustCompile(`(?m)^port[ 	]+([0-9]{1,5})[ 	]*$`)
-var socketPortRE=regexp.MustCompile(`(?m)(?:^|[ 	])(?:[[^]
-]+]:|[0-9a-fA-F.:]+:)?([0-9]{1,5})[ 	]+((?:Stream|Datagram))`)
-var numberRangeRE=regexp.MustCompile(`^([0-9]{1,5})[s,-]+([0-9]{1,5})$`)
+var socketPortRE=regexp.MustCompile(`(?m)([0-9]{1,5})[ \t]+[(](Stream|Datagram)[)]`)
+var numberRangeRE=regexp.MustCompile(`^([0-9]{1,5})[[:space:],-]+([0-9]{1,5})package firewall
+
+import (
+ "context"
+ "encoding/json"
+ "errors"
+ "fmt"
+ "os"
+ "os/exec"
+ "regexp"
+ "sort"
+ "strconv"
+ "strings"
+ "time"
+)
+
+// Discovery is read-only host context. It is not proof that a firewall
+// allowance is reachable through NAT, a cloud security group or another chain.
+type Discovery struct {
+ Processes []ListeningProcess `json:"processes"`
+ SSHPorts []int `json:"sshPorts"`
+ SSHUncertain bool `json:"sshUncertain"`
+ FTPRanges []ConfiguredRange `json:"ftpRanges"`
+ Docker []PublishedPort `json:"docker"`
+ DockerUncertain bool `json:"dockerUncertain"`
+}
+type ListeningProcess struct {
+ Port int `json:"port"`
+ Protocol string `json:"protocol"`
+ PID int `json:"pid,omitempty"`
+ Name string `json:"name,omitempty"`
+}
+type ConfiguredRange struct {
+ Start int `json:"start"`
+ End int `json:"end"`
+ Protocol string `json:"protocol"`
+ Service string `json:"service"`
+}
+type PublishedPort struct {
+ Port int `json:"port"`
+ Protocol string `json:"protocol"`
+ Container string `json:"container"`
+}
+
+var ownerRE=regexp.MustCompile(`"([^"\n]{1,64})",pid=([0-9]{1,9})`)
+var sshPortRE=regexp.MustCompile(`(?m)^port[ 	]+([0-9]{1,5})[ 	]*$`)
+var socketPortRE=regexp.MustCompile(`(?m)([0-9]{1,5})[ \t]+[(](Stream|Datagram)[)]`)
+)
 
 func parseProcessSockets(raw string)([]ListeningProcess,error){
  entries:=make([]ListeningProcess,0,32)
  seen:=make(map[string]bool)
- for _,line:=range strings.Split(raw,"
-"){
+ for _,line:=range strings.Split(raw,"\n"){
   fields:=strings.Fields(line)
   if len(fields)==0{continue}
   proto:=strings.TrimSuffix(strings.ToLower(fields[0]),"6")
@@ -167,8 +212,7 @@ func readFTPRanges()[]ConfiguredRange{
   if err!=nil||!info.Mode().IsRegular()||info.Size()>128<<10{continue}
   raw,err:=os.ReadFile(item.path);if err!=nil{continue}
   min,max:="",""
-  for _,rawLine:=range strings.Split(string(raw),"
-"){
+  for _,rawLine:=range strings.Split(string(raw),"\n"){
    line:=strings.TrimSpace(strings.SplitN(rawLine,"#",2)[0])
    if line==""{continue}
    lower:=strings.ToLower(line)
@@ -220,8 +264,7 @@ func readDocker(ctx context.Context)([]PublishedPort,bool){
  if err!=nil||len(buf)>256<<10{return nil,true}
  var ports []PublishedPort
  seen:=map[string]bool{}
- for _,line:=range strings.Split(strings.TrimSpace(string(buf)),"
-"){
+ for _,line:=range strings.Split(strings.TrimSpace(string(buf)),"\n"){
   if line==""{continue}
   parts:=strings.SplitN(line," ",2);if len(parts)!=2{return nil,true}
   name:=strings.TrimPrefix(parts[0],"/")
