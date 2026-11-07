@@ -145,6 +145,19 @@ cat > "$TMP/__mock.js" <<'JS'
     if (path === '/api/xray/config') return json({config:{routing:{},dns:{},outbounds:[],policy:{}}})
     return json({ok:true})
   }
+  // Act on the real custom confirmation rather than a browser-native
+  // confirm(). This also proves the dialog was actually opened.
+  const confirmDialog=document.querySelector('#operation-confirm')
+  const nativeShow=confirmDialog.showModal.bind(confirmDialog)
+  confirmDialog.showModal=()=>{
+    nativeShow()
+    globalThis.__fwConfirmCalls++
+    const text=confirmDialog.querySelector('#operation-confirm-detail').textContent
+    const pending=globalThis.__fwControlPending&&text.includes('120 秒')
+    if(pending)globalThis.__pendingConfirmSeenWhileBusy=Boolean(document.querySelector('#operation-progress')?.open)
+    const agree=pending?false:Boolean(globalThis.__fwConfirmResult)
+    queueMicrotask(()=>confirmDialog.querySelector(agree?'#operation-confirm-apply':'#operation-confirm-cancel').click())
+  }
 })()
 JS
 
