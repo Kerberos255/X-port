@@ -19,6 +19,7 @@ function makePage(handler) {
     // In this isolated VM test the DOM dialog is not loaded. Exercise
     // the identical mutation/verification sequence without a browser.
     XportOperation: {
+      ask: async () => true,
       run: async ({perform, verify}) => {
         const result = await perform()
         if (verify) await verify(result)
