@@ -9,7 +9,9 @@
   // conservatively rather than silently reloading after input loses focus.
   document.addEventListener('input',event=>{
     const target=event.target
-    if(!target?.matches?.('input,select,textarea,[contenteditable="true"]'))return
+    // Logging in is not an unsaved edit to the running control panel.
+    if(!loggedIn()||!target?.closest?.('#app'))return
+    if(!target.matches?.('input,select,textarea,[contenteditable="true"]'))return
     if(target.id==='fw-search'||target.type==='search')return
     state.dirty=true
   },true)
@@ -17,7 +19,8 @@
     if(state.dirty)return true
     if (document.querySelector('dialog[open], #modal:not(.hidden), .fw-edit-input')) return true
     const active = document.activeElement
-    return Boolean(active?.matches('input:not([type="checkbox"]), textarea, select, [contenteditable="true"]'))
+    return Boolean(active?.closest?.('#app')&&
+      active.matches?.('input:not([type="checkbox"]), textarea, select, [contenteditable="true"]'))
   }
   function decision(info, isEditing=editing()) {
     if (!loaded || !info?.version || loaded.includes('__XPORT_VERSION__')) return 'unknown'
