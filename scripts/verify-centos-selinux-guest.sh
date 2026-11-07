@@ -196,10 +196,13 @@ with open('/run/xport-ci-range-edit.json','w') as f:
  json.dump(dict(id=r[0]['id'],revision=r[0]['revision'],newPort=42000,newProtocol='tcp',externalAcknowledged=True),f)
 PY
 code="$(curl -sS -b /run/xport-ci.cookie -H "Origin: $BASE" -H 'Content-Type: application/json' -o /run/xport-ci-range-edit-result.json -w '%{http_code}' -d @/run/xport-ci-range-edit.json "$BASE/api/firewall/edit")"
-test "$code" = 409
+if [[ "$code" != 409 ]]; then cat /run/xport-ci-range-edit-result.json; echo "range edit HTTP $code"; exit 1; fi
 code="$(curl -sS -b /run/xport-ci.cookie -H "Origin: $BASE" -H 'Content-Type: application/json' -o /run/xport-ci-range-overlap.json -w '%{http_code}' -d "{\"action\":\"add\",\"port\":39300,\"protocol\":\"tcp\",\"zone\":\"$ZONE\"}" "$BASE/api/firewall/rules")"
-test "$code" = 409
-test "$(firewall-cmd --zone="$ZONE" --query-port=39300/tcp || true)" = no
+if [[ "$code" != 409 ]]; then cat /run/xport-ci-range-overlap.json; echo "range overlap HTTP $code"; exit 1; fi
+# firewalld query-port may report YES for a member of a pre-existing
+# range; inspect the exact native list to prove no separate port was added.
+firewall-cmd --zone="$ZONE" --list-ports | tr ' ' '\n' | grep -Fxq '39000-40000/tcp'
+test -z "$(firewall-cmd --zone="$ZONE" --list-ports | tr ' ' '\n' | grep -Fx '39300/tcp' || true)"
 firewall-cmd --zone="$ZONE" --remove-port=39000-40000/tcp >/dev/null
 firewall-cmd --permanent --zone="$ZONE" --remove-port=39000-40000/tcp >/dev/null
 echo "[selinux-vm] FTP range displayed, overlapping and range edits rejected"
