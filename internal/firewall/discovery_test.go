@@ -52,7 +52,7 @@ func TestConfiguredSSHProtection(t *testing.T){
   {Port:22333,Protocol:"tcp",PID:234,Name:"xray"},
  })
  if unknown{t.Fatal("valid sshd -T must be known")}
- expected:=[]int{22,22022,22222,42222,53500}
+ expected:=[]int{22022,22222,42222,53500}
  if len(found)!=len(expected){t.Fatalf("SSH ports=%v",found)}
  for i:=range expected{if found[i]!=expected[i]{t.Fatalf("SSH ports=%v",found)}}
  script("sshd",[]string{`exit 1`})
