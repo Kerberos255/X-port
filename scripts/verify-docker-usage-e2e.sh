@@ -49,7 +49,7 @@ python3 - "$DIR/discovery.json" "$NAME" <<'PY'
 import json,sys
 d=json.load(open(sys.argv[1]))
 assert d["dockerUncertain"] is False, d
-mapped={(p["port"],p["protocol"],p["container"]) for p in d["docker"]}
+mapped={(p["port"],p["protocol"],p["container"]) for p in (d.get("docker") or [])}
 want={(53578,"tcp",sys.argv[2]),(53579,"udp",sys.argv[2])}
 assert want.issubset(mapped), (want,mapped)
 print("XPORT_DOCKER_PORT_DISCOVERY_OK")
