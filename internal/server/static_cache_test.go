@@ -9,6 +9,7 @@ import (
  "testing/fstest"
 
  "github.com/Kerberos255/X-port/internal/store"
+ "github.com/Kerberos255/X-port/internal/buildinfo"
 )
 
 func TestStaticEntryDisablesCacheWithoutDisablingAssetCaching(t *testing.T) {
@@ -17,7 +18,7 @@ func TestStaticEntryDisablesCacheWithoutDisablingAssetCaching(t *testing.T) {
  defer st.Close()
 
  assets := fstest.MapFS{
-  "index.html": &fstest.MapFile{Data: []byte("<!doctype html><title>X-port</title>")},
+  "index.html": &fstest.MapFile{Data: []byte(`<!doctype html><meta name="xport-build-version" content="__XPORT_VERSION__"><script src="/app.js?v=__XPORT_VERSION__"></script>`)},
   "status-gauges.js": &fstest.MapFile{Data: []byte("/* cached static asset */")},
  }
  handler := New(st, nil, nil, assets).Handler()
@@ -33,6 +34,12 @@ func TestStaticEntryDisablesCacheWithoutDisablingAssetCaching(t *testing.T) {
    if rec.Code >= 400 { t.Fatalf("HTTP %d: %s",rec.Code,rec.Body.String()) }
    got := strings.Contains(rec.Header().Get("Cache-Control"),"no-store")
    if got != tc.wantNoStore { t.Fatalf("Cache-Control=%q, want no-store=%t",rec.Header().Get("Cache-Control"),tc.wantNoStore) }
+   if tc.wantNoStore{
+    if strings.Contains(rec.Body.String(),"__XPORT_VERSION__") ||
+      !strings.Contains(rec.Body.String(),"v="+buildinfo.Current){
+      t.Fatalf("index must stamp current build version: %s",rec.Body.String())
+    }
+   }
   })
  }
 }
