@@ -82,6 +82,57 @@
       }
     })
   }
+  function input({title:name,detail:message,defaultValue='',placeholder='',confirmText='确认',cancelText='取消'}){
+    if(busy||confirming)return Promise.reject(new Error('已有操作尚未完成'))
+    const modal=document.getElementById('operation-confirm')
+    if(!modal)return Promise.reject(new Error('输入弹窗不可用'))
+    confirming=true
+    document.getElementById('operation-confirm-title').textContent=String(name||'请输入')
+    const description=document.getElementById('operation-confirm-detail')
+    description.textContent=String(message||'')
+    const field=document.createElement('input')
+    field.type='text'
+    field.className='operation-confirm-input'
+    field.setAttribute('aria-label',String(name||'请输入'))
+    field.placeholder=String(placeholder||'')
+    field.value=String(defaultValue||'')
+    description.after(field)
+    const yes=document.getElementById('operation-confirm-apply')
+    const no=document.getElementById('operation-confirm-cancel')
+    yes.textContent=String(confirmText)
+    no.textContent=String(cancelText)
+    yes.className='btn primary'
+    return new Promise((resolve,reject)=>{
+      let done=false
+      const finish=value=>{
+        if(done)return
+        done=true
+        yes.removeEventListener('click',accept)
+        no.removeEventListener('click',dismiss)
+        modal.removeEventListener('cancel',cancel)
+        field.removeEventListener('keydown',keydown)
+        field.remove()
+        if(modal.open)modal.close()
+        confirming=false
+        resolve(value)
+      }
+      const accept=()=>finish(field.value)
+      const dismiss=()=>finish(null)
+      const cancel=event=>{event.preventDefault();dismiss()}
+      const keydown=event=>{if(event.key==='Enter'){event.preventDefault();accept()}}
+      yes.addEventListener('click',accept)
+      no.addEventListener('click',dismiss)
+      modal.addEventListener('cancel',cancel)
+      field.addEventListener('keydown',keydown)
+      try{modal.showModal();field.focus();field.select()}catch(err){
+        yes.removeEventListener('click',accept)
+        no.removeEventListener('click',dismiss)
+        modal.removeEventListener('cancel',cancel)
+        field.removeEventListener('keydown',keydown)
+        field.remove();confirming=false;reject(err)
+      }
+    })
+  }
   async function refreshAccounts(){
     // An actual read is required before dismissing progress: caller should
     // not mistake a successful HTTP write for a refreshed account list.
@@ -95,6 +146,6 @@
     if(node)node.addEventListener('cancel',event=>event.preventDefault())
   })
   window.XportOperation=Object.freeze({
-    run,ask,setStage,refreshAccounts,get busy(){return busy},get confirming(){return confirming}
+    run,ask,input,setStage,refreshAccounts,get busy(){return busy},get confirming(){return confirming}
   })
 })()
