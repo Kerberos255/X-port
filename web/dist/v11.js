@@ -248,9 +248,13 @@ async function openCloneModalV12(id){
   const form=e.currentTarget,f=new FormData(form),button=form.querySelector('button[type=submit]')
   button.disabled=true;button.textContent='克隆中…'
   try{
-   await api(`/api/accounts/${id}/clone`,{method:'POST',body:JSON.stringify({name:f.get('name'),port:Number(f.get('port')||0)})})
-   closeModal();await loadAccounts();await loadOverview();toast('账号已克隆')
-  }catch(err){toast(err.message,true);button.disabled=false;button.textContent='克隆并应用'}
+   await XportOperation.run({
+    title:'正在克隆账号',detail:String(f.get('name')||'账号副本'),
+    perform:()=>api(`/api/accounts/${id}/clone`,{method:'POST',body:JSON.stringify({name:f.get('name'),port:Number(f.get('port')||0)})}),
+    verify:()=>XportOperation.refreshAccounts()
+   })
+   closeModal();toast('账号已克隆')
+  }catch(err){toast(err.message,true);if(!err.applied){button.disabled=false;button.textContent='克隆并应用'}}
  }
 }
 
