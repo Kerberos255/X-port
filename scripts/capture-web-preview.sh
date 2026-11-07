@@ -142,9 +142,20 @@ cat > "$TMP/__preview.js" <<'JS'
         if (!note.hidden) throw new Error('internal update note should be hidden')
         const status=await waitFor('#xray-page-update-state')
         if (!(status.textContent||'').trim()) throw new Error('Xray update state missing')
-      } else if (preview === 'firewall' || preview === 'firewall-light' || preview === 'firewall-detail-light' || preview === 'firewall-editor-light' || preview === 'firewall-create-light') {
+      } else if (preview === 'firewall' || preview === 'firewall-light' || preview === 'firewall-detail-light' || preview === 'firewall-editor-light' || preview === 'firewall-create-light' || preview === 'firewall-long-ipv6' || preview === 'firewall-long-ipv6-light') {
         document.querySelector('#nav [data-page="firewall"]').click()
         await waitFor('#fw-rows tr button[data-fw-act="edit"]')
+        if (preview.startsWith('firewall-long-ipv6')) {
+          const ip='2001:0db8:abcd:1234:5678:9abc:def0:1234/64'
+          const label=document.querySelector('#fw-rows button[data-fw-id="firewalld:public:rich:443/udp:deny:ipv6"][data-fw-act="detail"]')?.closest('tr')?.querySelector('.fw-ip-cell span')
+          if (!label) throw new Error('IPv6 firewall row unavailable in screenshot fixture')
+          label.textContent=ip
+          label.title=ip
+          if (getComputedStyle(label).textOverflow!=='ellipsis' ||
+              getComputedStyle(label).whiteSpace!=='nowrap' ||
+              label.scrollWidth<=label.clientWidth)
+            throw new Error('long IPv6 is not truncated to a single line')
+        }
         if (preview === 'firewall-detail-light') {
           document.querySelector('#fw-rows button[data-fw-act="detail"][data-fw-id="firewalld:public:2053/tcp"]').click()
           await waitFor('#fw-detail-dialog[open]')
@@ -205,7 +216,7 @@ cat > "$TMP/__preview.js" <<'JS'
         if(!hint||getComputedStyle(hint).display==='none')
           throw new Error('tablet needs an explicit scroll hint')
       }
-      if (preview === 'firewall' &&
+      if ((preview === 'firewall' || preview.startsWith('firewall-long-ipv6')) &&
           document.documentElement.scrollWidth > innerWidth + 2) {
         throw new Error('mobile horizontal overflow: '+document.documentElement.scrollWidth+' > '+innerWidth)
       }
@@ -247,6 +258,8 @@ capture account-advanced account
 capture xray-global xray
 capture firewall-desktop firewall
 capture firewall-light firewall-light
+capture firewall-long-ipv6 firewall-long-ipv6
+capture firewall-long-ipv6-light firewall-long-ipv6-light
 capture firewall-detail-light firewall-detail-light
 capture firewall-editor-light firewall-editor-light
 capture firewall-create-light firewall-create-light
@@ -255,6 +268,15 @@ capture firewall-create-light firewall-create-light
   --window-size=390,844 --force-device-scale-factor=1 --virtual-time-budget=6500 \
   --screenshot="$OUT/firewall-mobile.png" "http://127.0.0.1:$PORT/?preview=firewall" >/dev/null 2>"$TMP/firewall-mobile.log"
 [[ -s "$OUT/firewall-mobile.png" ]] || { cat "$TMP/firewall-mobile.log" >&2; exit 1; }
+"$BROWSER" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage \
+  --window-size=390,844 --force-device-scale-factor=1 --virtual-time-budget=6500 \
+  --screenshot="$OUT/firewall-long-ipv6-mobile.png" "http://127.0.0.1:$PORT/?preview=firewall-long-ipv6" \
+  >/dev/null 2>"$TMP/firewall-long-ipv6-mobile.log"
+[[ -s "$OUT/firewall-long-ipv6-mobile.png" ]] || {
+  cat "$TMP/firewall-long-ipv6-mobile.log" >&2
+  echo "Long IPv6 mobile screenshot missing" >&2
+  exit 1
+}
 # A screenshot alone cannot detect horizontal overflow or failed JS.
 "$BROWSER" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage \
   --window-size=390,844 --force-device-scale-factor=1 --virtual-time-budget=6500 \
