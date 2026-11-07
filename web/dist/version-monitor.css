@@ -1,0 +1,18 @@
+/* Non-blocking panel release refresh notice. It must not cover dialogs. */
+.xport-version-banner{position:fixed;z-index:950;right:18px;bottom:18px;
+ display:flex;align-items:center;justify-content:space-between;gap:16px;
+ width:min(460px,calc(100vw - 36px));padding:14px 16px;border-radius:12px;
+ color:#ebf5ff;background:#17283c;border:1px solid rgba(111,190,221,.47);
+ box-shadow:0 16px 40px rgba(0,0,0,.32)}
+.xport-version-banner[hidden]{display:none}
+.xport-version-copy{display:grid;gap:4px;min-width:0}
+.xport-version-copy strong{font-size:13px;line-height:1.4}
+.xport-version-copy small{font-size:12px;color:#b9cee3;line-height:1.5;overflow-wrap:anywhere}
+.xport-version-banner .btn{font-size:12px;white-space:nowrap;flex:0 0 auto}
+html[data-theme="light"] .xport-version-banner{background:#f7fbff;border-color:#b8d5e8;color:#244260;
+ box-shadow:0 15px 40px rgba(41,66,99,.19)}
+html[data-theme="light"] .xport-version-copy small{color:#486781}
+@media(max-width:700px){
+ .xport-version-banner{right:10px;left:10px;bottom:10px;width:auto;padding:12px;gap:10px}
+ .xport-version-banner .btn{min-width:90px}
+}
