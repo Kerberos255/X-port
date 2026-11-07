@@ -16,7 +16,10 @@ import (
  "github.com/Kerberos255/X-port/internal/firewall"
 )
 
-// All native 120-second watchdogs need explicit timer precision: systemd\'s\n// default AccuracySec=1min can defer a restoration by almost a minute.\nconst FirewallRestoreAfter = 120 * time.Second
+// All native 120-second watchdogs need explicit timer precision:
+// systemd defaults to AccuracySec=1min and can delay a restoration.
+// Use AccuracySec=1s for the native recovery timers.
+const FirewallRestoreAfter = 120 * time.Second
 var restoreUnitRE = regexp.MustCompile(`^xport-fw-restore-[a-f0-9]{24}$`)
 
 // ScheduleFirewallRestore installs an external systemd timer *before* removing
