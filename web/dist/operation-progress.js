@@ -42,11 +42,19 @@
       return result
     }finally{stop()}
   }
+  async function refreshAccounts(){
+    // An actual read is required before dismissing progress: caller should
+    // not mistake a successful HTTP write for a refreshed account list.
+    const data=await api('/api/accounts')
+    state.accounts=data.accounts||[]
+    renderAccounts()
+    if(typeof loadOverview==='function')await loadOverview(false,true)
+  }
   document.addEventListener('DOMContentLoaded',()=>{
     const node=dialog()
     if(node)node.addEventListener('cancel',event=>event.preventDefault())
   })
   window.XportOperation=Object.freeze({
-    run,setStage,get busy(){return busy}
+    run,setStage,refreshAccounts,get busy(){return busy}
   })
 })()
