@@ -458,7 +458,6 @@ cat > "$TMP/__driver.js" <<'JS'
       if(progress.open||XportOperation.busy)
         throw new Error('firewall add progress did not close after status refresh')
       globalThis.__fwConfirmResult=false
-      document.querySelector('#nav [data-page="firewall"]').click()
 
       const oldTheme=document.documentElement.dataset.theme
       document.documentElement.dataset.theme='light'
