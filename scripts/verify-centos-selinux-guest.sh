@@ -169,7 +169,7 @@ python3 - <<'PY'
 import json
 d=json.load(open('/run/xport-ci-ssh-guard.json'))
 r=[r for r in d['rules'] if r['port']==53571]
-assert len(r)==1 and r[0]['protected'] and r[0]['purposeSource']=='ssh',r
+assert len(r)==1 and r[0]['protected'] and r[0]['purposeSource']=='ssh-config',r
 assert not r[0]['canToggle'] and r[0]['usage'] == 'unused',r
 assert r[0]['purposeSource']=='ssh-config' and '未监听' in r[0]['purpose'],r
 with open('/run/xport-ci-ssh-edit.json','w') as f:
