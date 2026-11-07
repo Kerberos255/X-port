@@ -3,9 +3,18 @@
 (() => {
   'use strict'
   const loaded = document.querySelector('meta[name="xport-build-version"]')?.content || ''
-  const state = {checking:false, waiting:false, seen:'', banner:null}
+  const state = {checking:false, waiting:false, seen:'', banner:null, dirty:false}
   const loggedIn = () => !document.getElementById('app')?.classList.contains('hidden')
+  // A blurred but unsaved settings field is still unsaved. Track changes
+  // conservatively rather than silently reloading after input loses focus.
+  document.addEventListener('input',event=>{
+    const target=event.target
+    if(!target?.matches?.('input,select,textarea,[contenteditable="true"]'))return
+    if(target.id==='fw-search'||target.type==='search')return
+    state.dirty=true
+  },true)
   function editing() {
+    if(state.dirty)return true
     if (document.querySelector('dialog[open], #modal:not(.hidden), .fw-edit-input')) return true
     const active = document.activeElement
     return Boolean(active?.matches('input:not([type="checkbox"]), textarea, select, [contenteditable="true"]'))
@@ -28,7 +37,7 @@
       '<small id="xport-version-reason"></small></div>'+
       '<button class="btn ghost" type="button" id="xport-version-refresh">刷新页面</button>'
     document.body.appendChild(node)
-    node.querySelector('#xport-version-refresh').addEventListener('click',()=>{void check(true)})
+    node.querySelector('#xport-version-refresh').addEventListener('click',()=>{void check(true,true)})
     state.banner = node
     return node
   }
@@ -43,7 +52,7 @@
     next.searchParams.set('_xport_ui',version)
     location.replace(next.toString())
   }
-  async function check(force=false) {
+  async function check(force=false,manual=false) {
     if(state.checking || (!force && !loggedIn())) return null
     state.checking=true
     try {
@@ -56,8 +65,12 @@
       const result=decision(info)
       state.seen=String(info.version||'')
       if(result==='reload'){reloadTo(info.version)}
-      else if(result==='pending')notice('防火墙还有未确认的恢复任务；完成确认后自动刷新。')
-      else if(result==='editing')notice('当前有编辑窗口；完成或取消编辑后自动刷新。')
+      else if(result==='pending')notice('防火墙还有未确认的恢复任务；确认完成后自动刷新。')
+      else if(result==='editing'){
+        if(manual && window.confirm('页面可能存在未保存的输入。确认放弃这些更改并刷新吗？'))
+          reloadTo(info.version)
+        else notice('检测到正在编辑或尚未保存的输入，请确认后手动刷新。')
+      }
       else if(result==='same')hideNotice()
       return info
     } catch {
