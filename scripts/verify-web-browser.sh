@@ -276,6 +276,11 @@ cat > "$TMP/__driver.js" <<'JS'
       if(!sshRow?.textContent.includes('sshd')||!sshRow?.querySelector('button.fw-switch[disabled]')) throw new Error('nonstandard SSH process or protected state missing')
       const ftpRow=document.querySelector('#fw-rows button[data-fw-act="detail"][data-fw-id="firewalld:public:39000-40000/tcp"]')?.closest('tr')
       if(!ftpRow?.textContent.includes('39000–40000')||!ftpRow?.textContent.includes('FTP 被动模式')||!ftpRow?.querySelector('button.fw-switch[disabled]')) throw new Error('read-only passive FTP range missing')
+      ftpRow.querySelector('button[data-fw-act="configure"]').click()
+      const rangeEditor=await waitFor('#fw-policy-dialog[open]')
+      if(!rangeEditor.querySelector('#fw-policy-port').disabled||!rangeEditor.querySelector('#fw-policy-save').disabled||
+         !rangeEditor.querySelector('#fw-policy-title').textContent.includes('39000–40000')) throw new Error('FTP range editor must be read-only')
+      rangeEditor.querySelector('button[value="cancel"]').click()
       const dockerRow=document.querySelector('#fw-rows button[data-fw-act="detail"][data-fw-id="firewalld:public:8444/tcp"]')?.closest('tr')
       if(!dockerRow?.textContent.includes('Docker: web-svc')) throw new Error('Docker published port association missing')
       const denyRow=document.querySelector('#fw-rows button[data-fw-act="detail"][data-fw-id="firewalld:public:51820/udp"]')?.closest('tr')
