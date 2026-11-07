@@ -181,7 +181,10 @@ function openCloneModalV3(id){
  $('#clone-cancel').onclick=closeModal;$('#clone-form').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.currentTarget),name=String(f.get('name')||''),port=Number(f.get('port')||0),before=new Set(state.accounts.map(x=>Number(x.id)));try{await mutationWithRecoveryV3(()=>api(`/api/accounts/${id}/clone`,{method:'POST',body:JSON.stringify({name,port})}),async()=>{const d=await api('/api/accounts');return(d.accounts||[]).some(x=>!before.has(Number(x.id))&&x.name===name&&Number(x.port)===port)});closeModal();await loadAccounts();await loadOverview();await loadOnlineConnectionsV3(false);toast('账号已克隆')}catch(x){toast(x.message,true)}}
 }
 async function resetTrafficV3(id){
-  const a=state.accounts.find(x=>x.id===id);if(!confirm(`清零「${a?.name||id}」的本期上下行流量？\n累计总流量不会清零。`))return
+  const a=state.accounts.find(x=>x.id===id)
+  if(!await XportOperation.ask({title:'确认清零本期流量',
+    detail:'账号「'+(a?.name||id)+'」的本期上下行流量将清零，累计总流量保留。',
+    confirmText:'确认清零',danger:true}))return
   try{await XportOperation.run({
    title:'正在清零本期流量',detail:a?.name||String(id),
    perform:()=>mutationWithRecoveryV3(()=>api(`/api/accounts/${id}/traffic/reset`,{method:'POST',body:'{}'}),async()=>{const d=await api('/api/accounts');const cur=(d.accounts||[]).find(x=>Number(x.id)===id);return cur&&Number(cur.upBytes||0)===0&&Number(cur.downBytes||0)===0},false),
@@ -196,7 +199,10 @@ async function refreshAccountsAfterDeleteV3(){
   return false
 }
 async function deleteAccountV3(id){
-  const a=state.accounts.find(x=>x.id===id);if(!confirm(`删除账号「${a?.name||id}」？\n对应 inbound 会从 Xray 配置移除。`))return
+  const a=state.accounts.find(x=>x.id===id)
+  if(!await XportOperation.ask({title:'确认删除账号',
+    detail:'删除账号「'+(a?.name||id)+'」？\n对应 inbound 会从 Xray 配置移除。',
+    confirmText:'确认删除',danger:true}))return
   try{
    await XportOperation.run({
     title:'正在删除账号',detail:a?.name||String(id),
