@@ -195,7 +195,7 @@ func (s *Server) firewallRead(w http.ResponseWriter,r *http.Request){
     }
    }
   }
-  if len(details)>0{usage="used"}
+  if socketError==nil&&len(details)>0{usage="used"}
   if !xray&&(rr.Port==22||ssh){purpose="SSH · 管理端口";source="ssh"}
   if rr.IsRange(){
    for _,ftp:=range discovery.FTPRanges{
@@ -256,7 +256,7 @@ func (s *Server) firewallRead(w http.ResponseWriter,r *http.Request){
   usage:="unknown"
   if socketError==nil{usage="unused";if sockets[fmt.Sprintf("%s/%d",paused.Protocol,paused.Port)]{usage="used"}}
   details,overflow:=usageForRule(paused,discovery)
-  if len(details)>0{usage="used"}
+  if socketError==nil&&len(details)>0{usage="used"}
   rules=append(rules,firewallViewRule{
    Rule:paused,Purpose:settings["firewall_purpose:"+paused.ID],
    PurposeSource:"manual",Note:settings["firewall_note:"+paused.ID],
