@@ -351,6 +351,30 @@ html[data-theme="light"] #page-firewall .fw-ip-cell span{color:#365c7d}
  #page-firewall .fw-ip-cell span{font-size:12px}
 }
 
+/* Keep port ranges intact while giving the protocol a predictable second
+   line; bound IP labels independently so long IPv6 addresses cannot resize
+   the adjacent policy / action columns. */
+#page-firewall .fw-port-cell{
+ display:flex;flex-direction:column;align-items:flex-start;justify-content:center;
+ gap:3px;min-width:0;font-variant-numeric:tabular-nums
+}
+#page-firewall .fw-port-cell strong{
+ display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;
+ white-space:nowrap;overflow-wrap:normal;line-height:1.3
+}
+#page-firewall .fw-port-cell small{
+ display:block;max-width:100%;white-space:nowrap;line-height:1.2
+}
+#page-firewall .fw-ip-cell{max-width:100%;overflow:hidden}
+#page-firewall .fw-ip-cell span{
+ min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;
+ white-space:nowrap
+}
+@media(min-width:701px){
+ #page-firewall .fw-table th:nth-child(1){width:12%}
+ #page-firewall .fw-table th:nth-child(3){width:16%}
+}
+
 /* The medium viewport intentionally scrolls only the table, not the page. */
 #page-firewall .fw-scroll-hint{display:none;margin:0 0 7px;color:var(--muted);
  font-size:12px;line-height:1.4}
