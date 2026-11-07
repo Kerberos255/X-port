@@ -2,6 +2,7 @@ package firewall
 
 import (
  "context"
+ "math/rand"
  "os"
  "path/filepath"
  "strings"
@@ -116,5 +117,43 @@ func TestDockerPublishedMappings(t *testing.T){
   `missing-space`,
  }{
   if _,err:=parseDockerInspect([]byte(raw));err==nil{t.Errorf("malformed Docker inspect accepted: %s",raw)}
+ }
+}
+
+func TestConflictSweepMatchesPairwiseReference(t *testing.T){
+ random:=rand.New(rand.NewSource(20261107))
+ zones:=[]string{"public","trusted"}
+ backends:=[]string{"firewalld","ufw"}
+ protocols:=[]string{"tcp","udp"}
+ for sample:=0;sample<90;sample++{
+  n:=random.Intn(180)+20
+  rules:=make([]Rule,n)
+  expected:=make([]bool,n)
+  for i:=range rules{
+   start:=random.Intn(500)+20000
+   proto:=protocols[random.Intn(len(protocols))]
+   zone:=zones[random.Intn(len(zones))]
+   backend:=backends[random.Intn(len(backends))]
+   if random.Intn(3)==0{
+    rules[i]=Rule{RangeStart:start,RangeEnd:start+random.Intn(200)+1,Protocol:proto,Zone:zone,Backend:backend}
+   }else{
+    rules[i]=Rule{Port:start,Protocol:proto,Zone:zone,Backend:backend}
+   }
+  }
+  for i:=range rules{
+   for j:=i+1;j<len(rules);j++{
+    a,b:=rules[i],rules[j]
+    if a.Backend==b.Backend&&a.Zone==b.Zone&&a.Protocol==b.Protocol&&
+     (a.ContainsPort(b.FirstPort())||b.ContainsPort(a.FirstPort())){
+     expected[i],expected[j]=true,true
+    }
+   }
+  }
+  markRuleConflicts(rules)
+  for i,r:=range rules{
+   if r.Conflict!=expected[i]{
+    t.Fatalf("sample %d rule %d: expected conflict=%t got=%t %+v",sample,i,expected[i],r.Conflict,r)
+   }
+  }
  }
 }
