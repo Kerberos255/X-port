@@ -11,18 +11,18 @@ import (
 
 func TestProcessSocketAttribution(t *testing.T){
  lines:=[]string{
-  `tcp LISTEN 0 128 0.0.0.0:22022 0.0.0.0:* users:(("sshd",pid=29635,fd=3))`,
+  `tcp LISTEN 0 128 0.0.0.0:22022 0.0.0.0:* users:(("sshd",pid=12345,fd=3))`,
   `tcp LISTEN 0 128 [::]:2053 [::]:* users:(("xray",pid=5010,fd=7),("xray",pid=5010,fd=8))`,
-  `udp UNCONN 0 0 [::]:2053 [::]:* users:(("hbbc",pid=31116,fd=4))`,
+  `udp UNCONN 0 0 [::]:2053 [::]:* users:(("hbbc",pid=23456,fd=4))`,
   `tcp LISTEN 0 128 *:39000 *:*`,
  }
  got,err:=parseProcessSockets(strings.Join(lines,string(byte(10))))
  if err!=nil{t.Fatal(err)}
  if len(got)!=4{t.Fatalf("expected 4 unique PID/protocol/port entries: %+v",got)}
  for _,want:=range []ListeningProcess{
-  {Port:22022,Protocol:"tcp",PID:29635,Name:"sshd"},
+  {Port:22022,Protocol:"tcp",PID:12345,Name:"sshd"},
   {Port:2053,Protocol:"tcp",PID:5010,Name:"xray"},
-  {Port:2053,Protocol:"udp",PID:31116,Name:"hbbc"},
+  {Port:2053,Protocol:"udp",PID:23456,Name:"hbbc"},
   {Port:39000,Protocol:"tcp"},
  }{
   found:=false
