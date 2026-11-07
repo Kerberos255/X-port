@@ -460,6 +460,37 @@ cat > "$TMP/__driver.js" <<'JS'
       globalThis.__accountToggleHold=false
       if(progress.open||XportOperation.busy)
         throw new Error('progress did not close after refreshed account list')
+      // Ordinary validation and success notices share the centered visual style,
+      // but never trap focus or block the page.
+      const notice=document.querySelector('#toast')
+      toast('端口必须是 1–65535',true)
+      if(notice.classList.contains('hidden')||notice.getAttribute('role')!=='alert')
+        throw new Error('validation error notice is not accessible')
+      let rect=notice.getBoundingClientRect()
+      if(Math.abs((rect.top+rect.bottom)/2-innerHeight/2)>Math.max(25,innerHeight*.06) ||
+         Math.abs((rect.left+rect.right)/2-innerWidth/2)>Math.max(25,innerWidth*.06))
+        throw new Error('validation notice is not centered')
+      if(getComputedStyle(notice).pointerEvents!=='none' || parseFloat(getComputedStyle(notice).fontSize)<13)
+        throw new Error('notice must be legible and nonblocking')
+      const oldNoticeTheme=document.documentElement.dataset.theme
+      document.documentElement.dataset.theme='light'
+      const lightNotice=getComputedStyle(notice)
+      if(lightNotice.color!=='rgb(146, 45, 64)')
+        throw new Error('light warning notice has insufficient theme contrast: '+lightNotice.color)
+      document.documentElement.dataset.theme=oldNoticeTheme
+      toast('账号已创建')
+      if(notice.getAttribute('role')!=='status'||notice.classList.contains('bad'))
+        throw new Error('success notice state was not reset')
+      notice.classList.add('hidden')
+      // Input prompts use the same centered confirmation surface.
+      globalThis.__fwConfirmResult=true
+      const entered=await XportOperation.input({
+        title:'批量导出账号',detail:'输入域名',
+        defaultValue:'example.com',confirmText:'开始导出'
+      })
+      globalThis.__fwConfirmResult=false
+      if(entered!=='example.com'||document.querySelector('.operation-confirm-input'))
+        throw new Error('centered input did not return its value or clean up')
       // Account modals must be centered and usable, not small/top-edge sheets.
       await openAccountModalV3(state.accounts.find(a=>a.id===1))
       const accountModal=document.querySelector('#modal .modal-card')
