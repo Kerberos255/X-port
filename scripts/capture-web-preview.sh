@@ -156,7 +156,10 @@ cat > "$TMP/__preview.js" <<'JS'
               getComputedStyle(label).whiteSpace!=='nowrap' ||
               label.scrollWidth<=label.clientWidth)
             throw new Error('long IPv6 is not truncated to a single line')
-          label.closest('tr').scrollIntoView({block:'center',inline:'nearest'})
+          // Screenshot only: place the target row in the first visible
+          // position; headless Chromium does not reliably repaint after scroll.
+          const target=label.closest('tr')
+          target.parentElement.prepend(target)
         }
         if (preview === 'firewall-long-range') {
           const row=document.querySelector('#fw-rows button[data-fw-id="firewalld:public:39000-40000/tcp"][data-fw-act="detail"]')?.closest('tr')
@@ -168,7 +171,7 @@ cat > "$TMP/__preview.js" <<'JS'
               number.scrollWidth>number.clientWidth+1 ||
               number.getBoundingClientRect().bottom>protocol.getBoundingClientRect().top+1)
             throw new Error('long port range and protocol did not fit on separate lines')
-          row.scrollIntoView({block:'center',inline:'nearest'})
+          row.parentElement.prepend(row)
         }
         if (preview === 'firewall-detail-light') {
           document.querySelector('#fw-rows button[data-fw-act="detail"][data-fw-id="firewalld:public:2053/tcp"]').click()
