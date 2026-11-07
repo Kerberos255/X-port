@@ -29,6 +29,8 @@ pattern = r'(<script src="/app\.js(?:\?[^\"]*)?" defer></script>)'
 if not re.search(pattern, s):
     raise SystemExit('app.js script marker not found')
 s = re.sub(pattern, r'<script src="/__mock.js"></script>\1', s, count=1)
+# Standalone browser tests serve static files, so emulate the Go HTML stamp.
+s = s.replace('__XPORT_VERSION__', 'browser-test')
 s = s.replace('</body>', '<script src="/__driver.js" defer></script></body>', 1)
 p.write_text(s, encoding='utf-8')
 PY
@@ -54,6 +56,8 @@ cat > "$TMP/__mock.js" <<'JS'
   globalThis.__legacyCloneHits = 0
   globalThis.__fwConfirmCalls = 0
   globalThis.__fwConfirmResult = false
+  globalThis.__xportServerVersion = 'browser-test'
+  globalThis.__xportPending = false
   globalThis.confirm = () => { globalThis.__fwConfirmCalls++; return globalThis.__fwConfirmResult }
   let fwNote = '主节点 · REALITY'
   globalThis.fetch = (input, init = {}) => {
@@ -74,10 +78,12 @@ cat > "$TMP/__mock.js" <<'JS'
     if (path === '/api/firewall' && method === 'GET') return json({
       backend:'firewalld',active:true,writable:!globalThis.__fwReadOnly,unsafeReason:globalThis.__fwReadOnly?'独立 INPUT 过滤链需要检查':'',managers:['firewalld'],defaultZone:'public',zones:['public'],services:{public:['ssh']},
       notice:'预览：简单端口规则展示；底层链可能影响结果',rules:[
-        {id:'firewalld:public:22/tcp',port:22,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'SSH（常见端口，未核实）',purposeSource:'assumed',note:'远程管理',protected:true,xray:false},
+        {id:'firewalld:public:22/tcp',port:22,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'未识别',purposeSource:'unknown',usage:'unused',note:'保留规则',protected:true,xray:false},
         {id:'firewalld:public:443/tcp',port:443,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'HTTPS',purposeSource:'manual',note:'网站入口',protected:false,xray:false,kind:'port',action:'allow',managed:false,revision:'111122223333444455556666'},
         {id:'firewalld:public:2053/tcp',port:2053,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'Xray · VLESS',purposeSource:'xray',note:fwNote,protected:false,managed:true,xray:true,usage:'used',usageDetails:[{port:2053,protocol:'tcp',pid:1242,name:'xray'}],action:'allow',kind:'port',canToggle:true,accountId:1,accountName:'Alpha inbound',accountEnabled:true},
         {id:'firewalld:public:8443/tcp',port:8443,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:false,access:'区域：public',purpose:'Xray · Trojan',purposeSource:'xray',note:'临时放行，需同步',protected:false,xray:true},
+        {id:'firewalld:public:rich:443/udp:deny:ipv4',port:443,protocol:'udp',family:'ipv4',zone:'public',backend:'firewalld',runtime:true,permanent:true,action:'deny',kind:'rich',access:'区域：public',purpose:'未识别',protected:true,usage:'unused'},
+        {id:'firewalld:public:rich:443/udp:deny:ipv6',port:443,protocol:'udp',family:'ipv6',zone:'public',backend:'firewalld',runtime:true,permanent:true,action:'deny',kind:'rich',access:'区域：public',purpose:'未识别',protected:true,usage:'unused'},
         {id:'firewalld:public:51820/udp',port:51820,protocol:'udp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'未识别',purposeSource:'unknown',note:'WireGuard 站点互联',protected:false,xray:false,usage:'unused',action:'deny'},
         {id:'firewalld:public:22022/tcp',port:22022,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'SSH · 管理端口',purposeSource:'ssh',note:'',protected:true,xray:false,usage:'used',usageDetails:[{port:22022,protocol:'tcp',pid:12345,name:'sshd'}],action:'allow',kind:'port',canToggle:false},
         {id:'firewalld:public:39000-40000/tcp',port:0,rangeStart:39000,rangeEnd:40000,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'FTP 被动模式 · Pure-FTPd（配置匹配）',purposeSource:'ftp-config',note:'',protected:true,xray:false,usage:'unused',action:'allow',kind:'port',canToggle:false},
@@ -100,6 +106,8 @@ cat > "$TMP/__mock.js" <<'JS'
       globalThis.__fwLastEdit=JSON.parse(init.body||'{}')
       return json({ok:true,pending:false})
     }
+    if (path === '/api/xport/version' && method === 'GET')
+      return json({version:globalThis.__xportServerVersion,firewallPending:globalThis.__xportPending})
     if (path === '/api/xray/update' && method === 'GET') return json({current:'test',latest:'test',available:false})
     if (path === '/api/xray/geodata' && method === 'GET') return json({current:'test',latest:'test',available:false})
     if (path === '/api/settings') return json({panelListen:'127.0.0.1:8080',panelBasePath:'/',panelCertFile:'',panelKeyFile:'',panelDomain:'',panelTLS:false,xrayApiPort:10085,portMin:20000,portMax:60000,defaultRealitySni:'',defaultRealityDest:'',adminUsername:'admin'})
@@ -272,6 +280,37 @@ cat > "$TMP/__driver.js" <<'JS'
       if(!accountLink||!accountLink.textContent.includes('Alpha inbound')) throw new Error('Xray account linkage is not visible')
       const accountRow=accountLink.closest('tr')
       if(!accountRow.querySelector('.fw-usage.used')||!accountRow.querySelector('.fw-policy.allow')) throw new Error('account usage or allow badge missing')
+      const fwTable=document.querySelector('#page-firewall .fw-table')
+      if(!fwTable||fwTable.querySelectorAll('thead th').length!==9)throw new Error('firewall source IP column missing')
+      const fwFirstRow=fwTable.querySelector('#fw-rows tr')
+      if(fwFirstRow?.querySelectorAll('td').length!==9)throw new Error('firewall rows must have 9 aligned cells')
+      const v4row=document.querySelector('#fw-rows button[data-fw-id="firewalld:public:rich:443/udp:deny:ipv4"][data-fw-act="detail"]')?.closest('tr')
+      const v6row=document.querySelector('#fw-rows button[data-fw-id="firewalld:public:rich:443/udp:deny:ipv6"][data-fw-act="detail"]')?.closest('tr')
+      if(!v4row||!v6row||v4row.querySelector('.fw-ip-cell')?.textContent.trim()!=='0.0.0.0/0'||
+         v6row.querySelector('.fw-ip-cell')?.textContent.trim()!=='::/0'||
+         v4row.querySelector('.fw-policy.conflict')||v6row.querySelector('.fw-policy.conflict'))
+        throw new Error('IPv4/IPv6 identical ports must have distinct visible IPs without conflict')
+      const defaultSSH=document.querySelector('#fw-rows button[data-fw-id="firewalld:public:22/tcp"][data-fw-act="detail"]')?.closest('tr')
+      if(!defaultSSH||defaultSSH.textContent.includes('SSH · 管理端口'))
+        throw new Error('unused default SSH port mislabeled as actual management listener')
+      const bothIP=document.querySelector('#fw-rows button[data-fw-id="firewalld:public:443/tcp"][data-fw-act="detail"]')?.closest('tr .fw-ip-cell')
+      if(!bothIP?.textContent.includes('0.0.0.0/0')||!bothIP?.textContent.includes('::/0'))
+        throw new Error('dual-family port missing either wildcard address')
+      const monitor=window.XportVersionMonitor
+      if(!monitor||monitor.loaded!=='browser-test')throw new Error('loaded-version stamp unavailable')
+      if(monitor.decision({version:'browser-next',firewallPending:true},false)!=='pending'||
+         monitor.decision({version:'browser-next',firewallPending:false},true)!=='editing'||
+         monitor.decision({version:'browser-next',firewallPending:false},false)!=='reload')
+        throw new Error('version monitor must defer reload during firewall pending or editing')
+      globalThis.__xportServerVersion='browser-next'
+      globalThis.__xportPending=true
+      await monitor.check(true)
+      const warning=await waitFor('#xport-version-banner:not([hidden])')
+      if(!warning.textContent.includes('防火墙'))throw new Error('pending operation banner missing')
+      globalThis.__xportServerVersion='browser-test'
+      globalThis.__xportPending=false
+      await monitor.check(true)
+      if(!warning.hidden)throw new Error('outdated version notice not cleared')
       const sshRow=document.querySelector('#fw-rows button[data-fw-act="detail"][data-fw-id="firewalld:public:22022/tcp"]')?.closest('tr')
       if(!sshRow?.textContent.includes('sshd')||!sshRow?.querySelector('button.fw-switch[disabled]')) throw new Error('nonstandard SSH process or protected state missing')
       const ftpRow=document.querySelector('#fw-rows button[data-fw-act="detail"][data-fw-id="firewalld:public:39000-40000/tcp"]')?.closest('tr')
