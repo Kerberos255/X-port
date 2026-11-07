@@ -2,6 +2,7 @@ package server
 
 import (
 	"archive/zip"
+	"encoding/json"
 	"bytes"
 	"fmt"
 	"io"
@@ -121,8 +122,16 @@ func (s *Server) restartPanel(w http.ResponseWriter, r *http.Request) {
 func (s *Server) hasPendingFirewallChanges()(bool,error){
  settings,err:=s.store.Settings()
  if err!=nil{return false,err}
+ now:=time.Now().UnixMilli()
  for key,value:=range settings{
-  if strings.HasPrefix(key,"firewall_pending:")&&value!=""{return true,nil}
+  if !strings.HasPrefix(key,"firewall_pending:")||value==""{continue}
+  var pending firewallPending
+  // Malformed metadata must never quietly permit a restart.
+  if err:=json.Unmarshal([]byte(value),&pending);err!=nil||pending.Deadline<=0{return true,nil}
+  // Native timers survive X-port process restarts. Once an unconfirmed
+  // recovery deadline has passed with a 60-second scheduling grace, stale
+  // database metadata should not freeze all future panel upgrades.
+  if now<pending.Deadline+60_000{return true,nil}
  }
  return false,nil
 }
