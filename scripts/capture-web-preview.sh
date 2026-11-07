@@ -223,6 +223,22 @@ cat > "$TMP/__preview.js" <<'JS'
           throw new Error('account dialog is not visually centered')
         if(innerWidth>700 && box.width<500)
           throw new Error('desktop account dialog is too narrow')
+      } else if (preview === 'confirm-account' || preview === 'confirm-firewall' || preview === 'confirm-account-light') {
+        const isFirewall=preview==='confirm-firewall'
+        document.querySelector('#nav [data-page="'+(isFirewall?'firewall':'accounts')+'"]').click()
+        if(isFirewall)await waitFor('#fw-rows tr')
+        else await waitFor('.account-row')
+        void XportOperation.ask({
+          title:isFirewall?'确认删除放行规则':'确认删除账号',
+          detail:isFirewall?'将删除 39000/TCP 的防火墙规则。':'删除测试账号？\\n对应 inbound 将从 Xray 配置中移除。',
+          confirmText:'确认删除',danger:true
+        })
+        const dialog=await waitFor('#operation-confirm[open]')
+        const rect=dialog.getBoundingClientRect()
+        if(Math.abs((rect.top+rect.bottom)/2-innerHeight/2)>Math.max(28,innerHeight*.08) ||
+           Math.abs((rect.left+rect.right)/2-innerWidth/2)>Math.max(28,innerWidth*.08))
+          throw new Error('confirmation is not centered in viewport')
+        if(innerWidth<700 && rect.width>innerWidth-18)throw new Error('mobile confirmation clipped')
       } else if (preview === 'operation-account' || preview === 'operation-firewall' || preview === 'operation-account-light') {
         const isFirewall=preview==='operation-firewall'
         document.querySelector('#nav [data-page="'+(isFirewall?'firewall':'accounts')+'"]').click()
@@ -312,7 +328,10 @@ capture clone-centered clone-centered
 capture operation-account operation-account
 capture operation-account-light operation-account-light
 capture operation-firewall operation-firewall
-for preview in account-centered account-centered-light clone-centered operation-account operation-account-light operation-firewall; do
+capture confirm-account confirm-account
+capture confirm-account-light confirm-account-light
+capture confirm-firewall confirm-firewall
+for preview in account-centered account-centered-light clone-centered operation-account operation-account-light operation-firewall confirm-account confirm-account-light confirm-firewall; do
   "$BROWSER" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage \
     --window-size=1440,1000 --force-device-scale-factor=1 --virtual-time-budget=6500 \
     --dump-dom "http://127.0.0.1:$PORT/?preview=$preview" \
@@ -378,7 +397,7 @@ if ! grep -Fq 'data-preview-ready="firewall-long-ipv6"' "$TMP/firewall-long-ipv6
   exit 1
 fi
 # Check real mobile dialogs, centered with no viewport clipping.
-for preview in account-centered operation-account operation-firewall; do
+for preview in account-centered operation-account operation-firewall confirm-account confirm-firewall; do
   "$BROWSER" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage \
     --window-size=390,844 --force-device-scale-factor=1 --virtual-time-budget=6500 \
     --screenshot="$OUT/$preview-mobile.png" "http://127.0.0.1:$PORT/?preview=$preview" \
