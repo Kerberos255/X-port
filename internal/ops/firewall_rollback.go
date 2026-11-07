@@ -16,7 +16,7 @@ import (
  "github.com/Kerberos255/X-port/internal/firewall"
 )
 
-const FirewallRestoreAfter = 120 * time.Second
+// All native 120-second watchdogs need explicit timer precision: systemd\'s\n// default AccuracySec=1min can defer a restoration by almost a minute.\nconst FirewallRestoreAfter = 120 * time.Second
 var restoreUnitRE = regexp.MustCompile(`^xport-fw-restore-[a-f0-9]{24}$`)
 
 // ScheduleFirewallRestore installs an external systemd timer *before* removing
@@ -47,6 +47,7 @@ func ScheduleFirewallRestore(ctx context.Context,backend string,port int,proto,z
  unit:="xport-fw-restore-"+hex.EncodeToString(bytes)
  cctx,cancel:=context.WithTimeout(ctx,12*time.Second);defer cancel()
  argv:=[]string{"--quiet","--unit="+unit,"--on-active=120s",
+  "--timer-property=AccuracySec=1s",
   "--property=Type=exec","--property=NoNewPrivileges=yes"}
  argv=append(argv,worker...)
  out,err:=exec.CommandContext(cctx,"systemd-run",argv...).CombinedOutput()
@@ -85,6 +86,7 @@ func ScheduleFirewallDropUndo(ctx context.Context,undo string,port int,proto,zon
  cctx,cancel:=context.WithTimeout(ctx,12*time.Second);defer cancel()
  argv:=[]string{
   "--quiet","--unit="+unit,"--on-active=120s",
+  "--timer-property=AccuracySec=1s",
   "--property=Type=exec","--property=NoNewPrivileges=yes",
   "/bin/sh","-c",script,"xport-rich-recovery",executable,zone,op,rich,
  }
@@ -112,6 +114,7 @@ func ScheduleFirewallEditUndo(ctx context.Context,oldPort int,oldProto string,ne
  cctx,cancel:=context.WithTimeout(ctx,12*time.Second);defer cancel()
  argv:=[]string{
   "--quiet","--unit="+unit,"--on-active=120s",
+  "--timer-property=AccuracySec=1s",
   "--property=Type=exec","--property=NoNewPrivileges=yes",
   "/bin/sh","-c",script,"xport-external-recovery",
   executable,zone,strconv.Itoa(oldPort),oldProto,strconv.Itoa(newPort),newProto,
