@@ -205,6 +205,40 @@ cat > "$TMP/__preview.js" <<'JS'
         if (!advanced.open) advanced.querySelector('summary').click()
         const fallback = await waitFor('.fallback-section')
         fallback.scrollIntoView({block:'center', inline:'nearest'})
+      } else if (preview === 'account-centered' || preview === 'account-centered-light' || preview === 'clone-centered') {
+        document.querySelector('#nav [data-page="accounts"]').click()
+        if(preview === 'clone-centered'){
+          const clone=await waitFor('.account-row button[data-act="clone"]')
+          clone.click()
+          await waitFor('#clone-form')
+        }else{
+          const edit=await waitFor('.account-row button[data-act="edit"]')
+          edit.click()
+          await waitFor('#account-form')
+        }
+        const box=document.querySelector('#modal .modal-card')?.getBoundingClientRect()
+        if(!box || Math.abs((box.top+box.bottom)/2-innerHeight/2)>Math.max(32,innerHeight*.09) ||
+           Math.abs((box.left+box.right)/2-innerWidth/2)>Math.max(32,innerWidth*.09) ||
+           box.left<0 || box.right>innerWidth)
+          throw new Error('account dialog is not visually centered')
+        if(innerWidth>700 && box.width<500)
+          throw new Error('desktop account dialog is too narrow')
+      } else if (preview === 'operation-account' || preview === 'operation-firewall' || preview === 'operation-account-light') {
+        const isFirewall=preview==='operation-firewall'
+        document.querySelector('#nav [data-page="'+(isFirewall?'firewall':'accounts')+'"]').click()
+        if(isFirewall)await waitFor('#fw-rows tr')
+        else await waitFor('.account-row')
+        void XportOperation.run({
+          title:isFirewall?'正在添加防火墙规则':'正在创建账号',
+          detail:isFirewall?'39000 / TCP · public':'测试账号 · 2053 / VLESS',
+          perform:()=>new Promise(()=>{})
+        })
+        const dialog=await waitFor('#operation-progress[open]')
+        const bounds=dialog.getBoundingClientRect()
+        if(Math.abs((bounds.top+bounds.bottom)/2-innerHeight/2)>Math.max(28,innerHeight*.08)||
+           Math.abs((bounds.left+bounds.right)/2-innerWidth/2)>Math.max(28,innerWidth*.08))
+          throw new Error('progress modal not centered in viewport')
+        if(innerWidth<700 && bounds.width>innerWidth-18)throw new Error('mobile progress modal clips viewport')
       } else if (preview === 'xray') {
         document.querySelector('#nav [data-page="xray"]').click()
         const panel = await waitFor('#xray-global-config-panel')
@@ -272,6 +306,23 @@ capture overview-tooltip overview-tooltip
 capture accounts accounts
 capture clone-account clone
 capture account-advanced account
+capture account-centered account-centered
+capture account-centered-light account-centered-light
+capture clone-centered clone-centered
+capture operation-account operation-account
+capture operation-account-light operation-account-light
+capture operation-firewall operation-firewall
+for preview in account-centered account-centered-light clone-centered operation-account operation-account-light operation-firewall; do
+  "$BROWSER" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage \
+    --window-size=1440,1000 --force-device-scale-factor=1 --virtual-time-budget=6500 \
+    --dump-dom "http://127.0.0.1:$PORT/?preview=$preview" \
+    >"$TMP/$preview-dom.html" 2>"$TMP/$preview-dom.log"
+  grep -Fq "data-preview-ready=\"$preview\"" "$TMP/$preview-dom.html" || {
+    grep -o 'data-preview-error="[^"]*"' "$TMP/$preview-dom.html" || true
+    echo "Modal desktop preview failed: $preview" >&2
+    exit 1
+  }
+done
 capture xray-global xray
 capture firewall-desktop firewall
 capture firewall-light firewall-light
@@ -326,6 +377,26 @@ if ! grep -Fq 'data-preview-ready="firewall-long-ipv6"' "$TMP/firewall-long-ipv6
   echo "Long IPv6 mobile layout test failed" >&2
   exit 1
 fi
+# Check real mobile dialogs, centered with no viewport clipping.
+for preview in account-centered operation-account operation-firewall; do
+  "$BROWSER" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage \
+    --window-size=390,844 --force-device-scale-factor=1 --virtual-time-budget=6500 \
+    --screenshot="$OUT/$preview-mobile.png" "http://127.0.0.1:$PORT/?preview=$preview" \
+    >/dev/null 2>"$TMP/$preview-mobile.log"
+  [[ -s "$OUT/$preview-mobile.png" ]] || {
+    cat "$TMP/$preview-mobile.log" >&2
+    exit 1
+  }
+  "$BROWSER" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage \
+    --window-size=390,844 --force-device-scale-factor=1 --virtual-time-budget=6500 \
+    --dump-dom "http://127.0.0.1:$PORT/?preview=$preview" \
+    >"$TMP/$preview-mobile-dom.html" 2>"$TMP/$preview-mobile-dom.log"
+  grep -Fq "data-preview-ready=\"$preview\"" "$TMP/$preview-mobile-dom.html" || {
+    grep -o 'data-preview-error="[^"]*"' "$TMP/$preview-mobile-dom.html" || true
+    echo "Modal mobile preview failed: $preview" >&2
+    exit 1
+  }
+done
 # A screenshot alone cannot detect horizontal overflow or failed JS.
 "$BROWSER" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage \
   --window-size=390,844 --force-device-scale-factor=1 --virtual-time-budget=6500 \
