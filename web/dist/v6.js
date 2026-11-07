@@ -147,7 +147,7 @@ async function saveSettingsV6(e){
    // Credential changes may invalidate the current session immediately.
    verify:changing?undefined:async()=>{await api('/api/settings');await loadSettingsV6()}
   })
-  if(changing){f.elements.namedItem('currentPassword')?.value='';f.elements.namedItem('newPassword')?.value=''}
+  if(changing){const pw=f.elements.namedItem('currentPassword'),newPw=f.elements.namedItem('newPassword');if(pw)pw.value='';if(newPw)newPw.value=''}
   toast(d.restartRequired?'设置已保存，重启 X-port 后生效':'设置已保存')
  }catch(x){toast(x.message,true)}
 }
