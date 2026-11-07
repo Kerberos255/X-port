@@ -35,6 +35,7 @@ func (s *Server) registerExtraRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/xray/geodata", s.require(http.HandlerFunc(s.updateGeodata)))
 	mux.Handle("POST /api/backups/import", s.require(http.HandlerFunc(s.importBackup)))
 	mux.Handle("POST /api/xport/restart", s.require(http.HandlerFunc(s.restartPanel)))
+	mux.Handle("GET /api/xport/version", s.require(http.HandlerFunc(s.panelVersion)))
 	mux.Handle("GET /api/xport/update", s.require(http.HandlerFunc(s.checkPanelUpdate)))
 	mux.Handle("POST /api/xport/update", s.require(http.HandlerFunc(s.updatePanel)))
 	s.registerUXRoutes(mux)
@@ -115,6 +116,22 @@ func (s *Server) restartPanel(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "scheduled": true})
 }
 
+// A pending native firewall rollback must not be interrupted by a panel
+// upgrade. Return only a boolean; never expose confirmation tokens here.
+func (s *Server) hasPendingFirewallChanges()(bool,error){
+ settings,err:=s.store.Settings()
+ if err!=nil{return false,err}
+ for key,value:=range settings{
+  if strings.HasPrefix(key,"firewall_pending:")&&value!=""{return true,nil}
+ }
+ return false,nil
+}
+func (s *Server) panelVersion(w http.ResponseWriter,r *http.Request){
+ pending,err:=s.hasPendingFirewallChanges()
+ if err!=nil{writeError(w,500,"cannot verify pending firewall changes");return}
+ writeJSON(w,200,map[string]any{"version":buildinfo.Current,"firewallPending":pending})
+}
+
 func panelSelfUpdater() (*selfupdate.Updater, error) {
 	exe, err := os.Executable(); if err != nil { return nil, err }
 	return &selfupdate.Updater{CurrentVersion: buildinfo.Current, BinaryPath: exe, Repo: "Kerberos255/X-port", Token: os.Getenv("XPORT_GITHUB_TOKEN")}, nil
@@ -127,14 +144,32 @@ func (s *Server) checkPanelUpdate(w http.ResponseWriter, r *http.Request) {
 }
 func (s *Server) updatePanel(w http.ResponseWriter, r *http.Request) {
 	if s.panelService == "" { writeError(w, 503, "panel service is not configured"); return }
+	pending,err:=s.hasPendingFirewallChanges()
+	if err!=nil{writeError(w,500,"cannot verify pending firewall changes");return}
+	if pending{writeError(w,409,"confirm or restore pending firewall changes before updating X-port");return}
 	u, err := panelSelfUpdater(); if err != nil { writeError(w, 500, err.Error()); return }
 	ctx, cancel := contextWithTimeout(r, 2*time.Minute); defer cancel()
 	info, previous, err := u.Stage(ctx); if err != nil { writeError(w, 502, err.Error()); return }
 	if previous == "" { writeJSON(w, 200, info); return }
 	binary := strings.TrimSuffix(previous, ".previous")
-	if err := ops.ScheduleVerifiedBinaryRestart(s.panelService, binary, previous, time.Second); err != nil {
+	// Recheck while holding the firewall mutation lock. A rule may have
+	// entered its 120-second confirmation window while Stage downloaded.
+	s.firewallMu.Lock()
+	pending,err=s.hasPendingFirewallChanges()
+	if err!=nil||pending{
+		s.firewallMu.Unlock()
+		restoreErr:=u.Restore(previous)
+		if restoreErr!=nil{writeError(w,500,"update deferred; failed to restore staged binary: "+restoreErr.Error());return}
+		if err!=nil{writeError(w,500,"cannot verify pending firewall changes");return}
+		writeError(w,409,"firewall confirmation is pending; update deferred")
+		return
+	}
+	scheduleErr:=ops.ScheduleVerifiedBinaryRestart(s.panelService, binary, previous, time.Second)
+	s.firewallMu.Unlock()
+	if scheduleErr!=nil{
 		_ = u.Restore(previous)
-		writeError(w, 502, "could not schedule verified X-port restart: "+err.Error()); return
+		writeError(w,502,"could not schedule verified X-port restart: "+scheduleErr.Error())
+		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]any{"update":info,"scheduled":true})
 }
