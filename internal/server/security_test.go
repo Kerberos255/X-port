@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Kerberos255/X-port/internal/service"
  "github.com/Kerberos255/X-port/internal/buildinfo"
@@ -110,4 +111,12 @@ func TestVersionProbeAuthenticatedAndPendingGuard(t *testing.T){
  if err:=s.store.SetSetting("firewall_pending:test","");err!=nil{t.Fatal(err)}
  _,result,_=request(cookie)
  if result["firewallPending"]!=false{t.Fatalf("pending guard must clear: %v",result)}
+ future,_:=json.Marshal(firewallPending{ID:"test",Unit:"xport-ci.timer",Deadline:time.Now().Add(60*time.Second).UnixMilli()})
+ if err:=s.store.SetSetting("firewall_pending:test",string(future));err!=nil{t.Fatal(err)}
+ _,result,_=request(cookie)
+ if result["firewallPending"]!=true{t.Fatalf("active native recovery must defer upgrade: %v",result)}
+ expired,_:=json.Marshal(firewallPending{ID:"test",Unit:"xport-ci.timer",Deadline:time.Now().Add(-3*time.Minute).UnixMilli()})
+ if err:=s.store.SetSetting("firewall_pending:test",string(expired));err!=nil{t.Fatal(err)}
+ _,result,_=request(cookie)
+ if result["firewallPending"]!=false{t.Fatalf("old expired recovery must not block upgrades forever: %v",result)}
 }
