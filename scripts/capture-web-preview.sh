@@ -31,6 +31,7 @@ pattern = r'(<script src="/app\.js(?:\?[^\"]*)?" defer></script>)'
 if not re.search(pattern, s):
     raise SystemExit('app.js script marker not found')
 s = re.sub(pattern, r'<script src="/__mock.js"></script>\1', s, count=1)
+s = s.replace('__XPORT_VERSION__', 'browser-test')
 s = s.replace('</body>', '<script src="/__preview.js" defer></script></body>', 1)
 p.write_text(s, encoding='utf-8')
 PY
@@ -72,12 +73,14 @@ cat > "$TMP/__mock.js" <<'JS'
     if (path === '/api/firewall' && method === 'GET') return json({
       backend:'firewalld',active:true,writable:true,managers:['firewalld'],defaultZone:'public',zones:['public'],services:{public:['ssh']},
       notice:'预览：简单端口规则展示；底层链可能影响结果',rules:[
-        {id:'firewalld:public:22/tcp',port:22,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'SSH',purposeSource:'assumed',note:'远程管理端口',protected:true,xray:false,usage:'used',action:'allow'},
+        {id:'firewalld:public:22/tcp',port:22,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'未识别',purposeSource:'unknown',note:'预留防火墙规则',protected:true,xray:false,usage:'unused',action:'allow'},
         {id:'firewalld:public:443/tcp',port:443,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'HTTPS · Nginx',purposeSource:'manual',note:'网站服务入口',protected:true,xray:false,usage:'used',action:'allow'},
         {id:'firewalld:public:2053/tcp',port:2053,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'Xray · VLESS',purposeSource:'xray',note:fwNote,protected:false,managed:true,xray:true,accountId:1,accountName:'主节点 · REALITY',accountEnabled:true,usage:'used',action:'allow'},
         {id:'firewalld:public:8443/tcp',port:8443,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:false,access:'区域：public',purpose:'Xray · Trojan',purposeSource:'xray',note:'待同步的运行时规则',protected:false,xray:true,usage:'unused',action:'allow'},
         {id:'firewalld:public:10401/tcp',port:10401,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'Xray · VLESS',purposeSource:'xray',note:'边缘入口',protected:false,managed:true,xray:true,usage:'used',action:'allow',accountId:2,accountName:'Edge · 东京节点',accountEnabled:true},
         {id:'firewalld:public:15432/tcp',port:15432,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'PostgreSQL',purposeSource:'manual',note:'限制应用服务访问',protected:false,xray:false,usage:'unused',action:'deny'},
+        {id:'firewalld:public:rich:443/udp:deny:ipv4',port:443,protocol:'udp',family:'ipv4',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'未识别',protected:true,xray:false,usage:'unused',action:'deny',kind:'rich'},
+        {id:'firewalld:public:rich:443/udp:deny:ipv6',port:443,protocol:'udp',family:'ipv6',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'未识别',protected:true,xray:false,usage:'unused',action:'deny',kind:'rich'},
         {id:'firewalld:public:51820/udp',port:51820,protocol:'udp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'WireGuard',purposeSource:'manual',note:'站点互联',protected:false,xray:false,usage:'used',action:'allow'}
       ]})
     if (path === '/api/firewall/notes' && method === 'PUT') {
