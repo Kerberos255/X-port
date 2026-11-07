@@ -61,6 +61,10 @@ cat > "$TMP/__mock.js" <<'JS'
   globalThis.__accountToggleHold = false
   globalThis.__accountReleaseWrite = null
   globalThis.__accountToggleCalls = 0
+  globalThis.__accountDeleteCalls = 0
+  globalThis.__accountDeleteHold = false
+  globalThis.__accountDeleteRelease = null
+  globalThis.__mockAccountDeleted = false
   globalThis.__fwControlPending = false
   globalThis.__pendingConfirmSeenWhileBusy = null
   globalThis.__xportServerVersion = 'browser-test'
@@ -84,7 +88,14 @@ cat > "$TMP/__mock.js" <<'JS'
         networkRx:0, networkTx:0, xrayVersion:'test', xrayActive:true},
       accounts: {total:1, enabled:1}, xportVersion:'browser-test'
     })
-    if (path === '/api/accounts' && method === 'GET') return json({accounts:[account]})
+    if (path === '/api/accounts' && method === 'GET') return json({accounts:globalThis.__mockAccountDeleted?[]:[account]})
+    if (path === '/api/accounts/1' && method === 'DELETE') {
+      globalThis.__accountDeleteCalls++
+      if(globalThis.__accountDeleteHold)
+        return new Promise(resolve=>{globalThis.__accountDeleteRelease=()=>{globalThis.__mockAccountDeleted=true;resolve(json({ok:true}))}})
+      globalThis.__mockAccountDeleted=true
+      return json({ok:true})
+    }
     if (path === '/api/accounts/1' && method === 'GET') return json(account)
     if (path === '/api/accounts/1/enabled' && method === 'PATCH') {
       globalThis.__accountToggleCalls++
@@ -582,6 +593,33 @@ cat > "$TMP/__driver.js" <<'JS'
       if(document.querySelector('#operation-progress')?.open)
         throw new Error('firewall recovery confirmation left progress locked')
       globalThis.__fwControlPending=false
+      globalThis.__fwConfirmResult=false
+      document.querySelector('#nav [data-page="accounts"]').click()
+      const deleteButton=await waitFor('.account-row button[data-act="delete"]')
+      const prevDelete=globalThis.__accountDeleteCalls
+      deleteButton.click()
+      await sleep(45)
+      if(globalThis.__accountDeleteCalls!==prevDelete)
+        throw new Error('canceled centered account delete confirmation sent a write')
+      globalThis.__accountDeleteHold=true
+      globalThis.__fwConfirmResult=true
+      deleteButton.click()
+      await waitFor('#operation-progress[open]')
+      if(!progress.querySelector('#operation-progress-title').textContent.includes('删除账号')||
+         globalThis.__accountDeleteCalls!==prevDelete+1)
+        throw new Error('confirmed delete must show centered progress and send exactly once')
+      globalThis.__accountDeleteRelease()
+      globalThis.__accountDeleteHold=false
+      await sleep(100)
+      if(progress.open||XportOperation.busy||document.querySelector('.account-row'))
+        throw new Error('account delete did not finish and refresh after its single write')
+      // A verification failure must release the modal but prevent blind retry.
+      const uncertain=await XportOperation.run({
+        title:'状态核对测试',perform:async()=>({ok:true}),
+        verify:async()=>{throw new Error('simulated read failure')}
+      }).then(()=>null,err=>err)
+      if(!uncertain?.applied||progress.open||XportOperation.busy)
+        throw new Error('verification failure left modal stuck or falsely signaled a clean success')
       globalThis.__fwConfirmResult=false
       mark('pass', `clonePort=${portInput.value};legacyHits=0;fallbackDest=${dest};layout=contained;globalXray=ok;firewallEdits=guarded`)
     } catch (err) {
