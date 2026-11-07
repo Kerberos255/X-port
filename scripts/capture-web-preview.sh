@@ -187,6 +187,19 @@ cat > "$TMP/__preview.js" <<'JS'
           document.querySelector('#fw-add-port').value=18666
           document.querySelector('#fw-add-policy').value='deny'
         }
+      } else if (preview === 'notice-success' || preview === 'notice-error-light') {
+        document.querySelector('#nav [data-page="accounts"]').click()
+        await waitFor('.account-row')
+        const bad=preview==='notice-error-light'
+        toast(bad?'账号端口必须是 1–65535':'账号已创建',bad)
+        const node=await waitFor('#toast:not(.hidden)')
+        const rect=node.getBoundingClientRect()
+        if(Math.abs((rect.top+rect.bottom)/2-innerHeight/2)>Math.max(25,innerHeight*.06) ||
+           Math.abs((rect.left+rect.right)/2-innerWidth/2)>Math.max(25,innerWidth*.06))
+          throw new Error('notice must be centered')
+        if(getComputedStyle(node).pointerEvents!=='none')throw new Error('notice should not block interaction')
+        if(parseFloat(getComputedStyle(node).fontSize)<13)throw new Error('notice font too small')
+        if(innerWidth<700&&(rect.left<0||rect.right>innerWidth))throw new Error('notice clips mobile screen')
       } else if (preview === 'accounts' || preview === 'accounts-light') {
         document.querySelector('#nav [data-page="accounts"]').click()
         await waitFor('.account-row')
@@ -328,10 +341,12 @@ capture clone-centered clone-centered
 capture operation-account operation-account
 capture operation-account-light operation-account-light
 capture operation-firewall operation-firewall
+capture notice-success notice-success
+capture notice-error-light notice-error-light
 capture confirm-account confirm-account
 capture confirm-account-light confirm-account-light
 capture confirm-firewall confirm-firewall
-for preview in account-centered account-centered-light clone-centered operation-account operation-account-light operation-firewall confirm-account confirm-account-light confirm-firewall; do
+for preview in account-centered account-centered-light clone-centered operation-account operation-account-light operation-firewall confirm-account confirm-account-light confirm-firewall notice-success notice-error-light; do
   "$BROWSER" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage \
     --window-size=1440,1000 --force-device-scale-factor=1 --virtual-time-budget=6500 \
     --dump-dom "http://127.0.0.1:$PORT/?preview=$preview" \
@@ -397,7 +412,7 @@ if ! grep -Fq 'data-preview-ready="firewall-long-ipv6"' "$TMP/firewall-long-ipv6
   exit 1
 fi
 # Check real mobile dialogs, centered with no viewport clipping.
-for preview in account-centered operation-account operation-firewall confirm-account confirm-firewall; do
+for preview in account-centered operation-account operation-firewall confirm-account confirm-firewall notice-success notice-error-light; do
   "$BROWSER" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage \
     --window-size=390,844 --force-device-scale-factor=1 --virtual-time-budget=6500 \
     --screenshot="$OUT/$preview-mobile.png" "http://127.0.0.1:$PORT/?preview=$preview" \
