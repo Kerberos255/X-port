@@ -169,9 +169,27 @@ async function checkXportUpdate(manual=false){
 
 async function updateXport(){
  if(!xportSelfUpdate?.available){await checkXportUpdate(true);if(!xportSelfUpdate?.available)return}
+ // A pending 120-second native rollback must not be interrupted by a
+ // binary replacement, even when the firewall page isn't open.
+ try{
+  const guard=await api('/api/xport/version')
+  if(guard.firewallPending){
+   toast('防火墙存在待确认操作，请先确认连接或等待恢复，再更新面板',true)
+   return
+  }
+ }catch(e){toast('无法确认防火墙待处理状态：'+e.message,true);return}
  if(!confirm(`将 X-port 从 ${xportSelfUpdate.current} 更新到 ${xportSelfUpdate.latest}？\n更新失败自动恢复旧版本。`))return
  const b=$('#do-xport-update');b.disabled=true;b.textContent='更新中…'
- try{const d=await api('/api/xport/update',{method:'POST',body:'{}'}),info=d.update||d;toast(d.scheduled?`X-port ${info.latest} 已安装，正在验证重启`:'X-port 已是最新');if(d.scheduled)setTimeout(()=>location.reload(),4500);else await checkXportUpdate()}catch(e){toast(e.message,true);b.disabled=false;b.textContent='重试更新'}
+ try{
+  const d=await api('/api/xport/update',{method:'POST',body:'{}'}),info=d.update||d
+  toast(d.scheduled?`X-port ${info.latest} 已安装，等待新版本就绪`:'X-port 已是最新')
+  if(d.scheduled){
+   // Do not reload on a fixed timer: systemd may still be restarting.
+   // Wait until the *running* version changes, then reload cached assets.
+   if(window.XportVersionMonitor)void window.XportVersionMonitor.waitFor(info.latest)
+   else setTimeout(()=>location.reload(),6000)
+  }else await checkXportUpdate()
+ }catch(e){toast(e.message,true);b.disabled=false;b.textContent='重试更新'}
 }
 
 function bindMetricRings(){
