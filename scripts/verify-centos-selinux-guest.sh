@@ -77,6 +77,10 @@ for i in $(seq 1 90); do
 done
 curl -fsS "$BASE/" >/dev/null
 echo "[selinux-vm] X-port systemd service healthy"
+# The real index must carry a build stamp and release-specific assets.
+curl -fsS "$BASE/" >/run/xport-ci-index.html
+grep -F 'name="xport-build-version" content="' /run/xport-ci-index.html >/dev/null
+grep -F '/version-monitor.js?v=' /run/xport-ci-index.html >/dev/null
 curl -fsS -c /run/xport-ci.cookie -H 'Content-Type: application/json' \
  -d '{"username":"ci-admin","password":"selinux-ci-pass-12345"}' "$BASE/api/login" >/dev/null
 STAGE=web-firewall-read
@@ -167,6 +171,7 @@ d=json.load(open('/run/xport-ci-ssh-guard.json'))
 r=[r for r in d['rules'] if r['port']==53571]
 assert len(r)==1 and r[0]['protected'] and r[0]['purposeSource']=='ssh',r
 assert not r[0]['canToggle'] and r[0]['usage'] == 'unused',r
+assert r[0]['purposeSource']=='ssh-config' and '未监听' in r[0]['purpose'],r
 with open('/run/xport-ci-ssh-edit.json','w') as f:
  json.dump(dict(id=r[0]['id'],revision=r[0]['revision'],newPort=53572,newProtocol='tcp',externalAcknowledged=True),f)
 PY
@@ -207,6 +212,30 @@ test -z "$(firewall-cmd --zone="$ZONE" --list-ports | tr ' ' '\n' | grep -Fx '39
 firewall-cmd --zone="$ZONE" --remove-port=39000-40000/tcp >/dev/null
 firewall-cmd --permanent --zone="$ZONE" --remove-port=39000-40000/tcp >/dev/null
 echo "[selinux-vm] FTP range displayed, overlapping and range edits rejected"
+
+STAGE=dual-family-rich-inventory
+# Two rich rules with identical UDP ports but separate IPv4/IPv6 families
+# must be separate inventory rows, never a policy conflict.
+for family in ipv4 ipv6; do
+ rule="rule family=\"$family\" port port=\"53470\" protocol=\"udp\" drop"
+ firewall-cmd --zone="$ZONE" --add-rich-rule="$rule" >/dev/null
+ firewall-cmd --permanent --zone="$ZONE" --add-rich-rule="$rule" >/dev/null
+done
+curl -fsS -b /run/xport-ci.cookie "$BASE/api/firewall" >/run/xport-ci-family.json
+python3 - <<'PY'
+import json
+data=json.load(open('/run/xport-ci-family.json'))
+rows=[r for r in data['rules'] if r.get('port')==53470 and r.get('protocol')=='udp']
+assert len(rows)==2,rows
+assert {r['family'] for r in rows}=={'ipv4','ipv6'},rows
+assert all(not r.get('conflict',False) and r.get('action')=='deny' for r in rows),rows
+print('[selinux-vm] IPv4 and IPv6 independent rich rules retained without false conflict')
+PY
+for family in ipv4 ipv6; do
+ rule="rule family=\"$family\" port port=\"53470\" protocol=\"udp\" drop"
+ firewall-cmd --zone="$ZONE" --remove-rich-rule="$rule" >/dev/null
+ firewall-cmd --permanent --zone="$ZONE" --remove-rich-rule="$rule" >/dev/null
+done
 
 STAGE=foreign-input-fail-closed
 echo "[selinux-vm] Verifying separate INPUT filter blocks Web writes without changing rules"
