@@ -107,7 +107,9 @@ cat > "$TMP/__mock.js" <<'JS'
       return json({ok:true,pending:false})
     }
     if (path === '/api/xport/version' && method === 'GET')
-      return json({version:globalThis.__xportServerVersion,firewallPending:globalThis.__xportPending})
+      return json({version:globalThis.__xportServerVersion})
+    if (path === '/api/xport/update-state' && method === 'GET')
+      return json({firewallPending:globalThis.__xportPending})
     if (path === '/api/xray/update' && method === 'GET') return json({current:'test',latest:'test',available:false})
     if (path === '/api/xray/geodata' && method === 'GET') return json({current:'test',latest:'test',available:false})
     if (path === '/api/settings') return json({panelListen:'127.0.0.1:8080',panelBasePath:'/',panelCertFile:'',panelKeyFile:'',panelDomain:'',panelTLS:false,xrayApiPort:10085,portMin:20000,portMax:60000,defaultRealitySni:'',defaultRealityDest:'',adminUsername:'admin'})
