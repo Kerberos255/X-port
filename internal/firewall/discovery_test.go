@@ -125,6 +125,7 @@ func TestConflictSweepMatchesPairwiseReference(t *testing.T){
  zones:=[]string{"public","trusted"}
  backends:=[]string{"firewalld","ufw"}
  protocols:=[]string{"tcp","udp"}
+ families:=[]string{"both","ipv4","ipv6"}
  for sample:=0;sample<90;sample++{
   n:=random.Intn(180)+20
   rules:=make([]Rule,n)
@@ -134,16 +135,18 @@ func TestConflictSweepMatchesPairwiseReference(t *testing.T){
    proto:=protocols[random.Intn(len(protocols))]
    zone:=zones[random.Intn(len(zones))]
    backend:=backends[random.Intn(len(backends))]
+   family:=families[random.Intn(len(families))]
    if random.Intn(3)==0{
-    rules[i]=Rule{RangeStart:start,RangeEnd:start+random.Intn(200)+1,Protocol:proto,Zone:zone,Backend:backend}
+    rules[i]=Rule{RangeStart:start,RangeEnd:start+random.Intn(200)+1,Protocol:proto,Zone:zone,Backend:backend,Family:family}
    }else{
-    rules[i]=Rule{Port:start,Protocol:proto,Zone:zone,Backend:backend}
+    rules[i]=Rule{Port:start,Protocol:proto,Zone:zone,Backend:backend,Family:family}
    }
   }
   for i:=range rules{
    for j:=i+1;j<len(rules);j++{
     a,b:=rules[i],rules[j]
-    if a.Backend==b.Backend&&a.Zone==b.Zone&&a.Protocol==b.Protocol&&
+    familiesOverlap:=a.Family=="both"||b.Family=="both"||a.Family==b.Family
+    if a.Backend==b.Backend&&a.Zone==b.Zone&&a.Protocol==b.Protocol&&familiesOverlap&&
      (a.ContainsPort(b.FirstPort())||b.ContainsPort(a.FirstPort())){
      expected[i],expected[j]=true,true
     }
@@ -156,4 +159,18 @@ func TestConflictSweepMatchesPairwiseReference(t *testing.T){
    }
   }
  }
+}
+
+func TestIPv4IPv6RichRulesAreDistinct(t *testing.T){
+ v4,ok:=parseSimpleRichRule(`rule family="ipv4" port port="443" protocol="udp" drop`,"public")
+ if !ok{t.Fatal("v4 rich rejected")}
+ v6,ok:=parseSimpleRichRule(`rule family="ipv6" port port="443" protocol="udp" drop`,"public")
+ if !ok{t.Fatal("v6 rich rejected")}
+ r:=[]Rule{v4,v6}
+ markRuleConflicts(r)
+ if r[0].Conflict||r[1].Conflict{t.Fatalf("separate address families falsely conflict: %+v",r)}
+ dual:=Rule{Port:443,Protocol:"udp",Family:"both",Backend:"firewalld",Zone:"public"}
+ r=append(r,dual)
+ markRuleConflicts(r)
+ for _,item:=range r{if !item.Conflict{t.Fatalf("dual-family rule must overlap both Rich rules: %+v",r)}}
 }
