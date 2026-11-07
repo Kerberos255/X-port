@@ -354,9 +354,12 @@
     catch(err){el('fw-raw').textContent='读取失败：'+err.message+'。请在系统页检查 X-port 服务单元兼容状态；不要直接覆盖现有自定义服务文件。'}
     finally{el('fw-load-raw').disabled=false}
   })
-  el('fw-add-dialog').addEventListener('close',async()=>{
-    const action = el('fw-add-dialog').returnValue
-    el('fw-add-dialog').returnValue = ''
+  // Handle the actual form submission rather than the deferred dialog close
+  // event. This keeps confirmation and validation tied to the user's click.
+  el('fw-add-dialog').querySelector('form').addEventListener('submit',async ev=>{
+    ev.preventDefault()
+    const action=ev.submitter?.value||''
+    el('fw-add-dialog').close()
     if(action!=='apply')return
     const port=Number(el('fw-add-port').value)
     const protocol=el('fw-add-proto').value,zone=el('fw-add-zone').value
