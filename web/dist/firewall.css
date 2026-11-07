@@ -373,6 +373,7 @@ html[data-theme="light"] #page-firewall .fw-ip-cell span{color:#365c7d}
 @media(min-width:701px){
  #page-firewall .fw-table th:nth-child(1){width:12%}
  #page-firewall .fw-table th:nth-child(3){width:16%}
+ #page-firewall .fw-table th:nth-child(6){width:8%}
 }
 
 /* The medium viewport intentionally scrolls only the table, not the page. */
