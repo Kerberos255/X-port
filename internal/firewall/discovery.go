@@ -161,7 +161,7 @@ func readFTPRanges()[]ConfiguredRange{
  }
  seen:=map[string]bool{};var ranges []ConfiguredRange
  for _,item:=range paths{
-  info,err:=os.Stat(item.path)
+  info,err:=os.Lstat(item.path)
   if err!=nil||!info.Mode().IsRegular()||info.Size()>128<<10{continue}
   raw,err:=os.ReadFile(item.path);if err!=nil{continue}
   min,max:="",""
@@ -215,15 +215,21 @@ func readDocker(ctx context.Context)([]PublishedPort,bool){
  cmd:=exec.CommandContext(cctx,executable,args...)
  buf,err:=cmd.Output()
  if err!=nil||len(buf)>256<<10{return nil,true}
+ ports,err:=parseDockerInspect(buf)
+ if err!=nil{return nil,true}
+ return ports,false
+
+}
+func parseDockerInspect(buf []byte)([]PublishedPort,error){
  var ports []PublishedPort
  seen:=map[string]bool{}
- for _,line:=range strings.Split(strings.TrimSpace(string(buf)),"\n"){
+ for _,line:=range strings.Split(strings.TrimSpace(string(buf)),string(byte(10))){
   if line==""{continue}
-  parts:=strings.SplitN(line," ",2);if len(parts)!=2{return nil,true}
+  parts:=strings.SplitN(line," ",2);if len(parts)!=2{return nil,errors.New("invalid docker inspect row")}
   name:=strings.TrimPrefix(parts[0],"/")
   if len(name)>80{name=name[:80]}
   var bindings map[string][]struct{HostPort string `json:"HostPort"`}
-  if err:=json.Unmarshal([]byte(parts[1]),&bindings);err!=nil{return nil,true}
+  if err:=json.Unmarshal([]byte(parts[1]),&bindings);err!=nil{return nil,err}
   for protoPort,items:=range bindings{
    split:=strings.Split(protoPort,"/")
    if len(split)!=2||!ValidRule(1,split[1]){continue}
@@ -232,12 +238,12 @@ func readDocker(ctx context.Context)([]PublishedPort,bool){
     key:=fmt.Sprintf("%s/%d/%s",split[1],p,name)
     if seen[key]{continue};seen[key]=true
     ports=append(ports,PublishedPort{Port:p,Protocol:split[1],Container:name})
-    if len(ports)>2048{return nil,true}
+    if len(ports)>2048{return nil,errors.New("too many docker port mappings")}
    }
   }
  }
  sort.Slice(ports,func(i,j int)bool{if ports[i].Port!=ports[j].Port{return ports[i].Port<ports[j].Port};return ports[i].Container<ports[j].Container})
- return ports,false
+ return ports,nil
 }
 func Discover(ctx context.Context)(Discovery,error){
  processes,err:=readSSProcesses(ctx)
