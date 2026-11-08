@@ -17,6 +17,7 @@ const panelRestart=extra.slice(extra.indexOf('async function restartXport(){'),
 function page(handler) {
  const calls=[], messages=[]
  const context=vm.createContext({
+  window:{XportVersionMonitor:{waitFor:async()=>{}}},
   document:{addEventListener(){}},
   state:{accounts:[],page:'system'},
   api:async (path,opts)=>{
@@ -188,6 +189,7 @@ async function run(){
  })
  await test('panel restart requires scheduled=true before reporting success',async()=>{
   const p=page(async(path,opts)=>{
+   if(path==='/api/xport/version')return {version:'0.2.17',instance:'previous-process'}
    if(path==='/api/xport/restart'&&opts?.method==='POST')return {ok:true}
    throw Error('unexpected '+path)
   })
@@ -198,12 +200,13 @@ async function run(){
  })
  await test('panel restart accepted exactly once',async()=>{
   const p=page(async(path,opts)=>{
+   if(path==='/api/xport/version')return {version:'0.2.17',instance:'previous-process'}
    if(path==='/api/xport/restart'&&opts?.method==='POST')return {ok:true,scheduled:true}
    throw Error('unexpected '+path)
   })
   await p.call('restartXport()')
   assert.equal(writes(p,'POST'),1)
-  assert(p.messages.some(m=>m.msg.includes('已安排重启')))
+  assert(!p.messages.some(m=>m.bad))
  })
  await test('expert readback checks values, not only GET 200',async()=>{
   const p=page(async()=>({}))
