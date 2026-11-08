@@ -955,7 +955,7 @@ cat > "$TMP/__driver.js" <<'JS'
       globalThis.__fwConfirmResult=false
       mark('pass', `clonePort=${portInput.value};legacyHits=0;fallbackDest=${dest};layout=contained;globalXray=ok;firewallEdits=guarded`)
     } catch (err) {
-      mark('fail', String(err && err.message || err))
+      mark('fail', String(err?.stack || err).slice(0,900))
     }
   }, {once:true})
 })()
