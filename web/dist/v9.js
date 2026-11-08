@@ -54,6 +54,7 @@ function setTransportFieldVisibleV9(box,selector,visible){
  })
 }
 function resetExistingAdvancedAfterTransportChangeV9(details,full){
+ if(details)details.dataset.resetStep='entered'
  if(!full.id||!details)return
  const c=$('#expert-content')
  // Preserve user-entered expert values across security/transport switches.
@@ -64,7 +65,9 @@ function resetExistingAdvancedAfterTransportChangeV9(details,full){
    details._expertDraft[el.id]=el.type==='checkbox'?el.checked:el.value
   })
  }
+ details.dataset.resetStep='before-epoch'
  details._expertEpoch=(details._expertEpoch||0)+1
+ details.dataset.resetStep='after-epoch'
  delete details.dataset.loaded
  details._expertData=null
  if(c){c.className='advanced-loading muted tiny';c.textContent=''}
