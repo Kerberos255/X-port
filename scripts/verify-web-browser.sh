@@ -778,13 +778,13 @@ cat > "$TMP/__driver.js" <<'JS'
       // first account write, not silently reuse old TLS-only fields.
       await openAccountModalV3(state.accounts.find(a=>a.id===1))
       const realityForm=await waitFor('#account-form')
-      const advanced=realityForm.querySelector('#account-advanced')
-      advanced.open=true
+      const realityAdvanced=realityForm.querySelector('#account-advanced')
+      realityAdvanced.open=true
       await waitFor('#expert-tls-alpn')
       const selectedSecurity=realityForm.querySelector('#security-select')
       selectedSecurity.value='reality'
       selectedSecurity.dispatchEvent(new Event('change',{bubbles:true}))
-      if(!advanced.open)throw new Error('security switch unexpectedly collapsed advanced editor')
+      if(!realityAdvanced.open)throw new Error('security switch unexpectedly collapsed advanced editor')
       await waitFor('#expert-reality-target')
       if(!document.querySelector('#expert-reality-private')||
          !document.querySelector('#expert-reality-public')||
