@@ -306,7 +306,10 @@
         ()=>request('/api/firewall/edit','POST',{
           id:r.id,revision:r.revision,newPort:port,newProtocol:proto,
           externalAcknowledged:true
-        }))
+        }),(data,result)=>result?.pending
+          ?data.pending?.some(p=>p.id===result.id)
+          :data.rules?.some(row=>Number(row.port)===port&&row.protocol===proto&&
+            (row.zone||'')===(r.zone||'')))
       if(result?.pending){
         if(await XportOperation.ask({title:'请确认新端口可用',
           detail:'端口已临时修改。请确认仍能访问管理面板。\n不确认将在约 120 秒后自动恢复原端口。',
@@ -315,7 +318,7 @@
             ()=>request('/api/firewall/rules/confirm','POST',{id:result.id,token:result.token}))
           toast('外部规则已修改。请刷新原防火墙管理器确认新端口。')
         }else toast('未确认：系统将自动恢复原端口并撤销新端口')
-      }
+      }else toast('外部规则已修改并核对新端口，请在原管理器中确认')
     }catch(err){toast('外部规则编辑未完成：'+err.message,true);await refresh()}
     finally{externalEditBusy=false;selectedEditRule=null}
   }
