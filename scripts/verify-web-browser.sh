@@ -100,6 +100,8 @@ cat > "$TMP/__mock.js" <<'JS'
   }
   let fwNote = '主节点 · REALITY'
   let fwPurpose = 'Xray · VLESS'
+  let fwExternalPort = 443
+  let fwExternalProto = 'tcp'
   globalThis.fetch = (input, init = {}) => {
     const u = new URL(typeof input === 'string' ? input : input.url, location.href)
     const path = u.pathname
@@ -174,7 +176,7 @@ cat > "$TMP/__mock.js" <<'JS'
       backend:'firewalld',active:true,writable:!globalThis.__fwReadOnly,unsafeReason:globalThis.__fwReadOnly?'独立 INPUT 过滤链需要检查':'',managers:['firewalld'],defaultZone:'public',zones:['public'],services:{public:['ssh']},
       notice:'预览：简单端口规则展示；底层链可能影响结果',rules:[
         {id:'firewalld:public:22/tcp',port:22,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'未识别',purposeSource:'unknown',usage:'unused',note:'保留规则',protected:true,xray:false},
-        {id:'firewalld:public:443/tcp',port:443,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'HTTPS',purposeSource:'manual',note:'网站入口',protected:false,xray:false,kind:'port',action:'allow',managed:false,revision:'111122223333444455556666'},
+        {id:'firewalld:public:'+fwExternalPort+'/'+fwExternalProto,port:fwExternalPort,protocol:fwExternalProto,zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'HTTPS',purposeSource:'manual',note:'网站入口',protected:false,xray:false,kind:'port',action:'allow',managed:false,revision:'111122223333444455556666'},
         {id:'firewalld:public:2053/tcp',port:2053,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:fwPurpose,purposeSource:'xray',note:fwNote,protected:false,managed:true,xray:true,usage:'used',usageDetails:[{port:2053,protocol:'tcp',pid:1242,name:'xray'}],action:'allow',kind:'port',canToggle:true,accountId:1,accountName:'Alpha inbound',accountEnabled:true},
         {id:'firewalld:public:8443/tcp',port:8443,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:false,access:'区域：public',purpose:'Xray · Trojan',purposeSource:'xray',note:'临时放行，需同步',protected:false,xray:true},
         {id:'firewalld:public:rich:443/udp:deny:ipv4',port:443,protocol:'udp',family:'ipv4',zone:'public',backend:'firewalld',runtime:true,permanent:true,action:'deny',kind:'rich',access:'区域：public',purpose:'未识别',protected:true,usage:'unused'},
@@ -222,6 +224,8 @@ cat > "$TMP/__mock.js" <<'JS'
     if (path === '/api/firewall/edit' && method === 'POST') {
       globalThis.__fwEditCalls=(globalThis.__fwEditCalls||0)+1
       globalThis.__fwLastEdit=JSON.parse(init.body||'{}')
+      fwExternalPort=Number(globalThis.__fwLastEdit.newPort)
+      fwExternalProto=String(globalThis.__fwLastEdit.newProtocol)
       return json({ok:true,pending:false})
     }
     if (path === '/api/xport/version' && method === 'GET')
