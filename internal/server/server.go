@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -42,6 +43,7 @@ type Server struct {
 	dataDir        string
 	xrayService    string
 	panelService   string
+	instanceID     string
 	manager        *xray.Manager
 	firewallMu     sync.Mutex
 	trustedProxies []netip.Prefix
@@ -54,7 +56,18 @@ func New(st *store.Store, accounts *service.Accounts, updater *xray.Updater, sta
 		loginLimiter:   auth.NewLoginLimiter(8, 10*time.Minute),
 		ipLimiter:      auth.NewLoginLimiter(24, 30*time.Minute),
 		trustedProxies: trustedProxyPrefixes(),
+		instanceID:     newServerInstanceID(),
 	}
+}
+
+// A random per-process marker lets the UI distinguish a completed panel restart
+// from an older process briefly responding before systemd replaces it.
+func newServerInstanceID() string {
+	var token [16]byte
+	if _, err := rand.Read(token[:]); err == nil {
+		return hex.EncodeToString(token[:])
+	}
+	return strconv.FormatInt(time.Now().UnixNano(), 36)
 }
 
 func (s *Server) Handler() http.Handler {
