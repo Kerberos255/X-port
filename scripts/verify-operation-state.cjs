@@ -10,6 +10,9 @@ const appBackup=app.slice(app.indexOf('async function readBackupsStrict()'),
  app.indexOf("\ndocument.addEventListener('DOMContentLoaded',boot)"))
 const appRestart=app.slice(app.indexOf('async function restartXray(){'),
  app.indexOf('\nasync function loadLogs(){'))
+const extra=fs.readFileSync('web/dist/extra.js','utf8')
+const panelRestart=extra.slice(extra.indexOf('async function restartXport(){'),
+ extra.indexOf('\nfunction ensureSelfUpdateCard(){'))
 
 function page(handler) {
  const calls=[], messages=[]
@@ -21,7 +24,7 @@ function page(handler) {
    return handler(path,opts)
   },
   toast:(msg,bad)=>messages.push({msg,bad:Boolean(bad)}),
-  setTimeout,clearTimeout,confirm:()=>true,
+  setTimeout:()=>0,clearTimeout:()=>{},confirm:()=>true,
   XportOperation:{
    busy:false,
    ask:async()=>true,
@@ -40,6 +43,7 @@ function page(handler) {
  vm.runInContext(v3,context,{filename:'v3.js'})
  vm.runInContext(appBackup,context,{filename:'app-backups.js'})
  vm.runInContext(appRestart,context,{filename:'app-restart.js'})
+ vm.runInContext(panelRestart,context,{filename:'panel-restart.js'})
  vm.runInContext('sleepV3=async()=>{};waitForPanelV3=async()=>true;waitForXrayV3=async()=>false',context)
  return {context,calls,messages,call:expr=>vm.runInContext(expr,context)}
 }
@@ -181,6 +185,25 @@ async function run(){
   await assert.rejects(p.call("confirmXrayVersionV3('26.11.0')"),/状态确认/)
   const p2=page(async()=>({system:{xrayVersion:'26.11.0',xrayActive:true}}))
   await p2.call("confirmXrayVersionV3('v26.11.0')")
+ })
+ await test('panel restart requires scheduled=true before reporting success',async()=>{
+  const p=page(async(path,opts)=>{
+   if(path==='/api/xport/restart'&&opts?.method==='POST')return {ok:true}
+   throw Error('unexpected '+path)
+  })
+  await p.call('restartXport()')
+  assert.equal(writes(p,'POST'),1)
+  assert(!p.messages.some(m=>m.msg.includes('已安排重启')))
+  assert(p.messages.some(m=>m.bad))
+ })
+ await test('panel restart accepted exactly once',async()=>{
+  const p=page(async(path,opts)=>{
+   if(path==='/api/xport/restart'&&opts?.method==='POST')return {ok:true,scheduled:true}
+   throw Error('unexpected '+path)
+  })
+  await p.call('restartXport()')
+  assert.equal(writes(p,'POST'),1)
+  assert(p.messages.some(m=>m.msg.includes('已安排重启')))
  })
  await test('expert readback checks values, not only GET 200',async()=>{
   const p=page(async()=>({}))
