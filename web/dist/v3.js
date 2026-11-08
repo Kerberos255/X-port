@@ -112,11 +112,11 @@ async function readCreatedAccountV3(before,body){
  const data=await api('/api/accounts')
  return matchingCreatedAccountV3(data.accounts,before,body)
 }
-async function createAccountWithRecoveryV3(body,before){
+async function createAccountWithRecoveryV3(body,before,submit){
  let result,confirmedCreated=null
  try{
   result=await mutationWithRecoveryV3(
-   ()=>api('/api/accounts',{method:'POST',body:JSON.stringify(body)}),
+   ()=>submit?submit():api('/api/accounts',{method:'POST',body:JSON.stringify(body)}),
    async()=>{
     confirmedCreated=await readCreatedAccountV3(before,body)
     return Boolean(confirmedCreated)
@@ -274,28 +274,55 @@ async function openAccountModalV3(a=null){
 }
 
 async function toggleAccountV3(id,enabled,button){
+ if(button.disabled)return
  button.disabled=true
- try{await XportOperation.run({
-  title:enabled?'正在启用账号':'正在停用账号',detail:'账号 '+id,
-  perform:()=>mutationWithRecoveryV3(()=>api(`/api/accounts/${id}/enabled`,{method:'PATCH',body:JSON.stringify({enabled})}),async()=>{const cur=await api(`/api/accounts/${id}`);return Boolean(cur.enabled)===enabled}),
-  verify:()=>XportOperation.refreshAccounts()
- });await loadOnlineConnectionsV3(false);toast(enabled?'账号已启用':'账号已停用')}
- catch(e){toast(e.message,true);button.disabled=false}
+ try{
+  const result=await XportOperation.run({
+   title:enabled?'正在启用账号':'正在停用账号',detail:'账号 '+id,
+   perform:()=>applyConfirmedMutationV3(
+    ()=>api(`/api/accounts/${id}/enabled`,{method:'PATCH',body:JSON.stringify({enabled})}),
+    async()=>{const cur=await api(`/api/accounts/${id}`);return Boolean(cur.enabled)===enabled}),
+   verify:async()=>{
+    const rows=await XportOperation.refreshAccounts()
+    if(!rows.some(a=>Number(a.id)===id&&Boolean(a.enabled)===enabled))
+     throw uncertainMutationV3('账号启停状态未在最新列表中确认')
+   }
+  })
+  void loadOnlineConnectionsV3(false)
+  toast((enabled?'账号已启用':'账号已停用')+(result.xrayReady===false?'；Xray 尚未确认恢复':''),result.xrayReady===false)
+ }catch(err){
+  toast(err.message,true)
+  if(!err.applied&&!err.uncertain)button.disabled=false
+ }
 }
 function openCloneModalV3(id){
  const a=state.accounts.find(x=>x.id===id);openModal(`<div class="modal-title"><span>CLONE ACCOUNT</span><h2>克隆 ${esc(a?.name||'账号')}</h2></div><form id="clone-form" class="form-grid"><label>${reqLabelV3('新账号')}<input name="name" value="${esc((a?.name||'account')+' copy')}" required></label><label>${reqLabelV3('新端口')}<input name="port" type="number" min="1" max="65535" required></label><p class="muted tiny full">协议与传输参数会复制；UUID/密码自动重新生成，本期与累计流量清零。</p><div class="form-actions full"><button type="button" class="btn ghost" id="clone-cancel">取消</button><button class="btn primary" type="submit">克隆并应用</button></div></form>`)
  $('#clone-cancel').onclick=closeModal;$('#clone-form').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.currentTarget),name=String(f.get('name')||''),port=Number(f.get('port')||0),before=new Set(state.accounts.map(x=>Number(x.id)));try{await mutationWithRecoveryV3(()=>api(`/api/accounts/${id}/clone`,{method:'POST',body:JSON.stringify({name,port})}),async()=>{const d=await api('/api/accounts');return(d.accounts||[]).some(x=>!before.has(Number(x.id))&&x.name===name&&Number(x.port)===port)});closeModal();await loadAccounts();await loadOverview();await loadOnlineConnectionsV3(false);toast('账号已克隆')}catch(x){toast(x.message,true)}}
 }
 async function resetTrafficV3(id){
-  const a=state.accounts.find(x=>x.id===id)
-  if(!await XportOperation.ask({title:'确认清零本期流量',
-    detail:'账号「'+(a?.name||id)+'」的本期上下行流量将清零，累计总流量保留。',
-    confirmText:'确认清零',danger:true}))return
-  try{await XportOperation.run({
+ const a=state.accounts.find(x=>Number(x.id)===id)
+ if(!await XportOperation.ask({title:'确认清零本期流量',
+   detail:'账号「'+(a?.name||id)+'」的本期上下行流量将清零，累计总流量保留。',
+   confirmText:'确认清零',danger:true}))return
+ const cleared=async()=>{
+  const data=await api('/api/accounts')
+  const cur=(data.accounts||[]).find(x=>Number(x.id)===id)
+  return Boolean(cur&&Number(cur.upBytes||0)===0&&Number(cur.downBytes||0)===0)
+ }
+ try{
+  await XportOperation.run({
    title:'正在清零本期流量',detail:a?.name||String(id),
-   perform:()=>mutationWithRecoveryV3(()=>api(`/api/accounts/${id}/traffic/reset`,{method:'POST',body:'{}'}),async()=>{const d=await api('/api/accounts');const cur=(d.accounts||[]).find(x=>Number(x.id)===id);return cur&&Number(cur.upBytes||0)===0&&Number(cur.downBytes||0)===0},false),
-   verify:()=>XportOperation.refreshAccounts()
-  });toast('本期流量已清零')}catch(e){toast(e.message,true)}
+   perform:()=>applyConfirmedMutationV3(
+    ()=>api(`/api/accounts/${id}/traffic/reset`,{method:'POST',body:'{}'}),cleared,
+    {requireXray:false}),
+   verify:async()=>{
+    const rows=await XportOperation.refreshAccounts()
+    if(!rows.some(cur=>Number(cur.id)===id&&Number(cur.upBytes||0)===0&&Number(cur.downBytes||0)===0))
+     throw uncertainMutationV3('流量清零状态未在最新列表确认')
+   }
+  })
+  toast('本期流量已清零')
+ }catch(err){toast(err.message,true)}
 }
 async function refreshAccountsAfterDeleteV3(id){
   for(let attempt=0;attempt<6;attempt++){
