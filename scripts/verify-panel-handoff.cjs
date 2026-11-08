@@ -87,7 +87,8 @@ function harness({missingPagehide=false}={}){
   setTimeout,clearTimeout,
   toast:(message,bad)=>toasts.push({message,bad}),
   $:()=>({disabled:false,textContent:''}),
-  xportSelfUpdate:{current:'0.2.17',latest:'0.2.18',available:true}
+  xportSelfUpdate:{current:'0.2.17',latest:'0.2.18',available:true},
+  isTransientNetworkErrorV3:err=>!err?.status&&/Failed to fetch|NetworkError/.test(err?.message||'')
  })
  vm.runInContext(progressSource,context,{filename:'operation-progress.js'})
  vm.runInContext(monitorSource,context,{filename:'version-monitor.js'})
@@ -173,6 +174,55 @@ async function run(){
   await action
   assert.equal(h.navigations.length,1)
   assert.match(h.navigations[0],/_xport_ui=0.2.17/)
+  assert.equal(h.apiCalls.filter(x=>x.method==='POST').length,1)
+ })
+ await test('lost update POST response waits for target without replaying write',async()=>{
+  const h=harness()
+  h.context.api=async(path,opts)=>{
+   h.apiCalls.push({path,method:opts?.method||'GET'})
+   if(path==='/api/xport/update-state')return {firewallPending:false}
+   if(path==='/api/xport/update'&&opts?.method==='POST')throw Error('Failed to fetch')
+   throw Error('unexpected '+path)
+  }
+  const action=h.call('updateXport()')
+  await waitUntil(()=>h.apiCalls.some(x=>x.method==='POST'),'lost update POST')
+  await sleep(20)
+  assert.equal(h.dialog.open,true)
+  h.setVersion('0.2.18')
+  await action
+  assert.equal(h.navigations.length,1)
+  assert.equal(h.apiCalls.filter(x=>x.method==='POST').length,1)
+ })
+ await test('lost restart POST response waits for new process without replaying write',async()=>{
+  const h=harness()
+  h.context.api=async(path,opts)=>{
+   h.apiCalls.push({path,method:opts?.method||'GET'})
+   if(path==='/api/xport/version')return {version:'0.2.17',instance:'instance-A'}
+   if(path==='/api/xport/restart'&&opts?.method==='POST')throw Error('NetworkError')
+   throw Error('unexpected '+path)
+  }
+  const action=h.call('restartXport()')
+  await waitUntil(()=>h.apiCalls.some(x=>x.method==='POST'),'lost restart POST')
+  await sleep(20)
+  assert.equal(h.dialog.open,true)
+  h.setInstance('instance-B')
+  await action
+  assert.equal(h.navigations.length,1)
+  assert.equal(h.apiCalls.filter(x=>x.method==='POST').length,1)
+ })
+ await test('definitive update rejection does not wait or claim completion',async()=>{
+  const h=harness()
+  h.context.api=async(path,opts)=>{
+   h.apiCalls.push({path,method:opts?.method||'GET'})
+   if(path==='/api/xport/update-state')return {firewallPending:false}
+   const err=Error('access denied');err.status=403;throw err
+  }
+  const action=h.call('updateXport()')
+  await waitUntil(()=>!h.actions.hidden,'definitive rejection')
+  assert.equal(h.dialog.open,true)
+  assert.equal(h.navigations.length,0)
+  h.dismiss.click()
+  await action
   assert.equal(h.apiCalls.filter(x=>x.method==='POST').length,1)
  })
  await test('wrong target version never reports successful update',async()=>{
