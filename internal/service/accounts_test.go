@@ -109,3 +109,22 @@ func TestApplyFailureDoesNotPersist(t *testing.T) {
 		t.Fatal("persisted failed mutation")
 	}
 }
+
+func TestRestoreSnapshotRollsBackDatabaseWhenXrayApplyFails(t *testing.T) {
+ st,err:=store.Open(filepath.Join(t.TempDir(),"rollback.sqlite"))
+ if err!=nil{t.Fatal(err)}
+ defer st.Close()
+ applier:=&fakeApply{}
+ accounts:=NewAccounts(st,applier)
+ if _,err=accounts.Create(accountcfg.Input{Name:"saved",Enabled:true,Port:24001,ServerName:"example.com"});err!=nil{t.Fatal(err)}
+ previous,err:=st.Snapshot()
+ if err!=nil{t.Fatal(err)}
+ if _,err=accounts.Create(accountcfg.Input{Name:"newer",Enabled:true,Port:24002,ServerName:"example.com"});err!=nil{t.Fatal(err)}
+ applier.fail=true
+ if err=accounts.RestoreSnapshot(previous);err==nil{t.Fatal("restore should fail when Xray cannot apply")}
+ actual,err:=accounts.List()
+ if err!=nil{t.Fatal(err)}
+ if len(actual)!=2||actual[0].Name!="saved"||actual[1].Name!="newer"{
+  t.Fatalf("failed restore modified original database: %+v",actual)
+ }
+}
