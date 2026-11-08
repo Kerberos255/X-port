@@ -182,16 +182,18 @@ func TestUpdateFromNonRealityGeneratesUniqueRealitySecrets(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		security string
+		network string
 		initialSNI string
 		newSNI string
 	}{
 		{name: "none", security: "none", newSNI: "www.example.com"},
 		{name: "tls-preserve-sni", security: "tls", initialSNI: "www.example.com"},
+		{name: "xhttp-none", security: "none", network: "xhttp", newSNI: "www.example.com"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			a, err := New(Input{Name: "Alpha", Port: 25150, Protocol: "vless", Security: tc.security, ServerName: tc.initialSNI}, 0)
+			a, err := New(Input{Name: "Alpha", Port: 25150, Protocol: "vless", Network: tc.network, Security: tc.security, ServerName: tc.initialSNI}, 0)
 			if err != nil { t.Fatal(err) }
-			a, err = Update(a, Input{Name: "Alpha", Port: a.Port, Protocol: "vless", Security: "reality", ServerName: tc.newSNI})
+			a, err = Update(a, Input{Name: "Alpha", Port: a.Port, Protocol: "vless", Network: tc.network, Security: "reality", ServerName: tc.newSNI})
 			if err != nil { t.Fatal(err) }
 			v, err := ToView(a)
 			if err != nil { t.Fatal(err) }
