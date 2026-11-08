@@ -151,6 +151,7 @@
       if (seq !== state.sequence) return
       state.data = data
       render()
+      return data
     } catch (err) {
       if (seq !== state.sequence) return
       state.data = null
@@ -162,8 +163,14 @@
   }
   // Keep the progress dialog active until the new firewall snapshot is read.
   // A returned write is not proof that the visible rule list is up to date.
-  const applyRule=(title,detail,perform)=>XportOperation.run({
-    title,detail,perform,verify:()=>refresh(true)
+  const applyRule=(title,detail,perform,check)=>XportOperation.run({
+    title,detail,perform,
+    verify:async result=>{
+      await readConfirmedStateV3(async()=>{
+        const data=await refresh(true)
+        return !check||Boolean(check(data,result))
+      },{attempts:5,delayMs:650})
+    }
   })
   function setTab(tab) {
     state.tab=tab
@@ -185,7 +192,7 @@
           const result=await request('/api/firewall/'+endpoint,'PUT',{id:edit.id,[edit.key]:value})
           state.editing=null
           return result
-        })
+        },data=>data.rules?.some(r=>r.id===edit.id&&String(r[edit.key]||'')===value))
       toast('保存成功')
     } catch(err) {toast(err.message,true)}
   }
@@ -435,7 +442,9 @@
       confirmText:'确认添加'}))return
     try{
       await applyRule('正在添加防火墙规则',port+' / '+protocol.toUpperCase()+' · '+zone,
-        ()=>request('/api/firewall/rules','POST',{action:'add',port,protocol,zone}))
+        ()=>request('/api/firewall/rules','POST',{action:'add',port,protocol,zone}),
+        data=>data.rules?.some(r=>Number(r.port)===port&&r.protocol===protocol&&
+          (r.zone||'')===zone&&(r.action==='allow'||r.action==='accept'||!r.action)))
       toast('规则已添加')
     }catch(err){toast('添加结果未确认：'+err.message,true);await refresh()}
   })
@@ -455,7 +464,10 @@
       confirmText:'确认删除',danger:true}))return
     try{
       const result=await applyRule('正在删除防火墙规则',portText(r)+' / '+r.protocol.toUpperCase(),
-        ()=>request('/api/firewall/rules','POST',{action:'remove',port:r.port,protocol:r.protocol,zone:r.zone||''}))
+        ()=>request('/api/firewall/rules','POST',{action:'remove',port:r.port,protocol:r.protocol,zone:r.zone||''}),
+        (data,result)=>result?.pending
+          ?data.pending?.some(p=>p.id===result.id)
+          :!data.rules?.some(x=>x.id===r.id&&x.runtime&&x.permanent))
       if(result?.pending) {
         if(await XportOperation.ask({title:'请确认删除后仍可连接',
           detail:'端口规则已临时关闭。请先确认管理面板仍可访问。\n若不确认，系统约 120 秒后自动恢复放行。',
