@@ -16,7 +16,7 @@ function harness({missingPagehide=false}={}){
  let guardStatus=200,dialogOpen=false,editDialog=false
  const navigations=[],stages=[],toasts=[],apiCalls=[],events=new Map()
  const elements={}
- const mk=(name,extra={})=>Object.assign({id:name,textContent:'',hidden:false,addEventListener(){},removeEventListener(){}},extra)
+ const mk=(name,extra={})=>Object.assign({id:name,textContent:'',hidden:false,dataset:{},addEventListener(){},removeEventListener(){}},extra)
  const modal=mk('operation-progress',{
   get open(){return dialogOpen},
   showModal(){dialogOpen=true},
