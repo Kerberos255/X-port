@@ -1056,8 +1056,8 @@ cat > "$TMP/__driver.js" <<'JS'
          document.querySelector('#operation-progress')?.dataset.phase!=='error'||
          !document.querySelector('#operation-progress-detail').textContent.includes('超时'))
         throw new Error('panel timeout silently closed or failed to explain the result')
-      const bounds=progress.getBoundingClientRect()
-      if(Math.abs(bounds.top+bounds.height/2-innerHeight/2)>innerHeight*.14)
+      const handoffBounds=progress.getBoundingClientRect()
+      if(Math.abs(handoffBounds.top+handoffBounds.height/2-innerHeight/2)>innerHeight*.14)
         throw new Error('panel update failure modal is not centered')
       dismiss.click()
       const failure=await handoffTest
