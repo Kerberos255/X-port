@@ -18,10 +18,10 @@ function harness({missingPagehide=false}={}){
  const elements={}
  const mk=(name,extra={})=>Object.assign({id:name,textContent:'',hidden:false,dataset:{},addEventListener(){},removeEventListener(){}},extra)
  const modal=mk('operation-progress',{
-  get open(){return dialogOpen},
   showModal(){dialogOpen=true},
   close(){dialogOpen=false}
  })
+ Object.defineProperty(modal,'open',{get:()=>dialogOpen})
  const actions=mk('operation-failure-actions',{hidden:true})
  let dismissHandler=null
  const dismiss=mk('operation-failure-dismiss',{
