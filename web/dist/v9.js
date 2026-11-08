@@ -55,11 +55,25 @@ function setTransportFieldVisibleV9(box,selector,visible){
 }
 function resetExistingAdvancedAfterTransportChangeV9(details,full){
  if(!full.id||!details)return
- details.open=false
+ const c=$('#expert-content')
+ // Preserve user-entered expert values across security/transport switches.
+ if(details._expertData&&c){
+  if(!details._expertDraft)details._expertDraft={}
+  $('input[id],select[id],textarea[id]',c).forEach(el=>{
+   if(el.readOnly)return
+   details._expertDraft[el.id]=el.type==='checkbox'?el.checked:el.value
+  })
+ }
+ details._expertEpoch=(details._expertEpoch||0)+1
  delete details.dataset.loaded
  details._expertData=null
- const c=$('#expert-content')
  if(c){c.className='advanced-loading muted tiny';c.textContent=''}
+ // Keep an already expanded editor open and replace its mode-specific fields,
+ // rather than waiting for it to be manually collapsed and reopened.
+ if(details.open){
+  details.dataset.loaded='1'
+  void loadExpertV3(full.id,details)
+ }
 }
 function bindDirectProtocolAdvancedV9(p,details,full){
  if(full.id||!details)return
