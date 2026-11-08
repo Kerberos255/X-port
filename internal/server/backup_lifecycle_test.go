@@ -174,7 +174,7 @@ func TestBackupExportAndUnauthenticatedOperationsHTTP(t *testing.T){
  png:=false
  for name:=range names{if strings.HasPrefix(name,"qr/")&&strings.HasSuffix(name,".png"){png=true}}
  if !foundLink||!png{t.Fatalf("export ZIP missing valid links or QR image: %+v",names)}
- if rec:=get(http.MethodGet,"/api/accounts/export?host=",cookie);rec.Code!=http.StatusBadRequest{
+ if rec:=get(http.MethodGet,"/api/accounts/export?host="+strings.Repeat("x",513),cookie);rec.Code!=http.StatusBadRequest{
   t.Fatalf("empty export hostname accepted: %d",rec.Code)
  }
  if rec:=get(http.MethodPost,"/api/xray/restart",cookie);rec.Code!=http.StatusServiceUnavailable{
