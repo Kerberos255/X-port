@@ -269,21 +269,69 @@ function expertBodyFromFormV3(d){
 }
 async function loadExpertV3(id,details){
  const c=$('#expert-content');if(!c)return
+ const epoch=details._expertEpoch||0
  c.textContent='正在读取高级配置…'
  try{
-  const d=await api(`/api/accounts/${id}/expert`);c.innerHTML=renderExpertV3(d)
-  $('#save-expert').onclick=async()=>{
-   const b=$('#save-expert'),body=expertBodyFromFormV3(d);b.disabled=true;b.textContent='应用中…'
+  const stored=await api(`/api/accounts/${id}/expert`)
+  // An earlier request must not repaint a newly selected security mode.
+  if((details._expertEpoch||0)!==epoch||!details.open||$('#account-advanced')!==details)return
+  const network=editorNetworkV9($('#network-select')?.value||'tcp')
+  const security=String($('#security-select')?.value||'none').toLowerCase()
+  const preview=syntheticExpertV6(stored.protocol,network==='ws'?'websocket':network,security)
+  const changed=preview.method!==stored.method||preview.security!==stored.security
+  const d=changed?{
+   ...stored,...preview,
+   fallbacksJson:preview.supportsFallbacks?stored.fallbacksJson:'[]'
+  }:stored
+  c.innerHTML=renderExpertV3(d)
+  details.dataset.loaded='1'
+  details._expertData=null
+  let restored=false
+  for(const [id,saved] of Object.entries(details._expertDraft||{})){
+   const node=document.getElementById(id)
+   if(!node||node.readOnly)continue
+   if(node.type==='checkbox')node.checked=Boolean(saved)
+   else node.value=String(saved)
+   restored=true
+  }
+  if(restored)details._expertData=d
+  const markDraft=e=>{
+   const el=e.target
+   if(!el?.id||el.readOnly||!el.matches('input,select,textarea'))return
+   if(!details._expertDraft)details._expertDraft={}
+   details._expertDraft[el.id]=el.type==='checkbox'?el.checked:el.value
+   details._expertData=d
+  }
+  c.oninput=markDraft
+  c.onchange=markDraft
+  const save=$('#save-expert')
+  if(changed){
+   // The live editor is still unsaved. Applying advanced fields to the old
+   // stream would silently write the wrong security/method.
+   save.disabled=true
+   save.textContent='请使用底部「保存并应用」'
+   const hint=document.createElement('p')
+   hint.className='muted tiny full expert-note'
+   hint.textContent='传输或安全设置尚未保存；底部「保存并应用」会先更新账号，再应用本页已修改的高级参数。'
+   save.closest('.expert-actions')?.before(hint)
+   return
+  }
+  save.onclick=async()=>{
+   const body=expertBodyFromFormV3(d);save.disabled=true;save.textContent='应用中…'
    try{
     await XportOperation.run({
      title:'正在保存高级设置',detail:'账号 '+id+' · Xray 配置',
      perform:()=>mutationWithRecoveryV3(()=>api(`/api/accounts/${id}/expert`,{method:'PUT',body:JSON.stringify(body)}),async()=>Boolean(await api(`/api/accounts/${id}/expert`))),
      verify:()=>XportOperation.refreshAccounts()
     })
+    details._expertDraft=null
+    details._expertData=null
     toast('高级设置已应用');await loadAccounts();await loadOverview();await loadOnlineConnectionsV3(false);await loadExpertV3(id,details)
-   }catch(e){toast(e.message,true);b.disabled=false;b.textContent='保存高级设置'}
+   }catch(e){toast(e.message,true);save.disabled=false;save.textContent='保存高级设置'}
   }
- }catch(e){c.innerHTML=`<p class="error tiny">${esc(e.message)}</p>`}
+ }catch(e){
+  if((details._expertEpoch||0)===epoch)c.innerHTML=`<p class="error tiny">${esc(e.message)}</p>`
+ }
 }
 async function openAccountModalV3(a=null){
  let full=a||{};if(a?.id){try{full=await api(`/api/accounts/${a.id}`)}catch(e){toast(e.message,true);return}}
