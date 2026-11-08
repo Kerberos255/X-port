@@ -80,24 +80,76 @@ openAccountModalV3=async function(a=null){
  if(full.id)details?.addEventListener('toggle',()=>{if(details.open&&!details.dataset.loaded){details.dataset.loaded='1';void loadExpertV3(full.id,details)}})
  $('#protocol-select')?.addEventListener('change',()=>{const p=$('#protocol-select').value;full={...full,protocol:p,credential:'',username:'',password:'',serverPassword:'',privateKey:'',shortId:'',serverName:'',dest:'',host:'',path:'',serviceName:'',network:'tcp',security:(p==='vless'||p==='trojan')?'reality':'none',flow:''};refreshProtocolFieldsV3(full)})
  $('#account-form').onsubmit=async e=>{
-  e.preventDefault();const f=e.currentTarget,p=full.id?full.protocol:formValue(f,'protocol'),port=Number(formValue(f,'port')||0),fd=new FormData(f)
+  e.preventDefault()
+  const f=e.currentTarget
+  // Even programmatic submit events must never issue a second write.
+  if(f.dataset.submitting==='1')return
+  f.dataset.submitting='1'
+  const p=full.id?full.protocol:formValue(f,'protocol')
+  const port=Number(formValue(f,'port')||0),fd=new FormData(f)
   const body={name:formValue(f,'name'),enabled:fd.get('enabled')==='on',monthlyReset:fd.get('monthlyReset')==='on',port,protocol:p,credential:formValue(f,'credential'),username:formValue(f,'username'),password:formValue(f,'password'),serverPassword:formValue(f,'serverPassword'),clientSecurity:formValue(f,'clientSecurity'),method:formValue(f,'method'),flow:formValue(f,'flow'),network:formValue(f,'network'),security:formValue(f,'security'),serverName:formValue(f,'serverName'),dest:formValue(f,'dest'),privateKey:formValue(f,'privateKey'),shortId:formValue(f,'shortId'),host:formValue(f,'host'),path:formValue(f,'path'),serviceName:formValue(f,'serviceName'),quotaBytes:Math.round(Number(formValue(f,'quota')||0)*1073741824),expiryTime:formValue(f,'expiry')?new Date(formValue(f,'expiry')).getTime():0}
   const expertData=(details?.dataset.loaded==='1'&&details._expertData)?expertBodyFromFormV3(details._expertData):null
-  const b=f.querySelector('button[type=submit]');b.disabled=true;b.textContent='应用中…';const before=new Set(state.accounts.map(x=>Number(x.id)))
+  const b=f.querySelector('button[type=submit]')
+  b.disabled=true;b.textContent='应用中…'
+  let savedID=Number(full.id||0),accountSaved=false,expertDeferred=false
   try{
-   await XportOperation.run({
+   // Snapshot the authoritative IDs before the write. A stale rendered list
+   // cannot distinguish an existing port conflict from a newly created row.
+   let before=new Set()
+   if(!full.id){
+    const snapshot=await api('/api/accounts')
+    before=new Set((snapshot.accounts||[]).map(x=>Number(x.id)))
+   }
+   const outcome=await XportOperation.run({
     title:full.id?'正在保存账号':'正在创建账号',
     detail:(body.name||'账号')+' · '+(body.port||'自动端口')+' / '+String(p).toUpperCase(),
     perform:async()=>{
-   const result=await mutationWithRecoveryV3(()=>full.id?api(`/api/accounts/${full.id}`,{method:'PUT',body:JSON.stringify(body)}):api('/api/accounts',{method:'POST',body:JSON.stringify(body)}),async()=>{if(full.id){const cur=await api(`/api/accounts/${full.id}`);return cur.name===body.name&&Number(cur.port)===(body.port||Number(cur.port))}const d=await api('/api/accounts');return(d.accounts||[]).some(x=>!before.has(Number(x.id))&&x.name===body.name)})
-   let savedID=Number(full.id||result.value?.id||0)
-   if(!savedID&&!full.id){const d=await api('/api/accounts');const created=(d.accounts||[]).find(x=>!before.has(Number(x.id))&&x.name===body.name);savedID=Number(created?.id||0)}
-   if(expertData&&savedID)await mutationWithRecoveryV3(()=>api(`/api/accounts/${savedID}/expert`,{method:'PUT',body:JSON.stringify(expertData)}),async()=>Boolean(await api(`/api/accounts/${savedID}/expert`)))
+     const result=full.id
+      ?await mutationWithRecoveryV3(()=>api(`/api/accounts/${full.id}`,{method:'PUT',body:JSON.stringify(body)}),async()=>{const cur=await api(`/api/accounts/${full.id}`);return cur.name===body.name&&Number(cur.port)===(body.port||Number(cur.port))})
+      :await createAccountWithRecoveryV3(body,before)
+     savedID=Number(full.id||result.value?.id||0)
+     if(!full.id&&!savedID){
+      const created=await readCreatedAccountV3(before,body)
+      savedID=Number(created?.id||0)
+     }
+     if(!full.id&&!savedID){
+      const uncertain=new Error('创建请求状态已变化，但无法确认新账号 ID；请刷新账号列表，不要重复创建')
+      uncertain.uncertain=true
+      throw uncertain
+     }
+     accountSaved=true
+     if(expertData&&savedID){
+      if(result.xrayReady===false)expertDeferred=true
+      else await mutationWithRecoveryV3(
+       ()=>api(`/api/accounts/${savedID}/expert`,{method:'PUT',body:JSON.stringify(expertData)}),
+       async()=>Boolean(await api(`/api/accounts/${savedID}/expert`)))
+     }
+     return result
     },
-    verify:()=>XportOperation.refreshAccounts()
+    verify:async()=>{
+     const rows=await XportOperation.refreshAccounts()
+     if(!rows.some(x=>Number(x.id)===savedID))
+      throw new Error('账号 ID 尚未出现在刷新后的列表中')
+    }
    })
-   closeModal();await loadOnlineConnectionsV3(false);toast(full.id?'账号已更新':'账号已创建')
-  }catch(x){toast(x.message,true);if(!x.applied){b.disabled=false;b.textContent=full.id?'保存并应用':'创建并应用'}}
+   closeModal()
+   void loadOnlineConnectionsV3(false).catch(()=>{})
+   const action=full.id?'账号已更新':'账号已创建'
+   const delayed=outcome?.xrayReady===false
+   toast(expertDeferred?action+'；Xray 尚未恢复，高级设置未应用，请稍后编辑确认':
+    delayed?action+'；Xray 尚未确认恢复，请检查核心状态':action,
+    delayed||expertDeferred)
+  }catch(err){
+   if(accountSaved){
+    closeModal()
+    try{await XportOperation.refreshAccounts()}catch{}
+    toast((full.id?'账号已保存':'账号已创建')+'，但后续设置或列表核对未完成：'+err.message,true)
+   }else{
+    const uncertain=Boolean(err.applied||err.uncertain)
+    if(!uncertain){f.dataset.submitting='0';b.disabled=false;b.textContent=full.id?'保存并应用':'创建并应用'}
+    toast((uncertain?'操作结果尚未确认，请先刷新账号列表：':'')+err.message,true)
+   }
+  }
  }
 }
 openAccountModal=openAccountModalV3
