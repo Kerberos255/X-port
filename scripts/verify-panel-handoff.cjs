@@ -220,6 +220,7 @@ async function run(){
   const action=h.call('updateXport()')
   await waitUntil(()=>!h.actions.hidden,'definitive rejection')
   assert.equal(h.dialog.open,true)
+  assert.equal(h.title.textContent,'操作失败')
   assert.equal(h.navigations.length,0)
   h.dismiss.click()
   await action
