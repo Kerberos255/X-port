@@ -26,15 +26,8 @@ if(typeof createAdvancedV3==='function'){
 
 /* Advanced settings are loaded into the account form and saved by the same
    bottom-right Save button as the rest of the account. */
-loadExpertV3=async function(id,details){
- const c=$('#expert-content');if(!c)return
- c.textContent='正在读取…'
- try{
-  const d=await api(`/api/accounts/${id}/expert`)
-  details._expertData=d
-  c.innerHTML=renderExpertV3(d)
- }catch(e){c.innerHTML=`<p class="error tiny">${esc(e.message)}</p>`}
-}
+// Keep the security-aware loadExpertV3 implementation from v3.js.
+// Replacing it here would pin Advanced to the persisted transport mode.
 
 function editorPolicyV5(name,label,checked){
  return `<label class="editor-policy"><input name="${name}" type="checkbox" ${checked?'checked':''}><span class="editor-policy-track"><i></i></span><span>${label}</span></label>`
