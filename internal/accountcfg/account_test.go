@@ -177,3 +177,55 @@ func TestVLESSEncryptionImportIsReadOnly(t *testing.T) {
 		t.Fatal("VLESS Encryption import must remain read-only until a dedicated editor exists")
 	}
 }
+
+func TestUpdateFromNonRealityGeneratesUniqueRealitySecrets(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		security string
+		initialSNI string
+		newSNI string
+	}{
+		{name: "none", security: "none", newSNI: "www.example.com"},
+		{name: "tls-preserve-sni", security: "tls", initialSNI: "www.example.com"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a, err := New(Input{Name: "Alpha", Port: 25150, Protocol: "vless", Security: tc.security, ServerName: tc.initialSNI}, 0)
+			if err != nil { t.Fatal(err) }
+			a, err = Update(a, Input{Name: "Alpha", Port: a.Port, Protocol: "vless", Security: "reality", ServerName: tc.newSNI})
+			if err != nil { t.Fatal(err) }
+			v, err := ToView(a)
+			if err != nil { t.Fatal(err) }
+			if v.Security != "reality" || v.ServerName != "www.example.com" || v.Dest != "www.example.com:443" || v.PrivateKey == "" || v.ShortID == "" {
+				t.Fatalf("incomplete REALITY transition: %+v", v)
+			}
+			uri, err := ShareURI(a, "proxy.example.com")
+			if err != nil { t.Fatal(err) }
+			u, err := url.Parse(uri)
+			if err != nil { t.Fatal(err) }
+			if u.Query().Get("pbk") == "" || u.Query().Get("sni") != v.ServerName {
+				t.Fatalf("share URI missing derived key or SNI: %s", uri)
+			}
+			again, err := New(Input{Name: "Another", Port: 25151, Protocol: "vless", Security: "none"}, 0)
+			if err != nil { t.Fatal(err) }
+			again, err = Update(again, Input{Name: "Another", Port: again.Port, Protocol: "vless", Security: "reality", ServerName: "www.example.com"})
+			if err != nil { t.Fatal(err) }
+			av, _ := ToView(again)
+			if av.PrivateKey == v.PrivateKey || av.ShortID == v.ShortID { t.Fatal("REALITY transition reused credentials") }
+		})
+	}
+}
+
+func TestUpdateToRealityRequiresServerNameAndPreservesExplicitKeys(t *testing.T) {
+	a, err := New(Input{Name: "Alpha", Port: 25160, Protocol: "vless", Security: "none"}, 0)
+	if err != nil { t.Fatal(err) }
+	if _, err := Update(a, Input{Name: "Alpha", Port: a.Port, Protocol: "vless", Security: "reality"}); err == nil || !strings.Contains(err.Error(), "Server Name") {
+		t.Fatalf("missing REALITY SNI should be actionable: %v", err)
+	}
+	withKey, err := New(Input{Name: "KeyOwner", Port: 25161, Protocol: "vless", Security: "reality", ServerName: "www.example.com"}, 0)
+	if err != nil { t.Fatal(err) }
+	kv, _ := ToView(withKey)
+	a, err = Update(a, Input{Name: "Alpha", Port: a.Port, Protocol: "vless", Security: "reality", ServerName: "www.example.com", PrivateKey: kv.PrivateKey, ShortID: "aabbccdd"})
+	if err != nil { t.Fatal(err) }
+	v, _ := ToView(a)
+	if v.PrivateKey != kv.PrivateKey || v.ShortID != "aabbccdd" { t.Fatal("explicit REALITY key/short ID overwritten") }
+}
