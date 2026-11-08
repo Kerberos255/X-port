@@ -93,10 +93,19 @@ async function confirmXrayReadyV3(){
 async function confirmXrayVersionV3(expected){
  const target=String(expected||'').replace(/^v/i,'')
  await readConfirmedStateV3(async()=>{
-  const d=await api('/api/xray/update')
-  return target&&String(d?.current||'').replace(/^v/i,'')===target
- },{attempts:7,delayMs:750})
- await confirmXrayReadyV3()
+  const d=await api('/api/overview')
+  return target&&Boolean(d?.system?.xrayActive)&&
+   String(d?.system?.xrayVersion||'').replace(/^v/i,'')===target
+ },{attempts:9,delayMs:750})
+}
+function sameJSONV3(a,b){
+ if(a===b)return true
+ if(a==null||b==null||typeof a!==typeof b)return false
+ if(typeof a!=='object')return false
+ if(Array.isArray(a)!==Array.isArray(b))return false
+ const keysA=Object.keys(a).sort(),keysB=Object.keys(b).sort()
+ return keysA.length===keysB.length&&
+  keysA.every((k,i)=>k===keysB[i]&&sameJSONV3(a[k],b[k]))
 }
 
 
