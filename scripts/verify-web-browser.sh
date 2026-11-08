@@ -809,6 +809,90 @@ cat > "$TMP/__driver.js" <<'JS'
       document.querySelector('#modal-close').click()
       globalThis.__mockCreateMode='success'
       globalThis.__mockCreatedAccount=null
+
+      // The remaining pages are tested with stateful, never-real API mocks.
+      // Each action below must read back its persisted state.
+      globalThis.__fwConfirmResult=true
+      document.querySelector('#nav [data-page="xray"]').click()
+      await loadLogs()
+      if(!document.querySelector('#log-output').textContent.includes('browser-log-ok'))
+        throw new Error('Xray log refresh did not update the visible log')
+      const restarts=globalThis.__mockXrayRestartCalls
+      await restartXray()
+      if(globalThis.__mockXrayRestartCalls!==restarts+1)
+        throw new Error('Xray restart did not submit exactly once')
+      globalThis.__mockXrayAvailable=true
+      await checkUpdate(false)
+      await updateXray()
+      if(globalThis.__mockXrayVersion!=='test-next')
+        throw new Error('Xray update did not confirm target running version')
+      await checkXrayRollback()
+      await rollbackXray()
+      if(globalThis.__mockXrayVersion!=='test')
+        throw new Error('Xray rollback did not confirm prior running version')
+      globalThis.__mockGeodataAvailable=true
+      await checkGeodata(false)
+      await updateGeodata()
+      if(globalThis.__mockGeodataCurrent!=='test-next')
+        throw new Error('GeoData update did not confirm persisted version')
+      const configEditor=await waitFor('#xray-global-config')
+      await loadGlobalXrayConfigV11(false)
+      const altered={routing:{rules:[]},dns:{},outbounds:[],policy:{}}
+      configEditor.value=JSON.stringify(altered)
+      await saveGlobalXrayConfigV11()
+      if(!sameJSONV3(globalThis.__mockGlobalConfig,altered))
+        throw new Error('Xray global editor did not persist exact changed JSON')
+      document.querySelector('#nav [data-page="overview"]').click()
+      document.querySelector('#refresh-overview').click()
+      await waitForTextContains('#toast','服务器状态已刷新')
+      document.querySelector('#nav [data-page="system"]').click()
+      await loadSettingsV6()
+      const settingsForm=document.querySelector('#settings-form')
+      settingsForm.elements.namedItem('portMin').value='20001'
+      await settingsForm.onsubmit({preventDefault(){},currentTarget:settingsForm})
+      if(Number(globalThis.__mockSettings.portMin)!==20001)
+        throw new Error('system settings save did not persist the changed port minimum')
+      // Create/import/delete backup controls must mutate and verify named rows.
+      const backupBefore=globalThis.__mockBackupCalls
+      await createBackup()
+      if(globalThis.__mockBackupCalls!==backupBefore+1||
+         !document.querySelector('#backup-list .backup-row'))
+        throw new Error('backup creation did not persist and render its identity')
+      await importBackupFile(new File(['gzip-fixture'],'browser.gz',{type:'application/gzip'}))
+      if(globalThis.__mockBackups.length!==2)
+        throw new Error('backup import did not confirm second persisted identity')
+      const firstBackup=globalThis.__mockBackups[0].name
+      await deleteBackup(firstBackup)
+      if(globalThis.__mockBackups.some(x=>x.name===firstBackup)||
+         globalThis.__mockBackups.length!==1)
+        throw new Error('backup delete did not confirm exact target absence')
+      const secondBackup=globalThis.__mockBackups[0].name
+      await deleteBackup(secondBackup)
+      if(globalThis.__mockBackups.length||document.querySelector('#backup-list .backup-row'))
+        throw new Error('backup deletion left a stale row')
+      // All page navigation and non-write controls should remain operable.
+      document.querySelector('#check-xport-update').click()
+      await sleep(50)
+      if(!document.querySelector('#xport-update-state'))
+        throw new Error('panel update check control missing')
+      const modeBefore=document.documentElement.dataset.theme
+      document.querySelector('#theme-toggle').click()
+      if(document.documentElement.dataset.theme===modeBefore)
+        throw new Error('theme toggle did not switch mode')
+      document.querySelector('#theme-toggle').click()
+      globalThis.__fwConfirmResult=false
+      document.querySelector('#export-accounts').click()
+      await sleep(15)
+      if(document.querySelector('.operation-confirm-input'))
+        throw new Error('cancelled account-export prompt left an input behind')
+      document.querySelector('#restart-xport').click()
+      await sleep(25)
+      if(XportOperation.busy)
+        throw new Error('cancelled panel restart issued an operation')
+      document.querySelector('#nav [data-page="firewall"]').click()
+      document.querySelector('#fw-load-raw').click()
+      await waitForTextContains('#fw-raw','table inet firewalld')
+      globalThis.__fwConfirmResult=false
       // A verification failure must release the modal but prevent blind retry.
       const uncertain=await XportOperation.run({
         title:'状态核对测试',perform:async()=>({ok:true}),
@@ -839,7 +923,7 @@ done
 curl -fsS "http://127.0.0.1:$PORT/" >/dev/null
 
 DOM="$TMP/dom.html"
-"$BROWSER" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage --virtual-time-budget=7000 --dump-dom "http://127.0.0.1:$PORT/" > "$DOM" 2>"$TMP/browser.log" || {
+"$BROWSER" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage --virtual-time-budget=18000 --dump-dom "http://127.0.0.1:$PORT/" > "$DOM" 2>"$TMP/browser.log" || {
   cat "$TMP/browser.log" >&2
   exit 1
 }
