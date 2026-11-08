@@ -157,7 +157,8 @@ version=json.loads(Path(sys.argv[1]).read_text())
 pending=json.loads(Path(sys.argv[2]).read_text())
 headers=Path(sys.argv[3]).read_text().lower()
 html=Path(sys.argv[4]).read_text()
-assert version=={"version":"0.2.9"},version
+assert set(version)=={"version","instance"} and version["version"]=="0.2.9",version
+assert isinstance(version["instance"],str) and len(version["instance"])==32,version
 assert pending=={"firewallPending":False},pending
 assert "cache-control: no-store" in headers,headers
 assert 'name="xport-build-version" content="0.2.9"' in html,html[:600]
