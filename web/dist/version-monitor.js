@@ -63,26 +63,36 @@
     next.searchParams.set('_xport_ui',version)
     location.replace(next.toString())
   }
+  // Bound each probe to both a short request timeout and the remaining
+  // handoff deadline. A stalled fetch/response body must not trap the
+  // progress dialog beyond its 120-second recovery window.
+  async function probe(path) {
+    const controller=new AbortController()
+    const remaining=state.handoff?.deadline
+      ? Math.max(1,state.handoff.deadline-Date.now()) : 8000
+    const timer=setTimeout(()=>controller.abort(),Math.min(8000,remaining))
+    try{
+      const response=await fetch(path,{
+        method:'GET',credentials:'same-origin',cache:'no-store',
+        headers:{'Accept':'application/json'},signal:controller.signal
+      })
+      return {ok:response.ok,status:response.status,data:response.ok?await response.json():null}
+    }finally{clearTimeout(timer)}
+  }
   async function check(force=false,manual=false) {
     if(state.handoff?.reloading || state.checking || (!force && !loggedIn())) return null
     state.checking=true
     try {
-      const response=await fetch('/api/xport/version',{
-        method:'GET',credentials:'same-origin',cache:'no-store',
-        headers:{'Accept':'application/json'}
-      })
+      const response=await probe('/api/xport/version')
       if(!response.ok)return null
-      const info=await response.json()
+      const info=response.data
       // A restart invalidates all in-memory login sessions. The version
       // endpoint remains public (version only); firewall pending metadata
       // remains authenticated and is fetched only when a build changed.
       if(info?.version && info.version!==loaded){
-        const guard=await fetch('/api/xport/update-state',{
-          method:'GET',credentials:'same-origin',cache:'no-store',
-          headers:{'Accept':'application/json'}
-        })
+        const guard=await probe('/api/xport/update-state')
         if(guard.ok){
-          const stateInfo=await guard.json()
+          const stateInfo=guard.data
           info.firewallPending=Boolean(stateInfo.firewallPending)
         }else if(guard.status===401){
           // The browser needs a fresh login after restart. Its old session
@@ -146,7 +156,7 @@
     if(mode==='restart'&&!previousInstance)throw new Error('缺少重启前的进程标识，无法确认重启完成')
     if(!version)throw new Error('缺少目标版本，无法确认更新完成')
     state.waiting=true
-    state.handoff={mode,expectedVersion:version,previousInstance,reloading:false}
+    state.handoff={mode,expectedVersion:version,previousInstance,reloading:false,deadline:Date.now()+timeoutMs}
     // The user explicitly confirmed that this operation will reload the UI.
     // Other dialogs, inline editors and pending native firewall recovery still
     // block navigation; only the handoff progress dialog is exempted.
@@ -156,7 +166,7 @@
     const onPageHide=()=>resolveNavigation(true)
     window.addEventListener('pagehide',onPageHide,{once:true})
     const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms))
-    const deadline=Date.now()+timeoutMs
+    const deadline=state.handoff.deadline
     try {
       window.XportOperation?.setStage?.(
         mode==='restart'?'已安排面板重启，正在等待新进程响应…':'已安排面板更新，正在等待新版本启动…'
