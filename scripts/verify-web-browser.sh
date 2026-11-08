@@ -785,7 +785,18 @@ cat > "$TMP/__driver.js" <<'JS'
       selectedSecurity.value='reality'
       selectedSecurity.dispatchEvent(new Event('change',{bubbles:true}))
       if(!realityAdvanced.open)throw new Error('security switch unexpectedly collapsed advanced editor')
-      await waitFor('#expert-reality-target')
+      await waitFor('#expert-reality-target').catch(err=>{
+        const content=document.querySelector('#expert-content')
+        throw new Error('REALITY repaint: '+JSON.stringify({
+          selected:document.querySelector('#security-select')?.value,
+          network:document.querySelector('#network-select')?.value,
+          detailsOpen:realityAdvanced.open,
+          loaded:realityAdvanced.dataset.loaded,
+          epoch:realityAdvanced._expertEpoch,
+          preview:content?.textContent.slice(0,440),
+          html:content?.innerHTML.slice(0,700)
+        })+'; '+err.message)
+      })
       if(!document.querySelector('#expert-reality-private')||
          !document.querySelector('#expert-reality-public')||
          document.querySelector('#expert-tls-alpn'))
