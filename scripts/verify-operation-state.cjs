@@ -16,6 +16,7 @@ const panelRestart=extra.slice(extra.indexOf('async function restartXport(){'),
 
 function page(handler) {
  const calls=[], messages=[]
+ let loginCalls=0
  const context=vm.createContext({
   window:{XportVersionMonitor:{waitFor:async()=>{}}},
   document:{addEventListener(){}},
@@ -38,7 +39,7 @@ function page(handler) {
   },
   loadBackups:async()=>{},
   loadOverview:async()=>{},
-  showLogin:()=>{},
+  showLogin:()=>{loginCalls++},
   encodeURIComponent
  })
  vm.runInContext(v3,context,{filename:'v3.js'})
@@ -46,7 +47,7 @@ function page(handler) {
  vm.runInContext(appRestart,context,{filename:'app-restart.js'})
  vm.runInContext(panelRestart,context,{filename:'panel-restart.js'})
  vm.runInContext('sleepV3=async()=>{};waitForPanelV3=async()=>true;waitForXrayV3=async()=>false',context)
- return {context,calls,messages,call:expr=>vm.runInContext(expr,context)}
+ return {context,calls,messages,loginCalls:()=>loginCalls,call:expr=>vm.runInContext(expr,context)}
 }
 function err(status,msg='network error'){
  const e=new Error(msg);e.status=status;return e
@@ -159,6 +160,27 @@ async function run(){
   await p.call("deleteBackup('remove')")
   assert.equal(writes(p,'DELETE'),1)
   assert(p.messages.some(m=>m.msg==='备份已删除'))
+ })
+ await test('backup restore navigates to login immediately after server confirmation',async()=>{
+  const p=page(async(path,opt)=>{
+   if(path==='/api/backups/saved/restore'&&opt?.method==='POST')
+    return {ok:true,loginRequired:true}
+   throw Error('unexpected '+path)
+  })
+  await p.call("restoreBackup('saved')")
+  assert.equal(writes(p,'POST'),1)
+  assert.equal(p.loginCalls(),1)
+  assert(p.messages.some(m=>m.msg.includes('备份已恢复')&&!m.bad))
+ })
+ await test('backup restore lost response prompts re-login without retry',async()=>{
+  const p=page(async(path,opt)=>{
+   if(path==='/api/backups/saved/restore'&&opt?.method==='POST')throw err(502)
+   throw Error('unexpected '+path)
+  })
+  await p.call("restoreBackup('saved')")
+  assert.equal(writes(p,'POST'),1)
+  assert.equal(p.loginCalls(),1)
+  assert(p.messages.some(m=>m.bad))
  })
  await test('Xray restart HTTP 200 but core inactive is not success',async()=>{
   const p=page(async(path,opt)=>{
