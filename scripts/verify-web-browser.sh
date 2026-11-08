@@ -365,7 +365,7 @@ cat > "$TMP/__driver.js" <<'JS'
     document.documentElement.dataset.browserRegressionDetail = detail
   }
   mark('running','driver initialized')
-  window.addEventListener('error',e=>mark('error',String(e.message||'script error')))
+  window.addEventListener('error',e=>{globalThis.__lastBrowserError=String(e.message||'script error');mark('error',globalThis.__lastBrowserError)})
   window.addEventListener('unhandledrejection',e=>mark('rejection',String(e.reason||'unhandled rejection')))
   const sleep = ms => new Promise(r => setTimeout(r, ms))
   async function waitFor(selector, timeout=3000) {
@@ -794,6 +794,8 @@ cat > "$TMP/__driver.js" <<'JS'
           loaded:realityAdvanced.dataset.loaded,
           epoch:realityAdvanced._expertEpoch,
           tune:realityAdvanced.dataset.tuneDebug,
+          resetStep:realityAdvanced.dataset.resetStep,
+          lastError:globalThis.__lastBrowserError,
           preview:content?.textContent.slice(0,440),
           html:content?.innerHTML.slice(0,700)
         })+'; '+err.message)
