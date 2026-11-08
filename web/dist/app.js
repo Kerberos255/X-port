@@ -50,7 +50,38 @@ async function openAccountModal(a=null){let full=a||{};if(a?.id){try{full=await 
 function openCloneModal(id){const a=state.accounts.find(x=>x.id===id);openModal(`<div class="modal-title"><span>CLONE ACCOUNT</span><h2>克隆 ${esc(a?.name||'账号')}</h2></div><form id="clone-form" class="form-grid"><label>新账号名<input name="name" value="${esc((a?.name||'account')+' copy')}" required></label><label>新端口<input name="port" type="number" min="1" max="65535" placeholder="留空自动分配"></label><p class="muted tiny full">协议与传输参数会复制；UUID/密码自动重新生成，本期与累计流量清零。</p><div class="form-actions full"><button type="button" class="btn ghost" id="clone-cancel">取消</button><button class="btn primary" type="submit">克隆并应用</button></div></form>`);$('#clone-cancel').onclick=closeModal;$('#clone-form').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.currentTarget);try{await api(`/api/accounts/${id}/clone`,{method:'POST',body:JSON.stringify({name:f.get('name'),port:Number(f.get('port')||0)})});closeModal();await loadAccounts();await loadOverview();toast('账号已克隆')}catch(x){toast(x.message,true)}}}
 async function resetTraffic(id){const a=state.accounts.find(x=>x.id===id);if(!confirm(`清零「${a?.name||id}」的本期上下行流量？\n累计总流量不会清零。`))return;try{await api(`/api/accounts/${id}/traffic/reset`,{method:'POST',body:'{}'});await loadAccounts();await loadOverview();toast('本期流量已清零')}catch(e){toast(e.message,true)}}
 async function deleteAccount(id){const a=state.accounts.find(x=>x.id===id);if(!confirm(`删除账号「${a?.name||id}」？\n对应 inbound 会从 Xray 配置移除。`))return;try{await api(`/api/accounts/${id}`,{method:'DELETE'});await loadAccounts();await loadOverview();toast('账号已删除')}catch(e){toast(e.message,true)}}
-async function openShareModal(id){const a=state.accounts.find(x=>x.id===id),defaultHost=location.hostname;openModal(`<div class="modal-title"><span>SHARE</span><h2>${esc(a?.name||'账号')} · 分享</h2></div><div class="share-wrap"><div class="qr-box"><img id="share-qr" alt="QR code"></div><div class="share-side"><label>服务器域名 / IP<input id="share-host" value="${esc(defaultHost)}"></label><label>分享链接<textarea id="share-link" class="share-link" readonly></textarea></label><div class="button-row"><button id="copy-share" class="btn primary">复制链接</button><button id="reload-share" class="btn ghost">刷新</button></div></div></div>`);async function refresh(){const host=$('#share-host').value.trim();try{const d=await api(`/api/accounts/${id}/share?host=${encodeURIComponent(host)}`);$('#share-link').value=d.uri;$('#share-qr').src=`/api/accounts/${id}/qr?host=${encodeURIComponent(host)}&t=${Date.now()}`}catch(e){toast(e.message,true)}}$('#reload-share').onclick=refresh;$('#share-host').onchange=refresh;$('#copy-share').onclick=async()=>{await navigator.clipboard.writeText($('#share-link').value);toast('分享链接已复制')};await refresh()}
+async function openShareModal(id){
+ const account=state.accounts.find(a=>Number(a.id)===Number(id))
+ if(!account)return toast('账号不存在，请刷新列表后重试',true)
+ openModal(`<div class="modal-title"><span>SHARE</span><h2>${esc(account.name)} · 分享</h2></div><div class="share-wrap"><div class="qr-box"><img id="share-qr" alt="QR code"></div><div class="share-side"><label>服务器域名 / IP<input id="share-host" value="${esc(location.hostname)}"></label><label>分享链接<textarea id="share-link" class="share-link" readonly></textarea></label><div class="button-row"><button id="copy-share" class="btn primary">复制链接</button><button id="reload-share" class="btn ghost">刷新</button></div></div></div>`)
+ let requestID=0
+ async function refresh(){
+  const host=$('#share-host')?.value.trim()||'',idNow=++requestID
+  const link=$('#share-link'),qr=$('#share-qr')
+  if(!link||!qr)return
+  link.value='';qr.removeAttribute('src')
+  if(!host){toast('服务器域名 / IP 不能为空',true);return}
+  try{
+   const d=await api(`/api/accounts/${id}/share?host=${encodeURIComponent(host)}`)
+   if(idNow!==requestID||!link.isConnected)return
+   if(!d?.uri)throw new Error('服务器未返回分享链接')
+   link.value=d.uri
+   qr.src=`/api/accounts/${id}/qr?host=${encodeURIComponent(host)}&t=${Date.now()}`
+  }catch(err){if(idNow===requestID)toast('分享链接读取失败：'+err.message,true)}
+ }
+ $('#reload-share').onclick=()=>void refresh()
+ $('#share-host').onchange=()=>void refresh()
+ $('#copy-share').onclick=async()=>{
+  const uri=$('#share-link')?.value||''
+  if(!uri){toast('分享链接尚未加载，请先刷新',true);return}
+  try{
+   if(!navigator.clipboard?.writeText)throw new Error('当前浏览器不支持剪贴板写入')
+   await navigator.clipboard.writeText(uri)
+   toast('分享链接已复制')
+  }catch(err){toast('复制失败：'+err.message+'；可在上方文本框中手动选择复制',true)}
+ }
+ await refresh()
+}
 
 async function checkUpdate(manual=false){const latest=$('#update-latest'),note=$('#update-note'),btn=$('#do-update');latest.textContent='检查中';btn.disabled=true;try{const d=await api('/api/xray/update');state.update=d;$('#update-current').textContent=d.current?`v${String(d.current).replace(/^v/,'')}`:'未安装';latest.textContent=d.latest?`v${String(d.latest).replace(/^v/,'')}`:'—';note.textContent=d.available?`发现${d.prerelease?'预发布':''}新版本 · ${d.asset}`:'当前已是最新版本';btn.disabled=!d.available;btn.textContent=d.available?'更新 Xray':'已是最新';if(manual)toast(d.available?'发现可用更新':'Xray 已是最新')}catch(e){latest.textContent='检查失败';note.textContent=e.message;if(manual)toast(e.message,true)}}
 async function updateXray(){if(!state.update?.available){await checkUpdate(true);if(!state.update?.available)return}if(!confirm(`将 Xray 从 ${state.update.current||'当前版本'} 更新到 ${state.update.latest}。\n新核心会先测试当前配置，失败自动回滚。继续吗？`))return;const b=$('#do-update');b.disabled=true;b.textContent='更新中…';try{const d=await api('/api/xray/update',{method:'POST',body:'{}'});state.update=d;toast(`Xray 已更新到 ${d.current}`);await loadOverview();await checkUpdate()}catch(e){toast(e.message,true);b.disabled=false;b.textContent='重试更新'}}
