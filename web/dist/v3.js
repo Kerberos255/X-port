@@ -8,7 +8,7 @@ function isTransientNetworkErrorV3(err){
  return !err?.status && /NetworkError|Failed to fetch|Load failed|network request|connection refused|connection reset|ERR_CONNECTION_REFUSED|ECONNREFUSED/i.test(String(err?.message||err||''))
 }
 function sleepV3(ms){return new Promise(r=>setTimeout(r,ms))}
-async function waitForPanelV3(timeoutMs=12000){
+async function waitForPanelV3(timeoutMs=20000){
  const deadline=Date.now()+timeoutMs
  while(Date.now()<deadline){
   try{if((await api('/api/health'))?.ok)return true}catch{}
@@ -33,7 +33,11 @@ async function mutationWithRecoveryV3(run,verify,requireXray=true){
   if(typeof XportOperation!=='undefined'&&XportOperation.busy)
    XportOperation.setStage?.('连接暂时中断，正在核实操作结果…')
   else toast('连接暂时中断，正在核实操作结果…')
-  if(!await waitForPanelV3())throw new Error('面板仍无法连接，操作结果未确认；请恢复连接后刷新')
+  if(!await waitForPanelV3()){
+   const uncertain=new Error('面板仍无法连接，账号操作结果尚未确认；恢复连接后请先刷新列表')
+   uncertain.uncertain=true
+   throw uncertain
+  }
   let applied=false
   for(let attempt=0;attempt<5;attempt++){
    try{applied=Boolean(await verify())}catch{}
@@ -78,9 +82,14 @@ async function createAccountWithRecoveryV3(body,before){
   // Existing port conflicts and unrelated new accounts remain real errors.
   if(Number(err?.status)!==400||
      !/port\s+\d+\s+is\s+already\s+used|port\s+\d+\s+is\s+already\s+in\s+use|端口.*(已使用|已占用)/i.test(String(err.message||'')))throw err
-  let created=null
-  try{created=await readCreatedAccountV3(before,body)}catch{}
-  if(!created)throw err
+  let created=null,readFailed=false
+  try{created=await readCreatedAccountV3(before,body)}catch{readFailed=true}
+  if(!created){
+   // When read-back is unavailable, a 400 alone does not establish whether
+   // a preceding write was applied. Never enable a blind repeat.
+   if(readFailed)err.uncertain=true
+   throw err
+  }
   let xrayReady=true
   try{xrayReady=await waitForXrayV3()}catch{xrayReady=false}
   return {value:{id:created.id},recovered:true,xrayReady,matchedAfterConflict:true}
