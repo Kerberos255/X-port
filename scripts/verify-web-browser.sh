@@ -793,6 +793,7 @@ cat > "$TMP/__driver.js" <<'JS'
           detailsOpen:realityAdvanced.open,
           loaded:realityAdvanced.dataset.loaded,
           epoch:realityAdvanced._expertEpoch,
+          tune:realityAdvanced.dataset.tuneDebug,
           preview:content?.textContent.slice(0,440),
           html:content?.innerHTML.slice(0,700)
         })+'; '+err.message)
