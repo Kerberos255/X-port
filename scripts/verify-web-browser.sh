@@ -54,6 +54,9 @@ cat > "$TMP/__mock.js" <<'JS'
     tlsAlpn:['http/1.1'], tlsMinVersion:'', tlsMaxVersion:'', tlsCipherSuites:'',
     tlsRejectUnknownSni:false, tlsCertificatesJson:'[]'
   }
+  globalThis.__mockExpert = expert
+  globalThis.__mockExpertWrites = 0
+  globalThis.__mockLastAccountEdit = null
   globalThis.__legacyCloneHits = 0
   globalThis.__fwConfirmCalls = 0
   globalThis.__fwConfirmResult = false
@@ -166,9 +169,15 @@ cat > "$TMP/__mock.js" <<'JS'
     }
     if (path === '/api/accounts/1' && method === 'PUT') {
       const body=JSON.parse(init.body||'{}')
+      globalThis.__mockLastAccountEdit=body
       Object.assign(account,{name:body.name,port:body.port,enabled:Boolean(body.enabled),
         monthlyReset:Boolean(body.monthlyReset),quotaBytes:Number(body.quotaBytes||0),
-        expiryTime:Number(body.expiryTime||0)})
+        expiryTime:Number(body.expiryTime||0),security:body.security,network:body.network,
+        serverName:body.serverName,dest:body.dest,privateKey:body.privateKey,shortId:body.shortId})
+      Object.assign(expert,{security:body.security,method:body.network==='tcp'?'raw':body.network,
+        supportsReality:body.security==='reality',supportsTls:body.security==='tls',
+        supportsFallbacks:body.security==='tls'&&body.network==='tcp',
+        supportsHttpHeader:body.network==='tcp',supportsXhttp:body.network==='xhttp'})
       return json(account)
     }
     if (path === '/api/accounts/1' && method === 'GET') return json(account)
@@ -184,6 +193,11 @@ cat > "$TMP/__mock.js" <<'JS'
       return globalThis.__mockShareFail?json({error:'share endpoint unavailable'},503):
         json({uri:globalThis.__mockShareURI})
     if (path === '/api/accounts/1/expert' && method === 'GET') return json(expert)
+    if (path === '/api/accounts/1/expert' && method === 'PUT') {
+      globalThis.__mockExpertWrites++
+      Object.assign(expert,JSON.parse(init.body||'{}'))
+      return json(expert)
+    }
     if (path === '/api/accounts/online') return json({connections:{}})
     if (path === '/api/accounts/port-suggestion') return json({port:23741,min:20000,max:60000})
     if (path === '/api/firewall' && method === 'GET') return json({
@@ -758,6 +772,58 @@ cat > "$TMP/__driver.js" <<'JS'
       if(Math.abs((accountRect.top+accountRect.bottom)/2-innerHeight/2)>Math.max(32,innerHeight*.08)||
          accountRect.width<600||accountRect.right>innerWidth)
         throw new Error('desktop account editor must be centered and spacious')
+      document.querySelector('#modal-close').click()
+      // Regression: editing a saved TLS account to REALITY must repaint the
+      // already-open expert editor and submit advanced SNI/target with the
+      // first account write, not silently reuse old TLS-only fields.
+      await openAccountModalV3(state.accounts.find(a=>a.id===1))
+      const realityForm=await waitFor('#account-form')
+      const advanced=realityForm.querySelector('#account-advanced')
+      advanced.open=true
+      await waitFor('#expert-tls-alpn')
+      const selectedSecurity=realityForm.querySelector('#security-select')
+      selectedSecurity.value='reality'
+      selectedSecurity.dispatchEvent(new Event('change',{bubbles:true}))
+      if(!advanced.open)throw new Error('security switch unexpectedly collapsed advanced editor')
+      await waitFor('#expert-reality-target')
+      if(!document.querySelector('#expert-reality-private')||
+         !document.querySelector('#expert-reality-public')||
+         document.querySelector('#expert-tls-alpn'))
+        throw new Error('REALITY controls did not replace stale TLS controls')
+      if(!document.querySelector('#save-expert').disabled)
+        throw new Error('expert save must not write to persisted TLS while base mode is unsaved')
+      const targetInput=document.querySelector('#expert-reality-target')
+      const namesInput=document.querySelector('#expert-reality-names')
+      const shortInput=document.querySelector('#expert-reality-shortids')
+      targetInput.value='www.microsoft.com:443'
+      targetInput.dispatchEvent(new Event('input',{bubbles:true}))
+      namesInput.value='www.microsoft.com'
+      namesInput.dispatchEvent(new Event('input',{bubbles:true}))
+      shortInput.value='01020304'
+      shortInput.dispatchEvent(new Event('input',{bubbles:true}))
+      selectedSecurity.value='none'
+      selectedSecurity.dispatchEvent(new Event('change',{bubbles:true}))
+      await waitFor('#expert-content .expert-body')
+      selectedSecurity.value='reality'
+      selectedSecurity.dispatchEvent(new Event('change',{bubbles:true}))
+      await waitFor('#expert-reality-target')
+      if(document.querySelector('#expert-reality-target').value!=='www.microsoft.com:443' ||
+         document.querySelector('#expert-reality-names').value!=='www.microsoft.com')
+        throw new Error('advanced draft values were lost when switching back to REALITY')
+      const realityBefore=globalThis.__mockExpertWrites
+      await realityForm.onsubmit({preventDefault(){},currentTarget:realityForm})
+      if(globalThis.__mockLastAccountEdit?.security!=='reality' ||
+         globalThis.__mockLastAccountEdit?.serverName!=='www.microsoft.com' ||
+         globalThis.__mockLastAccountEdit?.dest!=='www.microsoft.com:443' ||
+         globalThis.__mockLastAccountEdit?.shortId!=='01020304' ||
+         globalThis.__mockExpertWrites!==realityBefore+1)
+        throw new Error('REALITY edit failed to apply active expert fields with base account save')
+      await openAccountModalV3(state.accounts.find(a=>a.id===1))
+      const savedAdvanced=document.querySelector('#account-advanced')
+      savedAdvanced.open=true
+      await waitFor('#expert-reality-target')
+      if(document.querySelector('#expert-reality-target').value!=='www.microsoft.com:443')
+        throw new Error('reopened account lost saved REALITY advanced fields')
       document.querySelector('#modal-close').click()
       // Exercise the actual firewall add flow with a held write response.
       document.querySelector('#nav [data-page="firewall"]').click()
