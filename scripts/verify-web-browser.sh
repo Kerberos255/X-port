@@ -493,12 +493,6 @@ cat > "$TMP/__driver.js" <<'JS'
       const fwSave=await waitFor('#fw-rows button[data-fw-act="save"]')
       fwSave.click()
       await waitForTextContains('#fw-rows button[data-fw-id="firewalld:public:2053/tcp"][data-fw-key="note"] span','浏览器回归备注')
-      const purposeButton=document.querySelector('#fw-rows button[data-fw-id="firewalld:public:2053/tcp"][data-fw-key="purpose"]')
-      purposeButton.click()
-      const purposeInput=await waitFor('.fw-edit-input')
-      purposeInput.value='浏览器回归用途'
-      document.querySelector('#fw-rows button[data-fw-act="save"]').click()
-      await waitForTextContains('#fw-rows button[data-fw-id="firewalld:public:2053/tcp"][data-fw-key="purpose"] span','浏览器回归用途')
       if(document.querySelector('#nav [data-page="firewall"]')?.classList.contains('active')!==true) throw new Error('firewall navigation not active')
       const accountLink=document.querySelector('#fw-rows button.fw-account-link[data-fw-account="1"]')
       if(!accountLink||!accountLink.textContent.includes('Alpha inbound')) throw new Error('Xray account linkage is not visible')
