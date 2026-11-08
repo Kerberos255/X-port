@@ -168,7 +168,7 @@
     verify:async result=>{
       await readConfirmedStateV3(async()=>{
         const data=await refresh(true)
-        return !check||Boolean(check(data,result))
+        return Boolean(data&&(!check||check(data,result)))
       },{attempts:5,delayMs:650})
     }
   })
