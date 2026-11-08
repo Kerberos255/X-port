@@ -17,6 +17,9 @@
     const node=dialog()
     if(!node || !node.showModal)throw new Error('操作进度弹窗不可用')
     busy=true
+    node.dataset.phase='busy'
+    const actions=document.getElementById('operation-failure-actions')
+    if(actions)actions.hidden=true
     title().textContent=String(name||'正在处理')
     detail().textContent=String(subject||'正在应用配置，请勿重复操作')
     setStage('正在提交并应用配置…')
@@ -27,7 +30,21 @@
     if(node?.open)node.close()
     busy=false
   }
-  async function run({title:name,detail:subject,perform,verify}){
+  async function acknowledgeFailure(err){
+    const node=dialog()
+    if(!node?.open)return
+    node.dataset.phase='error'
+    title().textContent='操作结果未确认'
+    detail().textContent=String(err?.message||'请检查服务状态后再操作')
+    setStage('未确认成功，请先核对当前状态，避免重复提交。')
+    const actions=document.getElementById('operation-failure-actions')
+    const button=document.getElementById('operation-failure-dismiss')
+    if(!actions||!button)return
+    actions.hidden=false
+    await new Promise(resolve=>button.addEventListener('click',resolve,{once:true}))
+    err.progressAcknowledged=true
+  }
+  async function run({title:name,detail:subject,perform,verify,failureAck=false}){
     if(typeof perform!=='function')throw new TypeError('perform is required')
     start(name,subject)
     try{
@@ -41,6 +58,9 @@
         }
       }
       return result
+    }catch(err){
+      if(failureAck)await acknowledgeFailure(err)
+      throw err
     }finally{stop()}
   }
   function ask({title:name,detail:message,confirmText='确认',cancelText='取消',danger=false}){
