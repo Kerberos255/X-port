@@ -71,11 +71,14 @@ async function readCreatedAccountV3(before,body){
  return matchingCreatedAccountV3(data.accounts,before,body)
 }
 async function createAccountWithRecoveryV3(body,before){
- let result
+ let result,confirmedCreated=null
  try{
   result=await mutationWithRecoveryV3(
    ()=>api('/api/accounts',{method:'POST',body:JSON.stringify(body)}),
-   async()=>Boolean(await readCreatedAccountV3(before,body)))
+   async()=>{
+    confirmedCreated=await readCreatedAccountV3(before,body)
+    return Boolean(confirmedCreated)
+   })
  }catch(err){
   // A port conflict can follow a lost successful response. Accept it only
   // when a fresh read shows exactly one matching ID absent before the write.
@@ -94,10 +97,9 @@ async function createAccountWithRecoveryV3(body,before){
   try{xrayReady=await waitForXrayV3()}catch{xrayReady=false}
   return {value:{id:created.id},recovered:true,xrayReady,matchedAfterConflict:true}
  }
- if(result.recovered&&!result.value?.id){
-  // A verified reconnect response does not carry the original POST body.
-  const created=await readCreatedAccountV3(before,body)
-  if(created)result.value={id:created.id}
+ if(result.recovered&&!result.value?.id&&confirmedCreated){
+  // Reuse the exact already-verified new ID; no second read can race recovery.
+  result.value={id:confirmedCreated.id}
  }
  return result
 }
