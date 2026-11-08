@@ -11,7 +11,7 @@ const updateSource=extraSource.slice(extraSource.indexOf('async function updateX
 const restartSource=extraSource.slice(extraSource.indexOf('async function restartXport(){'),extraSource.indexOf('\nfunction ensureSelfUpdateCard(){'))
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms))
 
-function harness({missingPagehide=false}={}){
+function harness({missingPagehide=false,hangProbe=''}={}){
  let currentVersion='0.2.17',currentInstance='instance-A',pending=false
  let guardStatus=200,dialogOpen=false,editDialog=false
  const navigations=[],stages=[],toasts=[],apiCalls=[],events=new Map()
@@ -72,7 +72,11 @@ function harness({missingPagehide=false}={}){
    if(!missingPagehide)for(const fn of [...(events.get('pagehide')||[])])fn()
   }
  }
- const fetch=async path=>{
+ const fetch=async (path,opts={})=>{
+  if(path===hangProbe)return new Promise((resolve,reject)=>{
+   if(opts.signal?.aborted)return reject(Error('probe aborted'))
+   opts.signal?.addEventListener('abort',()=>reject(Error('probe aborted')),{once:true})
+  })
   if(path==='/api/xport/version')return {ok:true,json:async()=>({version:currentVersion,instance:currentInstance})}
   if(path==='/api/xport/update-state')
    return guardStatus===200
@@ -82,7 +86,7 @@ function harness({missingPagehide=false}={}){
  }
  const context=vm.createContext({
   window,document,location,fetch,
-  URL,Date,Promise,console,
+  URL,Date,Promise,console,AbortController,
   setInterval:()=>0,
   setTimeout,clearTimeout,
   toast:(message,bad)=>toasts.push({message,bad}),
@@ -311,6 +315,27 @@ async function run(){
   h.dismiss.click()
   await task
   assert.equal(h.dialog.open,false)
+ })
+ await test('stalled version fetch honors overall handoff timeout',async()=>{
+  const h=harness({hangProbe:'/api/xport/version'})
+  const started=Date.now()
+  const err=await h.window.XportVersionMonitor.waitFor('0.2.18',{
+   timeoutMs:55,pollMs:5
+  }).then(()=>null,e=>e)
+  assert.match(err.message,/超时/)
+  assert(Date.now()-started<500,'hung version fetch exceeded deadline')
+  assert.equal(h.navigations.length,0)
+ })
+ await test('stalled firewall status fetch honors overall handoff timeout',async()=>{
+  const h=harness({hangProbe:'/api/xport/update-state'})
+  h.setVersion('0.2.18')
+  const started=Date.now()
+  const err=await h.window.XportVersionMonitor.waitFor('0.2.18',{
+   timeoutMs:55,pollMs:5
+  }).then(()=>null,e=>e)
+  assert.match(err.message,/超时/)
+  assert(Date.now()-started<500,'hung firewall status fetch exceeded deadline')
+  assert.equal(h.navigations.length,0)
  })
  console.log('Panel update/restart handoff regression: '+passed+' scenarios passed')
 }
