@@ -154,8 +154,10 @@ async function restoreBackup(name){
    perform:()=>api('/api/backups/'+encodeURIComponent(name)+'/restore',{method:'POST',body:'{}'})
   })
   if(!result?.loginRequired)throw uncertainMutationV3('恢复请求已返回，但没有收到重新登录确认')
-  toast('备份恢复已提交，请重新登录')
-  setTimeout(()=>showLogin(),400)
+  // Restoring a backup invalidates the current session. Switch views
+  // immediately instead of leaving an unexplained gap after progress closes.
+  showLogin()
+  toast('备份已恢复，请重新登录')
  }catch(err){
   // Restore invalidates all old sessions. A lost response is not proof of failure.
   toast('备份恢复结果未确认：'+err.message+'。请重新登录后核对，不要直接重试',true)
