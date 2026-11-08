@@ -571,6 +571,19 @@ cat > "$TMP/__driver.js" <<'JS'
       globalThis.__accountToggleHold=false
       if(progress.open||XportOperation.busy)
         throw new Error('progress did not close after refreshed account list')
+      // Traffic reset must confirm the account's actual zeroed counters.
+      accountToggle.disabled=false
+      account.upBytes=800
+      account.downBytes=700
+      await loadAccounts()
+      globalThis.__fwConfirmResult=true
+      const resetBefore=globalThis.__mockAccountResetCalls
+      await resetTrafficV3(1)
+      globalThis.__fwConfirmResult=false
+      if(globalThis.__mockAccountResetCalls!==resetBefore+1||
+         state.accounts.find(x=>x.id===1)?.upBytes!==0||
+         state.accounts.find(x=>x.id===1)?.downBytes!==0)
+        throw new Error('account traffic reset did not confirm zero counters from the server')
       // Ordinary validation and success notices share the centered visual style,
       // but never trap focus or block the page.
       const notice=document.querySelector('#toast')
