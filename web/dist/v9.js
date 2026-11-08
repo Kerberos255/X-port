@@ -54,20 +54,17 @@ function setTransportFieldVisibleV9(box,selector,visible){
  })
 }
 function resetExistingAdvancedAfterTransportChangeV9(details,full){
- if(details)details.dataset.resetStep='entered'
  if(!full.id||!details)return
  const c=$('#expert-content')
  // Preserve user-entered expert values across security/transport switches.
  if(details._expertData&&c){
   if(!details._expertDraft)details._expertDraft={}
-  $('input[id],select[id],textarea[id]',c).forEach(el=>{
+  c.querySelectorAll('input[id],select[id],textarea[id]').forEach(el=>{
    if(el.readOnly)return
    details._expertDraft[el.id]=el.type==='checkbox'?el.checked:el.value
   })
  }
- details.dataset.resetStep='before-epoch'
  details._expertEpoch=(details._expertEpoch||0)+1
- details.dataset.resetStep='after-epoch'
  delete details.dataset.loaded
  details._expertData=null
  if(c){c.className='advanced-loading muted tiny';c.textContent=''}
@@ -115,7 +112,6 @@ refreshProtocolFieldsV3=function(full){
    flow.style.display=canVision?'grid':'none'
    if(flowSelect)flowSelect.disabled=!canVision
   }
-  if(details)details.dataset.tuneDebug=JSON.stringify({transportChanged,initial,id:full.id,mode:security})
   if(transportChanged&&!initial)resetExistingAdvancedAfterTransportChangeV9(details,full)
   if(!full.id&&details?.open){
    details.dataset.loaded='1'
@@ -212,7 +208,6 @@ function refreshProtocolFieldsV10(full){
    flow.style.display=canVision?'grid':'none'
    if(flowSelect)flowSelect.disabled=!canVision
   }
-  if(details)details.dataset.tuneDebug=JSON.stringify({transportChanged,initial,id:full.id,mode:security})
   if(transportChanged&&!initial)resetExistingAdvancedAfterTransportChangeV9(details,full)
   if(!full.id&&details?.open){
    details.dataset.loaded='1';details._expertData=syntheticExpertV6(p,n,security)
