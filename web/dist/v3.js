@@ -306,16 +306,15 @@ async function loadExpertV3(id,details){
   c.onchange=markDraft
   const save=$('#save-expert')
   if(changed){
-   // The live editor is still unsaved. Applying advanced fields to the old
-   // stream would silently write the wrong security/method.
-   save.disabled=true
-   save.textContent='请使用底部「保存并应用」'
-   const hint=document.createElement('p')
-   hint.className='muted tiny full expert-note'
-   hint.textContent='传输或安全设置尚未保存；底部「保存并应用」会先更新账号，再应用本页已修改的高级参数。'
-   save.closest('.expert-actions')?.before(hint)
+   // The only supported write while the transport is unsaved is the bottom
+   // account Save button. Legacy versions hide the standalone expert button.
+   if(save){
+    save.disabled=true
+    save.textContent='请使用底部「保存并应用」'
+   }
    return
   }
+  if(!save)return
   save.onclick=async()=>{
    const body=expertBodyFromFormV3(d);save.disabled=true;save.textContent='应用中…'
    try{
