@@ -89,6 +89,14 @@ openAccountModalV3=async function(a=null){
   const port=Number(formValue(f,'port')||0),fd=new FormData(f)
   const body={name:formValue(f,'name'),enabled:fd.get('enabled')==='on',monthlyReset:fd.get('monthlyReset')==='on',port,protocol:p,credential:formValue(f,'credential'),username:formValue(f,'username'),password:formValue(f,'password'),serverPassword:formValue(f,'serverPassword'),clientSecurity:formValue(f,'clientSecurity'),method:formValue(f,'method'),flow:formValue(f,'flow'),network:formValue(f,'network'),security:formValue(f,'security'),serverName:formValue(f,'serverName'),dest:formValue(f,'dest'),privateKey:formValue(f,'privateKey'),shortId:formValue(f,'shortId'),host:formValue(f,'host'),path:formValue(f,'path'),serviceName:formValue(f,'serviceName'),quotaBytes:Math.round(Number(formValue(f,'quota')||0)*1073741824),expiryTime:formValue(f,'expiry')?new Date(formValue(f,'expiry')).getTime():0}
   const expertData=(details?.dataset.loaded==='1'&&details._expertData)?expertBodyFromFormV3(details._expertData):null
+  // Advanced REALITY fields use IDs, not form names. Send their current values
+  // in the base write too, since Xray validates SNI/key before expert PUT.
+  if(body.security==='reality'&&expertData?.security==='reality'){
+   if(expertData.realityServerNames.length)body.serverName=expertData.realityServerNames[0]
+   if(expertData.realityTarget)body.dest=expertData.realityTarget
+   if(expertData.realityPrivateKey)body.privateKey=expertData.realityPrivateKey
+   if(expertData.realityShortIds.length)body.shortId=expertData.realityShortIds[0]
+  }
   const b=f.querySelector('button[type=submit]')
   b.disabled=true;b.textContent='应用中…'
   let savedID=Number(full.id||0),accountSaved=false,expertDeferred=false
