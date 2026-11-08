@@ -544,6 +544,7 @@ cat > "$TMP/__driver.js" <<'JS'
       if (!globalConfig.routing || !Array.isArray(globalConfig.outbounds)) throw new Error('global Xray config editor did not load expected sections')
 
       document.querySelector('#nav [data-page="firewall"]').click()
+      await waitFor('#fw-rows button[data-fw-id="firewalld:public:2053/tcp"]')
       // Tabs, filters, search, and return to full rule list.
       for(const tab of ['raw','xray','rules']){
         const control=document.querySelector('#page-firewall [data-fw-tab="'+tab+'"]')
