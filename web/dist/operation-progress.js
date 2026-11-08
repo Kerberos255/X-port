@@ -34,9 +34,12 @@
     const node=dialog()
     if(!node?.open)return
     node.dataset.phase='error'
-    title().textContent='操作结果未确认'
+    const uncertain=Boolean(err?.applied||err?.uncertain||!err?.status||
+      ([502,503,504].includes(Number(err.status))&&!err?.serverError))
+    title().textContent=uncertain?'操作结果未确认':'操作失败'
     detail().textContent=String(err?.message||'请检查服务状态后再操作')
-    setStage('未确认成功，请先核对当前状态，避免重复提交。')
+    setStage(uncertain?'未确认成功，请先核对当前状态，避免重复提交。':
+      '服务器已拒绝操作，请确认错误原因后再尝试。')
     const actions=document.getElementById('operation-failure-actions')
     const button=document.getElementById('operation-failure-dismiss')
     if(!actions||!button)return
