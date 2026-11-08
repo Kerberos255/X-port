@@ -65,6 +65,9 @@ cat > "$TMP/__mock.js" <<'JS'
   globalThis.__accountDeleteHold = false
   globalThis.__accountDeleteRelease = null
   globalThis.__mockAccountDeleted = false
+  globalThis.__mockCreatedAccount = null
+  globalThis.__mockCreateCalls = 0
+  globalThis.__mockCreateMode = 'success'
   globalThis.__fwControlPending = false
   globalThis.__pendingConfirmSeenWhileBusy = null
   globalThis.__xportServerVersion = 'browser-test'
@@ -88,7 +91,24 @@ cat > "$TMP/__mock.js" <<'JS'
         networkRx:0, networkTx:0, xrayVersion:'test', xrayActive:true},
       accounts: {total:1, enabled:1}, xportVersion:'browser-test'
     })
-    if (path === '/api/accounts' && method === 'GET') return json({accounts:globalThis.__mockAccountDeleted?[]:[account]})
+    if (path === '/api/accounts' && method === 'GET') return json({accounts:[
+      ...(globalThis.__mockAccountDeleted?[]:[account]),
+      ...(globalThis.__mockCreatedAccount?[globalThis.__mockCreatedAccount]:[])
+    ]})
+    if (path === '/api/accounts' && method === 'POST') {
+      globalThis.__mockCreateCalls++
+      const body=JSON.parse(init.body||'{}')
+      if(globalThis.__mockCreateMode==='conflict-recovered'){
+        globalThis.__mockCreatedAccount={id:2,name:body.name,port:body.port||23741,
+          protocol:body.protocol,enabled:true,editable:true,upBytes:0,downBytes:0}
+        return json({error:'port '+(body.port||23741)+' is already used by "'+body.name+'"'},400)
+      }
+      if(globalThis.__mockCreateMode==='real-conflict')
+        return json({error:'port '+(body.port||23741)+' is already used by "existing"'},400)
+      globalThis.__mockCreatedAccount={id:2,name:body.name,port:body.port||23741,
+        protocol:body.protocol,enabled:true,editable:true,upBytes:0,downBytes:0}
+      return json(globalThis.__mockCreatedAccount,201)
+    }
     if (path === '/api/accounts/1' && method === 'DELETE') {
       globalThis.__accountDeleteCalls++
       if(globalThis.__accountDeleteHold)
@@ -647,6 +667,39 @@ cat > "$TMP/__driver.js" <<'JS'
       await sleep(100)
       if(progress.open||XportOperation.busy||document.querySelector('.account-row'))
         throw new Error('account delete did not finish and refresh after its single write')
+      // Real browser submit: a persisted account and a port-conflict response
+      // must be reconciled by its new ID without sending POST twice.
+      globalThis.__mockCreateMode='conflict-recovered'
+      document.querySelector('#add-account').click()
+      const createForm=await waitFor('#account-form')
+      createForm.querySelector('input[name="name"]').value='fresh-browser'
+      const submitEvent={preventDefault(){},currentTarget:createForm}
+      const countBefore=globalThis.__mockCreateCalls
+      const createRequest=createForm.onsubmit(submitEvent)
+      const doubleSubmit=createForm.onsubmit(submitEvent)
+      await Promise.all([createRequest,doubleSubmit])
+      if(globalThis.__mockCreateCalls!==countBefore+1)
+        throw new Error('account create sent multiple POST requests')
+      if(!state.accounts.some(x=>Number(x.id)===2&&x.name==='fresh-browser'))
+        throw new Error('account create did not reconcile newly persisted ID')
+      if(XportOperation.busy||document.querySelector('#modal')?.classList.contains('hidden')!==true)
+        throw new Error('account creation did not close its modal')
+      // A genuine 400 conflict with no new matching ID must keep the editor
+      // actionable; it must never claim the account was created.
+      globalThis.__mockCreatedAccount=null
+      globalThis.__mockCreateMode='real-conflict'
+      document.querySelector('#add-account').click()
+      const conflictForm=await waitFor('#account-form')
+      conflictForm.querySelector('input[name="name"]').value='new-conflict'
+      const conflictButton=conflictForm.querySelector('button[type="submit"]')
+      await conflictForm.onsubmit({preventDefault(){},currentTarget:conflictForm})
+      if(conflictButton.disabled || conflictForm.dataset.submitting!=='0')
+        throw new Error('genuine conflict did not allow correction')
+      if(document.querySelector('#modal')?.classList.contains('hidden')===true)
+        throw new Error('genuine conflict incorrectly closed account editor')
+      document.querySelector('#modal-close').click()
+      globalThis.__mockCreateMode='success'
+      globalThis.__mockCreatedAccount=null
       // A verification failure must release the modal but prevent blind retry.
       const uncertain=await XportOperation.run({
         title:'状态核对测试',perform:async()=>({ok:true}),
