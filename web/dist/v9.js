@@ -112,6 +112,7 @@ refreshProtocolFieldsV3=function(full){
    flow.style.display=canVision?'grid':'none'
    if(flowSelect)flowSelect.disabled=!canVision
   }
+  if(details)details.dataset.tuneDebug=JSON.stringify({transportChanged,initial,id:full.id,mode:security})
   if(transportChanged&&!initial)resetExistingAdvancedAfterTransportChangeV9(details,full)
   if(!full.id&&details?.open){
    details.dataset.loaded='1'
@@ -208,6 +209,7 @@ function refreshProtocolFieldsV10(full){
    flow.style.display=canVision?'grid':'none'
    if(flowSelect)flowSelect.disabled=!canVision
   }
+  if(details)details.dataset.tuneDebug=JSON.stringify({transportChanged,initial,id:full.id,mode:security})
   if(transportChanged&&!initial)resetExistingAdvancedAfterTransportChangeV9(details,full)
   if(!full.id&&details?.open){
    details.dataset.loaded='1';details._expertData=syntheticExpertV6(p,n,security)
