@@ -64,10 +64,13 @@ func New(st *store.Store, accounts *service.Accounts, updater *xray.Updater, sta
 // from an older process briefly responding before systemd replaces it.
 func newServerInstanceID() string {
 	var token [16]byte
-	if _, err := rand.Read(token[:]); err == nil {
-		return hex.EncodeToString(token[:])
+	if _, err := rand.Read(token[:]); err != nil {
+		// A process marker is not an authentication secret, but it must
+		// preserve the public probe's fixed-length contract.
+		sum := sha256.Sum256([]byte(strconv.FormatInt(time.Now().UnixNano(), 10)))
+		copy(token[:], sum[:len(token)])
 	}
-	return strconv.FormatInt(time.Now().UnixNano(), 36)
+	return hex.EncodeToString(token[:])
 }
 
 func (s *Server) Handler() http.Handler {
