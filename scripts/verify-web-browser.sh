@@ -46,6 +46,7 @@ cat > "$TMP/__mock.js" <<'JS'
     credential: '11111111-1111-4111-8111-111111111111', enabled: true, editable: true,
     monthlyReset: false, upBytes: 0, downBytes: 0, quotaBytes: 0, expiryTime: 0
   }
+  globalThis.__mockAccount = account
   const expert = {
     protocol:'vless', method:'raw', security:'tls', acceptProxyProtocol:false,
     fallbacksJson:'[{"path":"/legacy","dest":80,"xver":0}]', httpHeaderJson:'',
@@ -597,8 +598,8 @@ cat > "$TMP/__driver.js" <<'JS'
         throw new Error('progress did not close after refreshed account list')
       // Traffic reset must confirm the account's actual zeroed counters.
       accountToggle.disabled=false
-      account.upBytes=800
-      account.downBytes=700
+      globalThis.__mockAccount.upBytes=800
+      globalThis.__mockAccount.downBytes=700
       await loadAccounts()
       globalThis.__fwConfirmResult=true
       const resetBefore=globalThis.__mockAccountResetCalls
