@@ -69,6 +69,16 @@ cat > "$TMP/__mock.js" <<'JS'
   globalThis.__mockCreatedAccount = null
   globalThis.__mockCreateCalls = 0
   globalThis.__mockCreateMode = 'success'
+  globalThis.__mockShareURI='vless://example-token@proxy.example.com:23456'
+  globalThis.__mockShareFail=false
+  globalThis.__mockClipboardDenied=false
+  globalThis.__mockCopiedLink=''
+  Object.defineProperty(navigator,'clipboard',{configurable:true,value:{
+    writeText:async value=>{
+      if(globalThis.__mockClipboardDenied)throw new Error('permission denied')
+      globalThis.__mockCopiedLink=String(value)
+    }
+  }})
   globalThis.__mockCloneCalls = 0
   globalThis.__mockAccountResetCalls = 0
   globalThis.__mockBackupCalls = 0
@@ -169,6 +179,9 @@ cat > "$TMP/__mock.js" <<'JS'
       account.enabled=next
       return json({ok:true})
     }
+    if (path === '/api/accounts/1/share' && method === 'GET')
+      return globalThis.__mockShareFail?json({error:'share endpoint unavailable'},503):
+        json({uri:globalThis.__mockShareURI})
     if (path === '/api/accounts/1/expert' && method === 'GET') return json(expert)
     if (path === '/api/accounts/online') return json({connections:{}})
     if (path === '/api/accounts/port-suggestion') return json({port:23741,min:20000,max:60000})
@@ -446,6 +459,30 @@ cat > "$TMP/__driver.js" <<'JS'
         throw new Error('clone operation did not finish and close its editor')
       globalThis.__mockCreatedAccount=null
       await loadAccounts()
+      // Share modal, QR URL, clipboard permission denial and empty host.
+      const shareButton=await waitFor('.account-row button[data-act="share"]')
+      shareButton.click()
+      const shareLink=await waitForValueContains('#share-link','vless://')
+      if(!document.querySelector('#share-qr')?.src.includes('/api/accounts/1/qr?host='))
+        throw new Error('share QR URL did not include authenticated account route')
+      document.querySelector('#copy-share').click()
+      await sleep(20)
+      if(globalThis.__mockCopiedLink!==shareLink.value)
+        throw new Error('share link was not copied to clipboard')
+      globalThis.__mockClipboardDenied=true
+      document.querySelector('#copy-share').click()
+      await waitForTextContains('#toast','复制失败')
+      globalThis.__mockClipboardDenied=false
+      const shareHost=document.querySelector('#share-host')
+      shareHost.value=''
+      document.querySelector('#reload-share').click()
+      await sleep(25)
+      if(document.querySelector('#share-link').value!=='')
+        throw new Error('invalid share host retained a stale link')
+      shareHost.value='proxy.example.com'
+      document.querySelector('#reload-share').click()
+      await waitForValueContains('#share-link','vless://')
+      document.querySelector('#modal-close').click()
 
       const edit = await waitFor('.account-row button[data-act="edit"]')
       edit.click()
@@ -486,6 +523,25 @@ cat > "$TMP/__driver.js" <<'JS'
       if (!globalConfig.routing || !Array.isArray(globalConfig.outbounds)) throw new Error('global Xray config editor did not load expected sections')
 
       document.querySelector('#nav [data-page="firewall"]').click()
+      // Tabs, filters, search, and return to full rule list.
+      for(const tab of ['raw','xray','rules']){
+        const control=document.querySelector('#page-firewall [data-fw-tab="'+tab+'"]')
+        control.click()
+        if(!control.classList.contains('active')||
+           document.querySelector('#fw-'+tab+'-view')?.hidden)
+          throw new Error('firewall tab did not activate: '+tab)
+      }
+      for(const filter of ['xray','warn','all']){
+        const control=document.querySelector('#page-firewall [data-fw-filter="'+filter+'"]')
+        control.click()
+        if(!control.classList.contains('active'))
+          throw new Error('firewall filter did not activate: '+filter)
+      }
+      const search=document.querySelector('#fw-search')
+      search.value='2053';search.dispatchEvent(new Event('input',{bubbles:true}))
+      if(!document.querySelector('#fw-count').textContent.includes('显示 1 /'))
+        throw new Error('firewall search failed to isolate selected port')
+      search.value='';search.dispatchEvent(new Event('input',{bubbles:true}))
       const fwNoteButton=await waitFor('#fw-rows button[data-fw-id="firewalld:public:2053/tcp"][data-fw-key="note"]')
       fwNoteButton.click()
       const fwInput=await waitFor('.fw-edit-input')
