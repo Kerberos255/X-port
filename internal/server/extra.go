@@ -136,11 +136,11 @@ func (s *Server) hasPendingFirewallChanges()(bool,error){
  }
  return false,nil
 }
-// The public version probe intentionally exposes only the already-public
-// binary version. Sessions are in-memory and disappear after a restart;
-// an authenticated version probe would be unable to detect that restart.
+// The public version probe returns the binary version and a random process
+// generation. Session cookies are invalidated by restarts, so this endpoint
+// must work without authentication for the browser to verify a handoff.
 func (s *Server) panelVersion(w http.ResponseWriter,r *http.Request){
- writeJSON(w,200,map[string]any{"version":buildinfo.Current})
+ writeJSON(w,200,map[string]any{"version":buildinfo.Current,"instance":s.instanceID})
 }
 func (s *Server) panelUpdateState(w http.ResponseWriter,r *http.Request){
  pending,err:=s.hasPendingFirewallChanges()

@@ -254,6 +254,25 @@ cat > "$TMP/__preview.js" <<'JS'
            Math.abs((rect.left+rect.right)/2-innerWidth/2)>Math.max(28,innerWidth*.08))
           throw new Error('confirmation is not centered in viewport')
         if(innerWidth<700 && rect.width>innerWidth-18)throw new Error('mobile confirmation clipped')
+      } else if (preview === 'operation-update' || preview === 'operation-update-error' || preview === 'operation-update-error-light') {
+        document.querySelector('#nav [data-page="system"]').click()
+        const isError=preview.startsWith('operation-update-error')
+        void XportOperation.run({
+          title:'正在更新 X-port',
+          detail:'正在等待新版本启动并自动刷新管理页面',
+          failureAck:true,
+          perform:isError?async()=>{throw new Error('无法确认新版本已经启动，请检查服务状态')}:
+            ()=>new Promise(()=>{})
+        }).catch(()=>{})
+        const dialog=await waitFor('#operation-progress[open]')
+        if(isError)await waitFor('#operation-failure-actions:not([hidden]) #operation-failure-dismiss')
+        if(isError&&dialog.dataset.phase!=='error')throw new Error('update error state missing')
+        const box=dialog.getBoundingClientRect()
+        if(Math.abs((box.top+box.bottom)/2-innerHeight/2)>Math.max(28,innerHeight*.08)||
+           Math.abs((box.left+box.right)/2-innerWidth/2)>Math.max(28,innerWidth*.08))
+          throw new Error('update progress dialog not centered')
+        if(innerWidth<700&&(box.width>innerWidth-18||box.left<0||box.right>innerWidth))
+          throw new Error('update dialog clipped at mobile width')
       } else if (preview === 'operation-account' || preview === 'operation-firewall' || preview === 'operation-account-light') {
         const isFirewall=preview==='operation-firewall'
         document.querySelector('#nav [data-page="'+(isFirewall?'firewall':'accounts')+'"]').click()
@@ -343,6 +362,9 @@ capture clone-centered clone-centered
 capture operation-account operation-account
 capture operation-account-light operation-account-light
 capture operation-firewall operation-firewall
+capture operation-update operation-update
+capture operation-update-error operation-update-error
+capture operation-update-error-light operation-update-error-light
 capture notice-success notice-success
 capture notice-error-light notice-error-light
 capture confirm-account confirm-account
@@ -414,7 +436,7 @@ if ! grep -Fq 'data-preview-ready="firewall-long-ipv6"' "$TMP/firewall-long-ipv6
   exit 1
 fi
 # Check real mobile dialogs, centered with no viewport clipping.
-for preview in account-centered operation-account operation-firewall confirm-account confirm-firewall notice-success notice-error-light; do
+for preview in account-centered operation-account operation-firewall operation-update operation-update-error operation-update-error-light confirm-account confirm-firewall notice-success notice-error-light; do
   "$BROWSER" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage \
     --window-size=390,844 --force-device-scale-factor=1 --virtual-time-budget=6500 \
     --screenshot="$OUT/$preview-mobile.png" "http://127.0.0.1:$PORT/?preview=$preview" \

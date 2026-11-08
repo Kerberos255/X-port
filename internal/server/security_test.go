@@ -99,10 +99,12 @@ func TestVersionProbeAuthenticatedAndPendingGuard(t *testing.T){
   _=json.Unmarshal(rr.Body.Bytes(),&out)
   return rr.Code,out,rr.Header().Get("Cache-Control")
  }
- // Session storage is process-local. The public version alone must still
- // be readable after restart, without disclosing live firewall state.
+ // Session storage is process-local. The public version and random process
+ // generation must be readable after restart, without disclosing firewall state.
  code,v,cache:=request("/api/xport/version",nil)
- if code!=200||v["version"]!=buildinfo.Current||len(v)!=1||!strings.Contains(cache,"no-store"){
+ instance,ok:=v["instance"].(string)
+ if code!=200||v["version"]!=buildinfo.Current||!ok||len(instance)!=32||
+  len(v)!=2||!strings.Contains(cache,"no-store"){
   t.Fatalf("public version=%d %v cache=%q",code,v,cache)
  }
  if code,_,_:=request("/api/xport/update-state",nil);code!=http.StatusUnauthorized{
@@ -127,9 +129,12 @@ func TestVersionProbeAuthenticatedAndPendingGuard(t *testing.T){
  expired,_:=json.Marshal(firewallPending{ID:"test",Unit:"xport-ci.timer",Deadline:time.Now().Add(-3*time.Minute).UnixMilli()})
  if err:=s.store.SetSetting("firewall_pending:test",string(expired));err!=nil{t.Fatal(err)}
  if result:=state();result["firewallPending"]!=false{t.Fatalf("old recovery metadata must expire: %v",result)}
- // Even a logged-out client sees only the version, never pending metadata.
+ // An unauthenticated version probe only exposes the version and random
+ // instance marker, never pending firewall information or user data.
  code,v,_=request("/api/xport/version",nil)
- if code!=200||len(v)!=1||v["version"]!=buildinfo.Current{t.Fatalf("state leaked in public version: %v",v)}
+ if code!=200||len(v)!=2||v["version"]!=buildinfo.Current||v["instance"]!=instance{
+  t.Fatalf("state leaked in public version: %v",v)
+ }
 }
 
 func TestUpdatePanelRejectsPendingWithoutStaging(t *testing.T){

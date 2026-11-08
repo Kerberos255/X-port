@@ -248,21 +248,39 @@ async function importBackupFile(file){
 async function restartXport(){
  if(!await XportOperation.ask({
   title:'确认重启 X-port',
-  detail:'管理面板会短暂断开，Xray 代理核心不会因此停止。',
+  detail:'面板将重启，并在新进程就绪后自动刷新；正在编辑的未保存内容将丢失。Xray 代理核心不会因此停止。',
   confirmText:'确认重启'
  }))return
  try{
+  if(!window.XportVersionMonitor)throw new Error('面板版本监控组件未加载，已取消本次重启')
   await XportOperation.run({
-   title:'正在提交面板重启',detail:'等待服务器确认重启安排',
+   title:'正在重启 X-port',detail:'等待服务器确认并自动恢复管理页面',
+   failureAck:true,
    perform:async()=>{
-    const result=await api('/api/xport/restart',{method:'POST',body:'{}'})
-    if(result?.scheduled!==true)throw uncertainMutationV3('服务器未确认已安排重启；请检查服务状态，不要重复点击')
+    const baseline=await api('/api/xport/version')
+    if(!baseline?.version||!baseline?.instance)
+     throw new Error('无法读取当前面板进程标识，尚未发送重启请求')
+    let result
+    try{result=await api('/api/xport/restart',{method:'POST',body:'{}'})}
+    catch(err){
+     if(!isTransientNetworkErrorV3(err))throw err
+     // The restart may have applied before its response was lost.
+     // Observe a new process generation; never replay the POST.
+     XportOperation.setStage('连接暂时中断，正在核对新进程是否已经启动…')
+     await window.XportVersionMonitor.waitFor(baseline.version,{
+      mode:'restart',previousInstance:baseline.instance
+     })
+     return {scheduled:true,recovered:true}
+    }
+    if(result?.scheduled!==true)
+     throw uncertainMutationV3('服务器未明确确认已安排重启，请检查运行状态，不要重复点击')
+    await window.XportVersionMonitor.waitFor(baseline.version,{
+     mode:'restart',previousInstance:baseline.instance
+    })
     return result
    }
   })
-  toast('已安排重启，页面将自动重新连接')
-  setTimeout(()=>location.reload(),3500)
- }catch(e){toast('重启结果未确认：'+e.message,true)}
+ }catch(err){if(!err?.progressAcknowledged)toast('面板重启结果未确认：'+err.message,true)}
 }
 
 function ensureSelfUpdateCard(){
@@ -289,32 +307,53 @@ async function updateXport(){
    toast('防火墙仍有待确认操作，请先确认连接或等待恢复',true)
    return
   }
- }catch(e){toast('无法确认防火墙待处理状态：'+e.message,true);return}
+ }catch(err){toast('无法确认防火墙待处理状态：'+err.message,true);return}
  if(!await XportOperation.ask({
   title:'确认更新 X-port',
-  detail:'将 X-port 从 '+xportSelfUpdate.current+' 更新到 '+xportSelfUpdate.latest+'？\n更新失败自动恢复旧版本。',
+  detail:'将 X-port 从 '+xportSelfUpdate.current+' 更新到 '+xportSelfUpdate.latest+'？\n面板将保持进度弹窗，直到新版本启动并自动刷新；未保存的输入会被放弃。更新失败会恢复旧版本。',
   confirmText:'确认更新'
  }))return
- const b=$('#do-xport-update')
- if(b)b.disabled=true
+ const button=$('#do-xport-update')
+ if(button)button.disabled=true
+ let failed=false
  try{
+  if(!window.XportVersionMonitor)throw new Error('面板版本监控组件未加载，已取消本次更新')
   const d=await XportOperation.run({
-   title:'正在更新 X-port',detail:'下载、校验并安排面板版本切换',
-   perform:()=>api('/api/xport/update',{method:'POST',body:'{}'})
+   title:'正在更新 X-port',detail:'下载、校验、安装并等待新版管理面板启动',
+   failureAck:true,
+   perform:async()=>{
+    let response
+    try{response=await api('/api/xport/update',{method:'POST',body:'{}'})}
+    catch(err){
+     if(!isTransientNetworkErrorV3(err))throw err
+     // The binary may have been staged even though the HTTP response was
+     // interrupted by the server restart. Verify only; do not submit again.
+     XportOperation.setStage('连接暂时中断，正在等待目标版本启动并恢复连接…')
+     await window.XportVersionMonitor.waitFor(xportSelfUpdate.latest,{mode:'update'})
+     return {scheduled:true,recovered:true}
+    }
+    const info=response?.update||response
+    const alreadyLatest=response?.scheduled!==true&&response?.available===false&&
+     Boolean(response.current)&&String(response.current)===String(response.latest)
+    if(response?.scheduled!==true&&!alreadyLatest)
+     throw uncertainMutationV3('服务器未明确确认安排更新或已经是最新版本，请核对状态，不要重复提交')
+    if(response.scheduled){
+     if(!info?.latest)throw new Error('无法识别本次更新的目标版本，请核对面板状态')
+     await window.XportVersionMonitor.waitFor(info.latest,{mode:'update'})
+    }
+    return response
+   }
   })
-  const info=d?.update||d
-  const alreadyLatest=d?.scheduled!==true&&d?.available===false&&
-   Boolean(d.current)&&String(d.current)===String(d.latest)
-  if(d?.scheduled!==true&&!alreadyLatest)
-   throw uncertainMutationV3('更新接口已返回，但未明确确认安排更新或已经是最新版；请核对版本后再操作')
-  toast(d.scheduled?'已接受更新请求，正在等待新版本启动':'X-port 已是最新')
-  if(d.scheduled){
-   // Close progress before version monitoring; the monitor avoids refreshing open dialogs.
-   if(window.XportVersionMonitor)void window.XportVersionMonitor.waitFor(info.latest)
-   else setTimeout(()=>location.reload(),6000)
-  }else await checkXportUpdate()
- }catch(e){toast('更新请求结果未确认：'+e.message,true)}
- finally{if(b){b.disabled=!xportSelfUpdate?.available;b.textContent=xportSelfUpdate?.available?'更新 X-port':'已是最新'}}
+  if(!d.scheduled){toast('X-port 已是最新');await checkXportUpdate()}
+ }catch(err){
+  failed=true
+  if(!err?.progressAcknowledged)toast('更新结果未确认：'+err.message,true)
+ }finally{
+  if(button){
+   button.disabled=failed||!xportSelfUpdate?.available
+   button.textContent=failed?'请先检查更新状态':xportSelfUpdate?.available?'更新 X-port':'已是最新'
+  }
+ }
 }
 
 function bindMetricRings(){

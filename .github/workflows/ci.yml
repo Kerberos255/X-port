@@ -23,6 +23,7 @@ jobs:
           bash scripts/verify-web-assets.sh
           node scripts/verify-account-recovery.cjs
           node scripts/verify-operation-state.cjs
+          node scripts/verify-panel-handoff.cjs
 
       - name: Frontend browser regression
         run: bash scripts/verify-web-browser.sh
