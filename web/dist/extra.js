@@ -260,7 +260,18 @@ async function restartXport(){
     const baseline=await api('/api/xport/version')
     if(!baseline?.version||!baseline?.instance)
      throw new Error('无法读取当前面板进程标识，尚未发送重启请求')
-    const result=await api('/api/xport/restart',{method:'POST',body:'{}'})
+    let result
+    try{result=await api('/api/xport/restart',{method:'POST',body:'{}'})}
+    catch(err){
+     if(!isTransientNetworkErrorV3(err))throw err
+     // The restart may have applied before its response was lost.
+     // Observe a new process generation; never replay the POST.
+     XportOperation.setStage('连接暂时中断，正在核对新进程是否已经启动…')
+     await window.XportVersionMonitor.waitFor(baseline.version,{
+      mode:'restart',previousInstance:baseline.instance
+     })
+     return {scheduled:true,recovered:true}
+    }
     if(result?.scheduled!==true)
      throw uncertainMutationV3('服务器未明确确认已安排重启，请检查运行状态，不要重复点击')
     await window.XportVersionMonitor.waitFor(baseline.version,{
@@ -311,7 +322,16 @@ async function updateXport(){
    title:'正在更新 X-port',detail:'下载、校验、安装并等待新版管理面板启动',
    failureAck:true,
    perform:async()=>{
-    const response=await api('/api/xport/update',{method:'POST',body:'{}'})
+    let response
+    try{response=await api('/api/xport/update',{method:'POST',body:'{}'})}
+    catch(err){
+     if(!isTransientNetworkErrorV3(err))throw err
+     // The binary may have been staged even though the HTTP response was
+     // interrupted by the server restart. Verify only; do not submit again.
+     XportOperation.setStage('连接暂时中断，正在等待目标版本启动并恢复连接…')
+     await window.XportVersionMonitor.waitFor(xportSelfUpdate.latest,{mode:'update'})
+     return {scheduled:true,recovered:true}
+    }
     const info=response?.update||response
     const alreadyLatest=response?.scheduled!==true&&response?.available===false&&
      Boolean(response.current)&&String(response.current)===String(response.latest)
