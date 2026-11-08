@@ -61,17 +61,15 @@ async function restartXray(){
   confirmText:'确认重启'
  }))return
  try{
-  await XportOperation.run({
+  const result=await XportOperation.run({
    title:'正在重启 Xray',detail:'等待核心重新启动并核对运行状态',
-   perform:()=>api('/api/xray/restart',{method:'POST',body:'{}'}),
-   verify:async()=>{
-    await new Promise(resolve=>setTimeout(resolve,1000))
-    await api('/api/overview')
-    await loadOverview(false,true)
-   }
+   perform:()=>applyConfirmedMutationV3(
+    ()=>api('/api/xray/restart',{method:'POST',body:'{}'}),
+    readXrayReadyV3,{requireXray:false,attempts:10,delayMs:750}),
+   verify:async()=>{await confirmXrayReadyV3();await loadOverview(false,true)}
   })
-  toast('Xray 已重启')
- }catch(e){toast(e.message,true)}
+  toast('Xray 已重启并确认运行')
+ }catch(err){toast('Xray 重启结果未确认：'+err.message,true)}
 }
 async function loadLogs(){try{const service=$('#log-service').value,lines=$('#log-lines').value,d=await api(`/api/logs?service=${encodeURIComponent(service)}&lines=${lines}`);$('#log-output').textContent=d.logs||'(无日志)'}catch(e){$('#log-output').textContent=e.message;toast(e.message,true)}}
 function downloadLogs(){const service=$('#log-service').value,lines=$('#log-lines').value;location.href=`/api/logs?service=${encodeURIComponent(service)}&lines=${lines}&download=1`}
@@ -79,15 +77,39 @@ function downloadLogs(){const service=$('#log-service').value,lines=$('#log-line
 async function loadSettings(){try{const d=await api('/api/settings'),f=$('#settings-form');for(const [k,v] of Object.entries(d)){const el=f.elements.namedItem(k);if(el)el.value=v??''}f.elements.currentPassword.value='';f.elements.newPassword.value=''}catch(e){toast(e.message,true)}}
 async function saveSettings(e){e.preventDefault();const f=e.currentTarget,body={panelListen:formValue(f,'panelListen'),xrayApiPort:Number(formValue(f,'xrayApiPort')),portMin:Number(formValue(f,'portMin')),portMax:Number(formValue(f,'portMax')),defaultRealitySni:formValue(f,'defaultRealitySni'),defaultRealityDest:formValue(f,'defaultRealityDest'),adminUsername:formValue(f,'adminUsername'),currentPassword:formValue(f,'currentPassword'),newPassword:formValue(f,'newPassword')};try{const d=await api('/api/settings',{method:'PUT',body:JSON.stringify(body)});f.elements.currentPassword.value='';f.elements.newPassword.value='';toast(d.restartRequired?'设置已保存；相关监听设置重启 X-port 后生效':'设置已保存')}catch(x){toast(x.message,true)}}
 async function loadBackups(){try{const d=await api('/api/backups'),list=$('#backup-list'),arr=d.backups||[];if(!arr.length){list.innerHTML='<div class="empty small"><b>暂无手动备份</b></div>';return}list.innerHTML=arr.map(x=>`<div class="backup-row" data-name="${esc(x.name)}"><div><b>${esc(x.name)}</b><small>${new Date(x.createdAt).toLocaleString()} · ${fmtBytes(x.size)}</small></div><div class="row-actions"><button class="icon-btn" data-act="download" title="下载">↓</button><button class="icon-btn" data-act="restore" title="恢复">↺</button><button class="icon-btn" data-act="delete" title="删除">×</button></div></div>`).join('');$$('.backup-row').forEach(row=>row.onclick=e=>{const b=e.target.closest('button[data-act]');if(!b)return;const n=row.dataset.name;if(b.dataset.act==='download')location.href=`/api/backups/${encodeURIComponent(n)}/download`;if(b.dataset.act==='restore')void restoreBackup(n);if(b.dataset.act==='delete')void deleteBackup(n)})}catch(e){toast(e.message,true)}}
+async function readBackupsStrict(){
+ const result=await api('/api/backups')
+ if(!Array.isArray(result?.backups))throw new Error('备份列表返回格式异常')
+ return result.backups
+}
 async function createBackup(){
  try{
+  const before=new Set((await readBackupsStrict()).map(item=>item.name))
+  let createdName=''
   await XportOperation.run({
    title:'正在创建备份',detail:'保存系统快照并核对备份列表',
-   perform:()=>api('/api/backups',{method:'POST',body:'{}'}),
-   verify:async()=>{await api('/api/backups');await loadBackups()}
+   perform:()=>applyConfirmedMutationV3(
+    async()=>{
+     const d=await api('/api/backups',{method:'POST',body:'{}'})
+     createdName=String(d?.name||'')
+     return d
+    },
+    async()=>{
+     const rows=await readBackupsStrict()
+     const matches=rows.filter(item=>createdName?item.name===createdName:!before.has(item.name))
+     if(matches.length!==1)return false
+     createdName=matches[0].name
+     return true
+    },{requireXray:false}),
+   verify:async()=>{
+    const rows=await readBackupsStrict()
+    if(!rows.some(item=>item.name===createdName))
+     throw uncertainMutationV3('备份没有在最新列表中确认')
+    await loadBackups()
+   }
   })
   toast('备份已创建')
- }catch(e){toast(e.message,true)}
+ }catch(err){toast(err.message,true)}
 }
 async function restoreBackup(name){
  if(!await XportOperation.ask({
@@ -96,13 +118,18 @@ async function restoreBackup(name){
   confirmText:'确认恢复',danger:true
  }))return
  try{
-  await XportOperation.run({
+  const result=await XportOperation.run({
    title:'正在恢复备份',detail:'写入备份数据并等待服务器确认',
    perform:()=>api('/api/backups/'+encodeURIComponent(name)+'/restore',{method:'POST',body:'{}'})
   })
-  toast('备份已恢复，请重新登录')
+  if(!result?.loginRequired)throw uncertainMutationV3('恢复请求已返回，但没有收到重新登录确认')
+  toast('备份恢复已提交，请重新登录')
   setTimeout(()=>showLogin(),400)
- }catch(e){toast('恢复结果未确认：'+e.message,true)}
+ }catch(err){
+  // Restore invalidates all old sessions. A lost response is not proof of failure.
+  toast('备份恢复结果未确认：'+err.message+'。请重新登录后核对，不要直接重试',true)
+  if(isTransientNetworkErrorV3(err)||err?.status===401)showLogin()
+ }
 }
 async function deleteBackup(name){
  if(!await XportOperation.ask({
@@ -112,10 +139,21 @@ async function deleteBackup(name){
  try{
   await XportOperation.run({
    title:'正在删除备份',detail:'删除备份并核对备份列表',
-   perform:()=>api('/api/backups/'+encodeURIComponent(name),{method:'DELETE'}),
-   verify:async()=>{await api('/api/backups');await loadBackups()}
+   perform:()=>applyConfirmedMutationV3(
+    ()=>api('/api/backups/'+encodeURIComponent(name),{method:'DELETE'}),
+    async()=>{
+     const rows=await readBackupsStrict()
+     return !rows.some(item=>item.name===name)
+    },{requireXray:false}),
+   verify:async()=>{
+    const rows=await readBackupsStrict()
+    if(rows.some(item=>item.name===name))
+     throw uncertainMutationV3('待删除备份仍在列表中')
+    await loadBackups()
+   }
   })
   toast('备份已删除')
- }catch(e){toast(e.message,true)}
+ }catch(err){toast(err.message,true)}
 }
+
 document.addEventListener('DOMContentLoaded',boot)
