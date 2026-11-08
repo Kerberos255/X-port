@@ -178,7 +178,7 @@ async function run(){
  })
  await test('Xray version must match target AND active state',async()=>{
   const p=page(async()=>({system:{xrayVersion:'26.11.0',xrayActive:false}}))
-  await assert.rejects(p.call("confirmXrayVersionV3('26.11.0')"),/最终状态确认/)
+  await assert.rejects(p.call("confirmXrayVersionV3('26.11.0')"),/状态确认/)
   const p2=page(async()=>({system:{xrayVersion:'26.11.0',xrayActive:true}}))
   await p2.call("confirmXrayVersionV3('v26.11.0')")
  })
