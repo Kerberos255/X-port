@@ -131,8 +131,12 @@ openAccountModalV3=async function(a=null){
      const saved=rows.find(x=>Number(x.id)===savedID)
      if(!saved||saved.name!==body.name||
        String(saved.protocol).toLowerCase()!==String(body.protocol).toLowerCase()||
-       (body.port&&Number(saved.port)!==body.port))
-      throw uncertainMutationV3('账号 ID、名称或端口与提交内容不一致')
+       (body.port&&Number(saved.port)!==body.port)||
+       Boolean(saved.enabled)!==body.enabled||
+       Boolean(saved.monthlyReset)!==body.monthlyReset||
+       Number(saved.quotaBytes||0)!==body.quotaBytes||
+       Number(saved.expiryTime||0)!==body.expiryTime)
+      throw uncertainMutationV3('账号 ID、配置或流量额度与提交内容不一致')
     }
    })
    closeModal()
