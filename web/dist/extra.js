@@ -303,7 +303,9 @@ async function updateXport(){
    perform:()=>api('/api/xport/update',{method:'POST',body:'{}'})
   })
   const info=d?.update||d
-  if(d?.scheduled!==true&&d?.alreadyLatest!==true)
+  const alreadyLatest=d?.scheduled!==true&&d?.available===false&&
+   Boolean(d.current)&&String(d.current)===String(d.latest)
+  if(d?.scheduled!==true&&!alreadyLatest)
    throw uncertainMutationV3('更新接口已返回，但未明确确认安排更新或已经是最新版；请核对版本后再操作')
   toast(d.scheduled?'已接受更新请求，正在等待新版本启动':'X-port 已是最新')
   if(d.scheduled){
