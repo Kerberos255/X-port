@@ -68,6 +68,22 @@ cat > "$TMP/__mock.js" <<'JS'
   globalThis.__mockCreatedAccount = null
   globalThis.__mockCreateCalls = 0
   globalThis.__mockCreateMode = 'success'
+  globalThis.__mockCloneCalls = 0
+  globalThis.__mockAccountResetCalls = 0
+  globalThis.__mockBackupCalls = 0
+  globalThis.__mockBackups = []
+  globalThis.__mockXrayActive = true
+  globalThis.__mockXrayVersion = 'test'
+  globalThis.__mockXrayLatest = 'test-next'
+  globalThis.__mockXrayAvailable = false
+  globalThis.__mockXrayRestartCalls = 0
+  globalThis.__mockGeodataCurrent = 'test'
+  globalThis.__mockGeodataLatest = 'test-next'
+  globalThis.__mockGeodataAvailable = false
+  globalThis.__mockGlobalConfig = {routing:{},dns:{},outbounds:[],policy:{}}
+  globalThis.__mockSettings = {panelListen:'127.0.0.1:8080',panelBasePath:'/',panelCertFile:'',
+    panelKeyFile:'',panelDomain:'',panelTLS:false,xrayApiPort:10085,portMin:20000,
+    portMax:60000,defaultRealitySni:'',defaultRealityDest:'',adminUsername:'admin'}
   globalThis.__fwControlPending = false
   globalThis.__pendingConfirmSeenWhileBusy = null
   globalThis.__xportServerVersion = 'browser-test'
@@ -88,7 +104,7 @@ cat > "$TMP/__mock.js" <<'JS'
     if (path === '/api/overview') return json({
       system: {hostname:'ci-node', os:'Linux', distribution:'Linux', kernelVersion:'test', systemType:'linux', hostAddress:'127.0.0.1',hostIPv6:'2001:db8::1234',cpuCores:4,load5:0.2,load15:0.3, bootTime:0,
         uptimeSeconds:100, cpuPercent:1, load1:0.1, memoryUsed:1, memoryTotal:2, diskUsed:1, diskTotal:2,
-        networkRx:0, networkTx:0, xrayVersion:'test', xrayActive:true},
+        networkRx:0, networkTx:0, xrayVersion:globalThis.__mockXrayVersion, xrayActive:globalThis.__mockXrayActive},
       accounts: {total:1, enabled:1}, xportVersion:'browser-test'
     })
     if (path === '/api/accounts' && method === 'GET') return json({accounts:[
@@ -108,6 +124,18 @@ cat > "$TMP/__mock.js" <<'JS'
       globalThis.__mockCreatedAccount={id:2,name:body.name,port:body.port||23741,
         protocol:body.protocol,enabled:true,editable:true,upBytes:0,downBytes:0}
       return json(globalThis.__mockCreatedAccount,201)
+    }
+    if (path === '/api/accounts/1/clone' && method === 'POST') {
+      globalThis.__mockCloneCalls++
+      const input=JSON.parse(init.body||'{}')
+      globalThis.__mockCreatedAccount={id:2,name:input.name,port:input.port||23741,
+        protocol:account.protocol,enabled:true,editable:true,upBytes:0,downBytes:0}
+      return json(globalThis.__mockCreatedAccount,201)
+    }
+    if (path === '/api/accounts/1/traffic/reset' && method === 'POST') {
+      globalThis.__mockAccountResetCalls++
+      account.upBytes=0;account.downBytes=0
+      return json({ok:true})
     }
     if (path === '/api/accounts/1' && method === 'DELETE') {
       globalThis.__accountDeleteCalls++
@@ -168,12 +196,56 @@ cat > "$TMP/__mock.js" <<'JS'
       return json({version:globalThis.__xportServerVersion})
     if (path === '/api/xport/update-state' && method === 'GET')
       return json({firewallPending:globalThis.__xportPending})
-    if (path === '/api/xray/update' && method === 'GET') return json({current:'test',latest:'test',available:false})
-    if (path === '/api/xray/geodata' && method === 'GET') return json({current:'test',latest:'test',available:false})
-    if (path === '/api/settings') return json({panelListen:'127.0.0.1:8080',panelBasePath:'/',panelCertFile:'',panelKeyFile:'',panelDomain:'',panelTLS:false,xrayApiPort:10085,portMin:20000,portMax:60000,defaultRealitySni:'',defaultRealityDest:'',adminUsername:'admin'})
-    if (path === '/api/backups') return json({backups:[]})
-    if (path === '/api/logs') return json({logs:''})
-    if (path === '/api/xray/config') return json({config:{routing:{},dns:{},outbounds:[],policy:{}}})
+    if (path === '/api/xray/restart' && method === 'POST') {
+      globalThis.__mockXrayRestartCalls++
+      return json({ok:true})
+    }
+    if (path === '/api/xray/update' && method === 'GET') return json({
+      current:globalThis.__mockXrayVersion,latest:globalThis.__mockXrayLatest,
+      available:globalThis.__mockXrayAvailable
+    })
+    if (path === '/api/xray/update' && method === 'POST') {
+      globalThis.__mockXrayVersion=globalThis.__mockXrayLatest
+      globalThis.__mockXrayAvailable=false
+      return json({current:globalThis.__mockXrayVersion})
+    }
+    if (path === '/api/xray/rollback' && method === 'GET') return json({current:globalThis.__mockXrayVersion,previous:'test',available:true})
+    if (path === '/api/xray/rollback' && method === 'POST') {
+      globalThis.__mockXrayVersion='test'
+      return json({current:'test'})
+    }
+    if (path === '/api/xray/geodata' && method === 'GET') return json({
+      current:globalThis.__mockGeodataCurrent,latest:globalThis.__mockGeodataLatest,
+      available:globalThis.__mockGeodataAvailable
+    })
+    if (path === '/api/xray/geodata' && method === 'POST') {
+      globalThis.__mockGeodataCurrent=globalThis.__mockGeodataLatest
+      globalThis.__mockGeodataAvailable=false
+      return json({current:globalThis.__mockGeodataCurrent})
+    }
+    if (path === '/api/settings' && method === 'PUT') {
+      Object.assign(globalThis.__mockSettings,JSON.parse(init.body||'{}'))
+      return json({restartRequired:false})
+    }
+    if (path === '/api/settings') return json(globalThis.__mockSettings)
+    if (path === '/api/backups' && method === 'POST') {
+      globalThis.__mockBackupCalls++
+      const entry={name:'browser-backup-'+globalThis.__mockBackupCalls+'.json.gz',createdAt:Date.now(),size:1024}
+      globalThis.__mockBackups.push(entry)
+      return json(entry,201)
+    }
+    if (path === '/api/backups' && method === 'GET') return json({backups:globalThis.__mockBackups})
+    if (path.startsWith('/api/backups/') && method === 'DELETE') {
+      const name=decodeURIComponent(path.split('/').at(-1))
+      globalThis.__mockBackups=globalThis.__mockBackups.filter(x=>x.name!==name)
+      return json({ok:true})
+    }
+    if (path === '/api/logs') return json({logs:'browser-log-ok'})
+    if (path === '/api/xray/config' && method === 'PUT') {
+      globalThis.__mockGlobalConfig=JSON.parse(init.body||'{}').config
+      return json({config:globalThis.__mockGlobalConfig})
+    }
+    if (path === '/api/xray/config') return json({config:globalThis.__mockGlobalConfig})
     return json({ok:true})
   }
   // Act on the real custom confirmation rather than a browser-native
