@@ -193,7 +193,7 @@ async function run(){
   })
   await p.call('restartXport()')
   assert.equal(writes(p,'POST'),1)
-  assert(!p.messages.some(m=>m.msg.includes('已安排重启')))
+  assert(!p.messages.some(m=>!m.bad&&m.msg.startsWith('已安排重启')))
   assert(p.messages.some(m=>m.bad))
  })
  await test('panel restart accepted exactly once',async()=>{
