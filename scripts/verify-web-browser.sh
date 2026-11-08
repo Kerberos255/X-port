@@ -194,6 +194,8 @@ cat > "$TMP/__mock.js" <<'JS'
     }
     if (path === '/api/xport/version' && method === 'GET')
       return json({version:globalThis.__xportServerVersion})
+    if (path === '/api/xport/update' && method === 'GET')
+      return json({current:globalThis.__xportServerVersion,latest:'browser-test-next',available:false})
     if (path === '/api/xport/update-state' && method === 'GET')
       return json({firewallPending:globalThis.__xportPending})
     if (path === '/api/xray/restart' && method === 'POST') {
@@ -228,6 +230,12 @@ cat > "$TMP/__mock.js" <<'JS'
       return json({restartRequired:false})
     }
     if (path === '/api/settings') return json(globalThis.__mockSettings)
+    if (path === '/api/backups/import' && method === 'POST') {
+      globalThis.__mockBackupCalls++
+      const entry={name:'browser-import-'+globalThis.__mockBackupCalls+'.json.gz',createdAt:Date.now(),size:1024}
+      globalThis.__mockBackups.push(entry)
+      return json(entry,201)
+    }
     if (path === '/api/backups' && method === 'POST') {
       globalThis.__mockBackupCalls++
       const entry={name:'browser-backup-'+globalThis.__mockBackupCalls+'.json.gz',createdAt:Date.now(),size:1024}
