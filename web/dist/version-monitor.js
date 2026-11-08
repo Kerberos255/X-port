@@ -3,7 +3,7 @@
 (() => {
   'use strict'
   const loaded = document.querySelector('meta[name="xport-build-version"]')?.content || ''
-  const state = {checking:false, waiting:false, seen:'', banner:null, dirty:false}
+  const state = {checking:false, waiting:false, seen:'', banner:null, dirty:false, handoff:null}
   const loggedIn = () => !document.getElementById('app')?.classList.contains('hidden')
   // A blurred but unsaved settings field is still unsaved. Track changes
   // conservatively rather than silently reloading after input loses focus.
@@ -22,8 +22,11 @@
   },true)
   function editing() {
     if(state.dirty)return true
-    if (document.querySelector('dialog[open], #modal:not(.hidden), .fw-edit-input')) return true
-    const active = document.activeElement
+    if (document.querySelector('dialog[open]:not(#operation-progress), #modal:not(.hidden), .fw-edit-input')) return true
+    // Only an explicitly confirmed panel handoff may ignore its own progress
+    // dialog; all other operations must still prevent an automatic reload.
+    if(!state.handoff && document.querySelector('#operation-progress[open]'))return true
+    const active=document.activeElement
     return Boolean(active?.closest?.('#app')&&
       active.matches?.('input:not([type="checkbox"]), textarea, select, [contenteditable="true"]'))
   }
@@ -61,7 +64,7 @@
     location.replace(next.toString())
   }
   async function check(force=false,manual=false) {
-    if(state.checking || (!force && !loggedIn())) return null
+    if(state.handoff?.reloading || state.checking || (!force && !loggedIn())) return null
     state.checking=true
     try {
       const response=await fetch('/api/xport/version',{
@@ -90,13 +93,34 @@
           return info
         }
       }
-      const result=decision(info)
+      let result=decision(info)
+      const handoff=state.handoff
+      if(handoff){
+        const normalized=v=>String(v||'').replace(/^v/i,'')
+        const instanceChanged=Boolean(info.instance&&info.instance!==handoff.previousInstance)
+        if(handoff.mode==='restart'){
+          // Restarting the panel does not change the binary version.
+          result=instanceChanged
+            ? (editing()?'editing':'reload')
+            : 'same'
+        }else if(normalized(info.version)!==normalized(handoff.expectedVersion)){
+          // A concurrent/rolled-back version must never count as this update.
+          result='same'
+        }
+        info.handoffDecision=result
+      }
       state.seen=String(info.version||'')
-      if(result==='reload'){reloadTo(info.version)}
+      if(result==='reload'){
+        if(handoff){
+          handoff.reloading=true
+          window.XportOperation?.setStage?.('已确认新进程运行，正在刷新面板…')
+        }
+        reloadTo(info.version)
+      }
       else if(result==='pending')notice('防火墙还有未确认的恢复任务；确认完成后自动刷新。')
       else if(result==='editing'){
         let accepted=false
-        if(manual && window.XportOperation && !window.XportOperation.busy &&
+        if(manual && !handoff && window.XportOperation && !window.XportOperation.busy &&
            !window.XportOperation.confirming){
           try{
             accepted=await window.XportOperation.ask({
@@ -109,28 +133,53 @@
         if(accepted)reloadTo(info.version)
         else notice('检测到正在编辑或尚未保存的输入，请确认后手动刷新。')
       }
-      else if(result==='same')hideNotice()
+      else if(result==='same'&&!handoff)hideNotice()
       return info
     } catch {
       // A brief connection refusal is normal while systemd restarts X-port.
       return null
     } finally {state.checking=false}
   }
-  async function waitFor(version) {
-    if(state.waiting)return
+  async function waitFor(version,{mode='update',previousInstance='',timeoutMs=120000,pollMs=1100,navigationTimeoutMs=12000}={}) {
+    if(state.waiting)throw new Error('已有面板更新或重启正在等待完成')
+    if(mode!=='restart'&&mode!=='update')throw new Error('无效的面板等待模式')
+    if(mode==='restart'&&!previousInstance)throw new Error('缺少重启前的进程标识，无法确认重启完成')
+    if(!version)throw new Error('缺少目标版本，无法确认更新完成')
     state.waiting=true
-    const end=Date.now()+120000
+    state.handoff={mode,expectedVersion:version,previousInstance,reloading:false}
+    // The user explicitly confirmed that this operation will reload the UI.
+    // Other dialogs, inline editors and pending native firewall recovery still
+    // block navigation; only the handoff progress dialog is exempted.
+    state.dirty=false
+    let resolveNavigation
+    const navigated=new Promise(resolve=>{resolveNavigation=resolve})
+    const onPageHide=()=>resolveNavigation(true)
+    window.addEventListener('pagehide',onPageHide,{once:true})
+    const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms))
+    const deadline=Date.now()+timeoutMs
     try {
-      while(Date.now()<end){
+      window.XportOperation?.setStage?.(
+        mode==='restart'?'已安排面板重启，正在等待新进程响应…':'已安排面板更新，正在等待新版本启动…'
+      )
+      while(Date.now()<deadline){
         const info=await check(true)
-        if(info?.version===version || (info?.version && info.version!==loaded)){
-          // check() either initiated navigation or left an actionable banner.
+        if(state.handoff.reloading){
+          const replaced=await Promise.race([navigated,delay(navigationTimeoutMs).then(()=>false)])
+          if(!replaced)throw new Error('新进程已确认，但页面未能自动刷新，请检查浏览器连接')
           return
         }
-        await new Promise(resolve=>setTimeout(resolve,1100))
+        if(info?.handoffDecision==='pending')
+          throw new Error('防火墙出现待确认的恢复任务，已暂停自动刷新；请先确认防火墙规则')
+        if(info?.handoffDecision==='editing')
+          throw new Error('仍有未关闭的编辑界面，自动刷新已暂停以免丢失内容')
+        await delay(Math.min(pollMs,Math.max(1,deadline-Date.now())))
       }
-      notice('服务器尚未确认完成更新。请检查 X-port 状态，再刷新页面。')
-    } finally {state.waiting=false}
+      throw new Error('等待面板新进程超时，请检查服务状态后再手动刷新；不要重复提交更新')
+    } finally {
+      window.removeEventListener('pagehide',onPageHide)
+      state.handoff=null
+      state.waiting=false
+    }
   }
   window.XportVersionMonitor=Object.freeze({check,waitFor,decision,loaded})
   // Other tabs detect a new server version without paying the cost of
