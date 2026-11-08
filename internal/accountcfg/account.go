@@ -136,6 +136,27 @@ func Update(a model.Account, in Input) (model.Account, error) {
 	oldPort := a.Port
 	oldView, _ := ToView(a)
 	mergeMissing(&in, oldView)
+	// Existing non-REALITY accounts do not have a REALITY keypair to reuse.
+	// Generate it on first transition, just as the create path does, rather
+	// than saving an invalid stream or sharing a fixed preset secret.
+	if in.Security == "reality" && oldView.Security != "reality" {
+		if strings.TrimSpace(in.ServerName) == "" {
+			return model.Account{}, errors.New("REALITY requires Server Name / SNI; select a target and matching Server Name")
+		}
+		if strings.TrimSpace(in.Dest) == "" {
+			in.Dest = net.JoinHostPort(strings.TrimSpace(in.ServerName), "443")
+		}
+		if in.PrivateKey == "" {
+			private, _, err := newX25519Keypair()
+			if err != nil {
+				return model.Account{}, fmt.Errorf("generate REALITY keypair: %w", err)
+			}
+			in.PrivateKey = private
+		}
+		if in.ShortID == "" {
+			in.ShortID = newShortID()
+		}
+	}
 	normalizeEditableInput(&in)
 	if err := validateEditableInput(in); err != nil {
 		return model.Account{}, err
