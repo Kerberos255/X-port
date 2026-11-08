@@ -109,6 +109,27 @@ function sameJSONV3(a,b){
 }
 
 
+function expertConfigMatchesV3(input,actual){
+ if(!actual)return false
+ const equalJSON=(a,b)=>{
+  try{return sameJSONV3(JSON.parse(a||'null'),JSON.parse(b||'null'))}
+  catch{return String(a||'')===String(b||'')}
+ }
+ const basic=['acceptProxyProtocol','realityTarget','realityServerNames','realityShortIds',
+  'realityXver','realityMinClientVer','realityMaxClientVer','realityMaxTimeDiff',
+  'realityShow','tlsAlpn','tlsMinVersion','tlsMaxVersion','tlsCipherSuites',
+  'tlsRejectUnknownSni','xhttpMode','xhttpXPaddingBytes','xhttpNoSseHeader',
+  'xhttpScMaxBufferedPosts','xhttpScMaxEachPostBytes','xhttpScStreamUpServerSecs',
+  'xhttpUplinkHttpMethod']
+ const supported=k=> !((k.startsWith('reality')&&!actual.supportsReality)||
+  (k.startsWith('tls')&&!actual.supportsTls)||
+  (k.startsWith('xhttp')&&!actual.supportsXhttp))
+ return basic.every(k=>!supported(k)||sameJSONV3(input[k],actual[k]))&&
+  (!actual.supportsFallbacks||equalJSON(input.fallbacksJson,actual.fallbacksJson))&&
+  (!actual.supportsHttpHeader||equalJSON(input.httpHeaderJson,actual.httpHeaderJson))&&
+  (!actual.supportsTls||equalJSON(input.tlsCertificatesJson,actual.tlsCertificatesJson))
+}
+
 function matchingCreatedAccountV3(accounts,before,body){
  const matches=(accounts||[]).filter(a=>
   Number(a.id)>0&&!before.has(Number(a.id))&&
