@@ -84,6 +84,7 @@ cat > "$TMP/__mock.js" <<'JS'
   globalThis.__mockSettings = {panelListen:'127.0.0.1:8080',panelBasePath:'/',panelCertFile:'',
     panelKeyFile:'',panelDomain:'',panelTLS:false,xrayApiPort:10085,portMin:20000,
     portMax:60000,defaultRealitySni:'',defaultRealityDest:'',adminUsername:'admin'}
+  globalThis.__fwExtraRules = []
   globalThis.__fwControlPending = false
   globalThis.__pendingConfirmSeenWhileBusy = null
   globalThis.__xportServerVersion = 'browser-test'
@@ -169,6 +170,7 @@ cat > "$TMP/__mock.js" <<'JS'
         {id:'firewalld:public:22022/tcp',port:22022,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'SSH · 管理端口',purposeSource:'ssh',note:'',protected:true,xray:false,usage:'used',usageDetails:[{port:22022,protocol:'tcp',pid:12345,name:'sshd'}],action:'allow',kind:'port',canToggle:false},
         {id:'firewalld:public:39000-40000/tcp',port:0,rangeStart:39000,rangeEnd:40000,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'FTP 被动模式 · Pure-FTPd（配置匹配）',purposeSource:'ftp-config',note:'',protected:true,xray:false,usage:'unused',action:'allow',kind:'port',canToggle:false},
         {id:'firewalld:public:8444/tcp',port:8444,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'未识别',purposeSource:'unknown',note:'',protected:true,xray:false,usage:'used',usageDetails:[{port:8444,protocol:'tcp',name:'web-svc',container:true}],action:'allow',kind:'port',canToggle:false}
+        ,...globalThis.__fwExtraRules
       ]})
     if (path === '/api/firewall/notes' && method === 'PUT') {
       fwNote = JSON.parse(init.body).note
@@ -178,9 +180,23 @@ cat > "$TMP/__mock.js" <<'JS'
     if (path === '/api/firewall/raw' && method === 'GET') return json({ruleset:'table inet firewalld {\\n chain INPUT { type filter hook input priority 10; }\\n}'})
     if (path === '/api/firewall/rules' && method === 'POST') {
       globalThis.__fwMutationCalls=(globalThis.__fwMutationCalls||0)+1
+      const input=JSON.parse(init.body||'{}')
+      const commit=()=>{
+        if(input.action==='add')
+          globalThis.__fwExtraRules.push({
+            id:'firewalld:'+input.zone+':'+input.port+'/'+input.protocol,
+            port:input.port,protocol:input.protocol,zone:input.zone,
+            backend:'firewalld',runtime:true,permanent:true,managed:true,
+            protected:false,kind:'port',action:'allow',purpose:'未识别',note:'',usage:'unused'
+          })
+        if(input.action==='remove')
+          globalThis.__fwExtraRules=globalThis.__fwExtraRules.filter(
+            r=>r.port!==input.port||r.protocol!==input.protocol||r.zone!==input.zone)
+        return json({ok:true,pending:false})
+      }
       if(globalThis.__fwWriteHold)
-        return new Promise(resolve=>{globalThis.__fwReleaseWrite=()=>resolve(json({ok:true,pending:false}))})
-      return json({ok:true})
+        return new Promise(resolve=>{globalThis.__fwReleaseWrite=()=>resolve(commit())})
+      return commit()
     }
     if (path === '/api/firewall/control' && method === 'POST') {
       globalThis.__fwControlCalls=(globalThis.__fwControlCalls||0)+1
