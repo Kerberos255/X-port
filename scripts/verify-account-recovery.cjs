@@ -32,6 +32,7 @@ function makePage(handler) {
     }
   })
   vm.runInContext(source, context, {filename: 'v3.js'})
+  vm.runInContext('sleepV3=async()=>{};waitForPanelV3=async()=>true', context)
   vm.runInContext('renderAccountsV3=()=>{};loadOverview=async()=>{};loadOnlineConnectionsV3=async()=>{}', context)
   return {context, calls, toasts}
 }
@@ -69,19 +70,14 @@ async function testFailedDeleteNotRetried() {
   assert(page.toasts.some(message => message.includes('未确认')))
 }
 
-async function testXrayDownNotReportedAsSuccess() {
-  const page = makePage(async (path) => {
-    if(path === '/api/health')return {ok:true}
-    if(path === '/api/overview')return {system:{xrayActive:false}}
-    throw new Error('Unexpected API call: '+path)
-  })
+async function testXrayDownDoesNotInvalidatePersistedChange() {
+  const page = makePage(async () => {throw new Error('Unexpected API call')})
   page.context.failure = responseError(503)
   vm.runInContext('waitForXrayV3=async()=>false', page.context)
-  await assert.rejects(
-    vm.runInContext('mutationWithRecoveryV3(()=>Promise.reject(failure),()=>Promise.resolve(true))', page.context),
-    /Xray 未恢复/
-
-  )
+  const outcome = await vm.runInContext(
+    'mutationWithRecoveryV3(()=>Promise.reject(failure),()=>Promise.resolve(true))', page.context)
+  assert.equal(outcome.recovered,true)
+  assert.equal(outcome.xrayReady,false)
 }
 
 async function testValidationErrorNotRetried() {
@@ -104,12 +100,116 @@ async function testBackend502PreservesError() {
   assert.equal(page.calls.length, 0)
 }
 
+
+async function testDeleteAlreadyAppliedButXrayStillDown(){
+ const page=makePage(async (path,options)=>{
+  if(options?.method==='DELETE')throw responseError(502)
+  if(path==='/api/accounts')return {accounts:[]}
+  throw new Error('Unexpected API '+path)
+ })
+ vm.runInContext('waitForXrayV3=async()=>false',page.context)
+ await vm.runInContext('deleteAccountV3(7)',page.context)
+ assert.equal(page.calls.filter(([p,m])=>p==='/api/accounts/7'&&m==='DELETE').length,1)
+ assert(page.toasts.some(t=>t.includes('账号已删除')&&t.includes('Xray')))
+ assert(!page.toasts.some(t=>t.includes('删除结果未确认')))
+}
+async function testDeleteSuccessResponseButAccountStillPresent(){
+ const page=makePage(async (path,options)=>{
+  if(options?.method==='DELETE')return {ok:true}
+  if(path==='/api/accounts')return {accounts:[{id:7,name:'test'}]}
+  throw new Error('Unexpected API '+path)
+ })
+ await vm.runInContext('deleteAccountV3(7)',page.context)
+ assert.equal(page.calls.filter(([p,m])=>m==='DELETE').length,1)
+ assert(page.toasts.some(t=>t.includes('未确认')))
+ assert(!page.toasts.includes('账号已删除'))
+}
+async function testDeleteEventuallyDisappears(){
+ let reads=0
+ const page=makePage(async (path,options)=>{
+  if(options?.method==='DELETE')return {ok:true}
+  if(path==='/api/accounts')return {accounts:++reads>2?[]:[{id:7,name:'test'}]}
+  throw new Error('Unexpected API '+path)
+ })
+ await vm.runInContext('deleteAccountV3(7)',page.context)
+ assert(page.toasts.includes('账号已删除'))
+ assert(reads>=3)
+}
+async function testRecoveredCreateFromLostResponse(){
+ const page=makePage(async (path,options)=>{
+  if(options?.method==='POST')throw responseError(502)
+  if(path==='/api/accounts')return {accounts:[{id:7,name:'test',port:1234,protocol:'vmess'},{id:8,name:'new',port:2233,protocol:'vless'}]}
+  if(path==='/api/overview')return {system:{xrayActive:true}}
+  throw new Error('Unexpected API '+path)
+ })
+ page.context.input={name:'new',port:2233,protocol:'vless'}
+ page.context.before=new Set([7])
+ const out=await vm.runInContext('createAccountWithRecoveryV3(input,before)',page.context)
+ assert.equal(out.recovered,true)
+ assert.equal(out.value.id,8)
+ assert.equal(page.calls.filter(([p,m])=>p==='/api/accounts'&&m==='POST').length,1)
+}
+async function testRecoveredCreateAfterPortConflict(){
+ const page=makePage(async (path,options)=>{
+  if(options?.method==='POST')throw responseError(400,'port 2233 is already used by "new"')
+  if(path==='/api/accounts')return {accounts:[{id:7,name:'test',port:1234,protocol:'vmess'},{id:8,name:'new',port:2233,protocol:'vless'}]}
+  if(path==='/api/overview')return {system:{xrayActive:true}}
+  throw new Error('Unexpected API '+path)
+ })
+ page.context.input={name:'new',port:2233,protocol:'vless'}
+ page.context.before=new Set([7])
+ const out=await vm.runInContext('createAccountWithRecoveryV3(input,before)',page.context)
+ assert.equal(out.recovered,true)
+ assert.equal(out.matchedAfterConflict,true)
+ assert.equal(out.value.id,8)
+ assert.equal(page.calls.filter(([p,m])=>m==='POST').length,1)
+}
+async function testRealPortConflictIsNotSuppressed(){
+ const page=makePage(async (path,options)=>{
+  if(options?.method==='POST')throw responseError(400,'port 2233 is already used by "existing"')
+  if(path==='/api/accounts')return {accounts:[{id:7,name:'existing',port:2233,protocol:'vless'}]}
+  throw new Error('Unexpected API '+path)
+ })
+ page.context.input={name:'new',port:2233,protocol:'vless'}
+ page.context.before=new Set([7])
+ await assert.rejects(vm.runInContext('createAccountWithRecoveryV3(input,before)',page.context),/already used/)
+ assert.equal(page.calls.filter(([p,m])=>m==='POST').length,1)
+}
+async function testUnrelatedNewAccountIsNotMistakenForOurs(){
+ const page=makePage(async (path,options)=>{
+  if(options?.method==='POST')throw responseError(400,'port 2233 is already used by "someone"')
+  if(path==='/api/accounts')return {accounts:[{id:8,name:'new',port:2233,protocol:'trojan'}]}
+  throw new Error('Unexpected API '+path)
+ })
+ page.context.input={name:'new',port:2233,protocol:'vless'}
+ page.context.before=new Set([7])
+ await assert.rejects(vm.runInContext('createAccountWithRecoveryV3(input,before)',page.context),/already used/)
+}
+async function testMultipleMatchingNewAccountsAreAmbiguous(){
+ const page=makePage(async (path,options)=>{
+  if(options?.method==='POST')throw responseError(400,'port 2233 is already used by "new"')
+  if(path==='/api/accounts')return {accounts:[8,9].map(id=>({id,name:'new',port:2233,protocol:'vless'}))}
+  throw new Error('Unexpected API '+path)
+ })
+ page.context.input={name:'new',port:2233,protocol:'vless'}
+ page.context.before=new Set([7])
+ await assert.rejects(vm.runInContext('createAccountWithRecoveryV3(input,before)',page.context),/already used/)
+}
+
 async function main() {
   await testRecoveredDelete()
   await testFailedDeleteNotRetried()
-  await testXrayDownNotReportedAsSuccess()
+  await testXrayDownDoesNotInvalidatePersistedChange()
+  await testDeleteAlreadyAppliedButXrayStillDown()
+  await testDeleteSuccessResponseButAccountStillPresent()
+  await testDeleteEventuallyDisappears()
+  await testRecoveredCreateFromLostResponse()
+  await testRecoveredCreateAfterPortConflict()
+  await testRealPortConflictIsNotSuppressed()
+  await testUnrelatedNewAccountIsNotMistakenForOurs()
+  await testMultipleMatchingNewAccountsAreAmbiguous()
   await testValidationErrorNotRetried()
   await testBackend502PreservesError()
-  console.log('X-port account recovery regression: 5 scenarios passed')
+  console.log('X-port account recovery regression: 13 scenarios passed')
 }
 main().catch(error => {console.error(error);process.exitCode=1})
