@@ -58,6 +58,48 @@ async function mutationWithRecoveryV3(run,verify,requireXray=true){
 }
 
 
+function uncertainMutationV3(message){
+ const err=new Error(message||'操作已提交，但最终状态尚未确认；请刷新页面核对后再操作')
+ err.applied=true
+ err.uncertain=true
+ return err
+}
+// Verify an authoritative state, not merely HTTP 200. On a lost write response,
+// inspect state after reconnection and never replay a non-idempotent request.
+async function readConfirmedStateV3(read,{attempts=6,delayMs=650}={}){
+ let lastError=null
+ for(let i=0;i<attempts;i++){
+  try{
+   const state=await read()
+   if(state)return state
+  }catch(err){lastError=err;if(err?.status===401)throw err}
+  if(i<attempts-1)await sleepV3(delayMs)
+ }
+ throw uncertainMutationV3('写入结果无法通过最新状态确认；请刷新页面核对，不要重复提交'+
+  (lastError?.message?'（'+lastError.message+'）':''))
+}
+async function applyConfirmedMutationV3(write,read,{requireXray=false,attempts=6,delayMs=650}={}){
+ const result=await mutationWithRecoveryV3(write,async()=>Boolean(await read()),requireXray)
+ if(!result.recovered)await readConfirmedStateV3(read,{attempts,delayMs})
+ return result
+}
+async function readXrayReadyV3(){
+ const d=await api('/api/overview')
+ return Boolean(d?.system?.xrayActive)
+}
+async function confirmXrayReadyV3(){
+ await readConfirmedStateV3(readXrayReadyV3,{attempts:8,delayMs:750})
+}
+async function confirmXrayVersionV3(expected){
+ const target=String(expected||'').replace(/^v/i,'')
+ await readConfirmedStateV3(async()=>{
+  const d=await api('/api/xray/update')
+  return target&&String(d?.current||'').replace(/^v/i,'')===target
+ },{attempts:7,delayMs:750})
+ await confirmXrayReadyV3()
+}
+
+
 function matchingCreatedAccountV3(accounts,before,body){
  const matches=(accounts||[]).filter(a=>
   Number(a.id)>0&&!before.has(Number(a.id))&&
