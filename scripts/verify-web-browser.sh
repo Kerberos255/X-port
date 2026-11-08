@@ -1038,6 +1038,31 @@ cat > "$TMP/__driver.js" <<'JS'
       }).then(()=>null,err=>err)
       if(!uncertain?.applied||progress.open||XportOperation.busy)
         throw new Error('verification failure left modal stuck or falsely signaled a clean success')
+      // A panel handoff holds the real centered modal while the server is
+      // still on the old version. A timeout must show an actionable error
+      // IN THAT MODAL until the operator explicitly acknowledges it.
+      const handoffTest=XportOperation.run({
+        title:'正在更新 X-port',detail:'等待新版本启动',
+        failureAck:true,
+        perform:()=>window.XportVersionMonitor.waitFor('browser-handoff-next',{
+          timeoutMs:125,pollMs:12,navigationTimeoutMs:30
+        })
+      }).then(()=>null,err=>err)
+      await waitFor('#operation-progress[open]')
+      if(!XportOperation.busy||document.querySelector('#operation-failure-actions')?.hidden!==true)
+        throw new Error('panel update wait did not keep a clean progress modal open')
+      const dismiss=await waitFor('#operation-failure-actions:not([hidden]) #operation-failure-dismiss',1000)
+      if(!progress.open||!XportOperation.busy||
+         document.querySelector('#operation-progress')?.dataset.phase!=='error'||
+         !document.querySelector('#operation-progress-detail').textContent.includes('超时'))
+        throw new Error('panel timeout silently closed or failed to explain the result')
+      const bounds=progress.getBoundingClientRect()
+      if(Math.abs(bounds.top+bounds.height/2-innerHeight/2)>innerHeight*.14)
+        throw new Error('panel update failure modal is not centered')
+      dismiss.click()
+      const failure=await handoffTest
+      if(!failure?.progressAcknowledged||progress.open||XportOperation.busy)
+        throw new Error('panel update error was not explicitly acknowledged and released')
       globalThis.__fwConfirmResult=false
       mark('pass', `clonePort=${portInput.value};legacyHits=0;fallbackDest=${dest};layout=contained;globalXray=ok;firewallEdits=guarded`)
     } catch (err) {
