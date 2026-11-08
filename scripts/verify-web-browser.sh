@@ -99,6 +99,7 @@ cat > "$TMP/__mock.js" <<'JS'
     return globalThis.__fwConfirmResult
   }
   let fwNote = '主节点 · REALITY'
+  let fwPurpose = 'Xray · VLESS'
   globalThis.fetch = (input, init = {}) => {
     const u = new URL(typeof input === 'string' ? input : input.url, location.href)
     const path = u.pathname
@@ -174,7 +175,7 @@ cat > "$TMP/__mock.js" <<'JS'
       notice:'预览：简单端口规则展示；底层链可能影响结果',rules:[
         {id:'firewalld:public:22/tcp',port:22,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'未识别',purposeSource:'unknown',usage:'unused',note:'保留规则',protected:true,xray:false},
         {id:'firewalld:public:443/tcp',port:443,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'HTTPS',purposeSource:'manual',note:'网站入口',protected:false,xray:false,kind:'port',action:'allow',managed:false,revision:'111122223333444455556666'},
-        {id:'firewalld:public:2053/tcp',port:2053,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'Xray · VLESS',purposeSource:'xray',note:fwNote,protected:false,managed:true,xray:true,usage:'used',usageDetails:[{port:2053,protocol:'tcp',pid:1242,name:'xray'}],action:'allow',kind:'port',canToggle:true,accountId:1,accountName:'Alpha inbound',accountEnabled:true},
+        {id:'firewalld:public:2053/tcp',port:2053,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:fwPurpose,purposeSource:'xray',note:fwNote,protected:false,managed:true,xray:true,usage:'used',usageDetails:[{port:2053,protocol:'tcp',pid:1242,name:'xray'}],action:'allow',kind:'port',canToggle:true,accountId:1,accountName:'Alpha inbound',accountEnabled:true},
         {id:'firewalld:public:8443/tcp',port:8443,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:false,access:'区域：public',purpose:'Xray · Trojan',purposeSource:'xray',note:'临时放行，需同步',protected:false,xray:true},
         {id:'firewalld:public:rich:443/udp:deny:ipv4',port:443,protocol:'udp',family:'ipv4',zone:'public',backend:'firewalld',runtime:true,permanent:true,action:'deny',kind:'rich',access:'区域：public',purpose:'未识别',protected:true,usage:'unused'},
         {id:'firewalld:public:rich:443/udp:deny:ipv6',port:443,protocol:'udp',family:'ipv6',zone:'public',backend:'firewalld',runtime:true,permanent:true,action:'deny',kind:'rich',access:'区域：public',purpose:'未识别',protected:true,usage:'unused'},
@@ -188,7 +189,10 @@ cat > "$TMP/__mock.js" <<'JS'
       fwNote = JSON.parse(init.body).note
       return json({note:fwNote})
     }
-    if (path === '/api/firewall/purpose' && method === 'PUT') return json({purpose:JSON.parse(init.body).purpose})
+    if (path === '/api/firewall/purpose' && method === 'PUT') {
+      fwPurpose=JSON.parse(init.body).purpose
+      return json({purpose:fwPurpose})
+    }
     if (path === '/api/firewall/raw' && method === 'GET') return json({ruleset:'table inet firewalld {\\n chain INPUT { type filter hook input priority 10; }\\n}'})
     if (path === '/api/firewall/rules' && method === 'POST') {
       globalThis.__fwMutationCalls=(globalThis.__fwMutationCalls||0)+1
@@ -485,6 +489,12 @@ cat > "$TMP/__driver.js" <<'JS'
       const fwSave=await waitFor('#fw-rows button[data-fw-act="save"]')
       fwSave.click()
       await waitForTextContains('#fw-rows button[data-fw-id="firewalld:public:2053/tcp"][data-fw-key="note"] span','浏览器回归备注')
+      const purposeButton=document.querySelector('#fw-rows button[data-fw-id="firewalld:public:2053/tcp"][data-fw-key="purpose"]')
+      purposeButton.click()
+      const purposeInput=await waitFor('.fw-edit-input')
+      purposeInput.value='浏览器回归用途'
+      document.querySelector('#fw-rows button[data-fw-act="save"]').click()
+      await waitForTextContains('#fw-rows button[data-fw-id="firewalld:public:2053/tcp"][data-fw-key="purpose"] span','浏览器回归用途')
       if(document.querySelector('#nav [data-page="firewall"]')?.classList.contains('active')!==true) throw new Error('firewall navigation not active')
       const accountLink=document.querySelector('#fw-rows button.fw-account-link[data-fw-account="1"]')
       if(!accountLink||!accountLink.textContent.includes('Alpha inbound')) throw new Error('Xray account linkage is not visible')
