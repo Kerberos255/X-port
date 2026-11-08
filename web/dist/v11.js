@@ -251,27 +251,56 @@ initV11()
 
 /* Reliable clone-account interception. */
 async function openCloneModalV12(id){
- const a=state.accounts.find(x=>x.id===id)
- openModal(`<div class="modal-title"><span>CLONE ACCOUNT</span><h2>克隆 ${esc(a?.name||'账号')}</h2></div><form id="clone-form" class="form-grid"><label>新账号名<input name="name" value="${esc((a?.name||'account')+' copy')}" required></label><label>新端口<input id="clone-port" name="port" type="number" min="1" max="65535" placeholder="正在随机分配…"></label><div class="form-actions full"><button type="button" class="btn ghost" id="clone-cancel">取消</button><button class="btn primary" type="submit">克隆并应用</button></div></form>`)
+ const a=state.accounts.find(x=>Number(x.id)===id)
+ if(!a)return toast('源账号已不存在，请刷新列表',true)
+ openModal(`<div class="modal-title"><span>CLONE ACCOUNT</span><h2>克隆 ${esc(a.name||'账号')}</h2></div><form id="clone-form" class="form-grid"><label>新账号名<input name="name" value="${esc((a.name||'account')+' copy')}" required></label><label>新端口<input id="clone-port" name="port" type="number" min="1" max="65535" placeholder="正在随机分配…"></label><div class="form-actions full"><button type="button" class="btn ghost" id="clone-cancel">取消</button><button class="btn primary" type="submit">克隆并应用</button></div></form>`)
  $('#clone-cancel').onclick=closeModal
  const portInput=$('#clone-port')
  try{
-  const d=await api('/api/accounts/port-suggestion')
+  const suggested=await api('/api/accounts/port-suggestion')
   if(!$('#clone-form'))return
-  portInput.value=d.port||''
+  portInput.value=suggested.port||''
  }catch(err){toast(err.message,true)}
  $('#clone-form').onsubmit=async e=>{
   e.preventDefault()
-  const form=e.currentTarget,f=new FormData(form),button=form.querySelector('button[type=submit]')
+  const form=e.currentTarget
+  if(form.dataset.submitting==='1')return
+  form.dataset.submitting='1'
+  const f=new FormData(form),name=String(f.get('name')||'').trim(),port=Number(f.get('port')||0)
+  const button=form.querySelector('button[type=submit]')
   button.disabled=true;button.textContent='克隆中…'
   try{
-   await XportOperation.run({
-    title:'正在克隆账号',detail:String(f.get('name')||'账号副本'),
-    perform:()=>api(`/api/accounts/${id}/clone`,{method:'POST',body:JSON.stringify({name:f.get('name'),port:Number(f.get('port')||0)})}),
-    verify:()=>XportOperation.refreshAccounts()
+   const snapshot=await api('/api/accounts')
+   const before=new Set((snapshot.accounts||[]).map(x=>Number(x.id)))
+   const body={name,port,protocol:a.protocol}
+   let clonedID=0
+   const outcome=await XportOperation.run({
+    title:'正在克隆账号',detail:name,
+    perform:async()=>{
+     const result=await createAccountWithRecoveryV3(body,before,
+      ()=>api(`/api/accounts/${id}/clone`,{method:'POST',body:JSON.stringify({name,port})}))
+     clonedID=Number(result.value?.id||0)
+     if(!clonedID){
+      const created=await readCreatedAccountV3(before,body)
+      clonedID=Number(created?.id||0)
+     }
+     if(!clonedID)throw uncertainMutationV3('克隆结果尚未找到匹配的新账号 ID')
+     return result
+    },
+    verify:async()=>{
+     const rows=await XportOperation.refreshAccounts()
+     if(!rows.some(x=>Number(x.id)===clonedID&&x.name===name&&
+       String(x.protocol).toLowerCase()===String(a.protocol).toLowerCase()&&
+       (!port||Number(x.port)===port)))
+      throw uncertainMutationV3('新账号尚未在克隆结果中确认')
+    }
    })
-   closeModal();toast('账号已克隆')
-  }catch(err){toast(err.message,true);if(!err.applied){button.disabled=false;button.textContent='克隆并应用'}}
+   closeModal()
+   toast('账号已克隆'+(outcome.xrayReady===false?'；Xray 尚未确认恢复':''),outcome.xrayReady===false)
+  }catch(err){
+   toast((err.uncertain?'结果未确认，请先刷新账号列表：':'')+err.message,true)
+   if(!err.applied&&!err.uncertain){button.disabled=false;button.textContent='克隆并应用';form.dataset.submitting='0'}
+  }
  }
 }
 
