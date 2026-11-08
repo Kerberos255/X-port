@@ -150,6 +150,13 @@ func (s *Server) restoreBackup(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 503, "backup directory is not configured")
 		return
 	}
+	// Reject a missing or invalid archive before creating a safety snapshot.
+	// The pre-restore checkpoint is only needed for a valid restore attempt.
+	snapshot, err := backup.Load(dir, r.PathValue("name"))
+	if err != nil {
+		writeError(w, 400, err.Error())
+		return
+	}
 	current, err := s.store.Snapshot()
 	if err != nil {
 		writeError(w, 500, err.Error())
@@ -157,11 +164,6 @@ func (s *Server) restoreBackup(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, err := backup.Create(dir, current); err != nil {
 		writeError(w, 500, "pre-restore backup failed: "+err.Error())
-		return
-	}
-	snapshot, err := backup.Load(dir, r.PathValue("name"))
-	if err != nil {
-		writeError(w, 400, err.Error())
 		return
 	}
 	if err := s.accounts.RestoreSnapshot(snapshot); err != nil {

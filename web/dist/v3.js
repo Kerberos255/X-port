@@ -8,7 +8,7 @@ function isTransientNetworkErrorV3(err){
  return !err?.status && /NetworkError|Failed to fetch|Load failed|network request|connection refused|connection reset|ERR_CONNECTION_REFUSED|ECONNREFUSED/i.test(String(err?.message||err||''))
 }
 function sleepV3(ms){return new Promise(r=>setTimeout(r,ms))}
-async function waitForPanelV3(timeoutMs=12000){
+async function waitForPanelV3(timeoutMs=20000){
  const deadline=Date.now()+timeoutMs
  while(Date.now()<deadline){
   try{if((await api('/api/health'))?.ok)return true}catch{}
@@ -33,15 +33,147 @@ async function mutationWithRecoveryV3(run,verify,requireXray=true){
   if(typeof XportOperation!=='undefined'&&XportOperation.busy)
    XportOperation.setStage?.('连接暂时中断，正在核实操作结果…')
   else toast('连接暂时中断，正在核实操作结果…')
-  if(!await waitForPanelV3())throw new Error('面板仍无法连接，操作结果未确认；请恢复连接后刷新')
-  let applied=false
-  try{applied=Boolean(await verify())}catch{}
-  if(applied){
-   if(requireXray && !await waitForXrayV3())throw new Error('操作状态已更新，但 Xray 未恢复；请检查核心服务')
-   return {value:null,recovered:true}
+  if(!await waitForPanelV3()){
+   const uncertain=new Error('面板仍无法连接，账号操作结果尚未确认；恢复连接后请先刷新列表')
+   uncertain.uncertain=true
+   throw uncertain
   }
-  throw new Error('连接已恢复，但操作未确认成功；请刷新后检查账号状态')
+  let applied=false
+  for(let attempt=0;attempt<5;attempt++){
+   try{applied=Boolean(await verify())}catch{}
+   if(applied)break
+   if(attempt<4)await sleepV3(650)
+  }
+  if(applied){
+   // The persisted account change and Xray readiness are independent.
+   // Never report an applied write as failed solely because Xray is restarting.
+   let xrayReady=true
+   if(requireXray){try{xrayReady=await waitForXrayV3()}catch{xrayReady=false}}
+   return {value:null,recovered:true,xrayReady}
+  }
+  const uncertain=new Error('连接已恢复，但账号状态尚未确认；请刷新列表核对，不要直接重试')
+  uncertain.uncertain=true
+  throw uncertain
  }
+}
+
+
+function uncertainMutationV3(message){
+ const err=new Error(message||'操作已提交，但最终状态尚未确认；请刷新页面核对后再操作')
+ err.applied=true
+ err.uncertain=true
+ return err
+}
+// Verify an authoritative state, not merely HTTP 200. On a lost write response,
+// inspect state after reconnection and never replay a non-idempotent request.
+async function readConfirmedStateV3(read,{attempts=6,delayMs=650}={}){
+ let lastError=null
+ for(let i=0;i<attempts;i++){
+  try{
+   const state=await read()
+   if(state)return state
+  }catch(err){lastError=err;if(err?.status===401)throw err}
+  if(i<attempts-1)await sleepV3(delayMs)
+ }
+ throw uncertainMutationV3('写入结果无法通过最新状态确认；请刷新页面核对，不要重复提交'+
+  (lastError?.message?'（'+lastError.message+'）':''))
+}
+async function applyConfirmedMutationV3(write,read,{requireXray=false,attempts=6,delayMs=650}={}){
+ const result=await mutationWithRecoveryV3(write,async()=>Boolean(await read()),requireXray)
+ if(!result.recovered)await readConfirmedStateV3(read,{attempts,delayMs})
+ return result
+}
+async function readXrayReadyV3(){
+ const d=await api('/api/overview')
+ return Boolean(d?.system?.xrayActive)
+}
+async function confirmXrayReadyV3(){
+ await readConfirmedStateV3(readXrayReadyV3,{attempts:8,delayMs:750})
+}
+async function confirmXrayVersionV3(expected){
+ const target=String(expected||'').replace(/^v/i,'')
+ await readConfirmedStateV3(async()=>{
+  const d=await api('/api/overview')
+  return target&&Boolean(d?.system?.xrayActive)&&
+   String(d?.system?.xrayVersion||'').replace(/^v/i,'')===target
+ },{attempts:9,delayMs:750})
+}
+function sameJSONV3(a,b){
+ if(a===b)return true
+ if(a==null||b==null||typeof a!==typeof b)return false
+ if(typeof a!=='object')return false
+ if(Array.isArray(a)!==Array.isArray(b))return false
+ const keysA=Object.keys(a).sort(),keysB=Object.keys(b).sort()
+ return keysA.length===keysB.length&&
+  keysA.every((k,i)=>k===keysB[i]&&sameJSONV3(a[k],b[k]))
+}
+
+
+function expertConfigMatchesV3(input,actual){
+ if(!actual)return false
+ const equalJSON=(a,b)=>{
+  try{return sameJSONV3(JSON.parse(a||'null'),JSON.parse(b||'null'))}
+  catch{return String(a||'')===String(b||'')}
+ }
+ const basic=['acceptProxyProtocol','realityTarget','realityServerNames','realityShortIds',
+  'realityXver','realityMinClientVer','realityMaxClientVer','realityMaxTimeDiff',
+  'realityShow','tlsAlpn','tlsMinVersion','tlsMaxVersion','tlsCipherSuites',
+  'tlsRejectUnknownSni','xhttpMode','xhttpXPaddingBytes','xhttpNoSseHeader',
+  'xhttpScMaxBufferedPosts','xhttpScMaxEachPostBytes','xhttpScStreamUpServerSecs',
+  'xhttpUplinkHttpMethod']
+ const supported=k=> !((k.startsWith('reality')&&!actual.supportsReality)||
+  (k.startsWith('tls')&&!actual.supportsTls)||
+  (k.startsWith('xhttp')&&!actual.supportsXhttp))
+ return basic.every(k=>!supported(k)||sameJSONV3(input[k],actual[k]))&&
+  (!actual.supportsFallbacks||equalJSON(input.fallbacksJson,actual.fallbacksJson))&&
+  (!actual.supportsHttpHeader||equalJSON(input.httpHeaderJson,actual.httpHeaderJson))&&
+  (!actual.supportsTls||equalJSON(input.tlsCertificatesJson,actual.tlsCertificatesJson))
+}
+
+function matchingCreatedAccountV3(accounts,before,body){
+ const matches=(accounts||[]).filter(a=>
+  Number(a.id)>0&&!before.has(Number(a.id))&&
+  String(a.name||'').trim()===String(body.name||'').trim()&&
+  String(a.protocol||'').toLowerCase()===String(body.protocol||'').toLowerCase()&&
+  (!Number(body.port)||Number(a.port)===Number(body.port)))
+ return matches.length===1?matches[0]:null
+}
+async function readCreatedAccountV3(before,body){
+ const data=await api('/api/accounts')
+ return matchingCreatedAccountV3(data.accounts,before,body)
+}
+async function createAccountWithRecoveryV3(body,before,submit){
+ let result,confirmedCreated=null
+ try{
+  result=await mutationWithRecoveryV3(
+   ()=>submit?submit():api('/api/accounts',{method:'POST',body:JSON.stringify(body)}),
+   async()=>{
+    confirmedCreated=await readCreatedAccountV3(before,body)
+    return Boolean(confirmedCreated)
+   })
+ }catch(err){
+  // A port conflict can follow a lost successful response. Accept it only
+  // when a fresh read shows exactly one matching ID absent before the write.
+  // Existing port conflicts and unrelated new accounts remain real errors.
+  if(Number(err?.status)!==400||
+     !/port\s+\d+\s+is\s+already\s+used|port\s+\d+\s+is\s+already\s+in\s+use|端口.*(已使用|已占用)/i.test(String(err.message||'')))throw err
+  let created=null,readFailed=false
+  try{created=await readCreatedAccountV3(before,body)}catch{readFailed=true}
+  if(!created){
+   // When read-back is unavailable, a 400 alone does not establish whether
+   // a preceding write was applied. Never enable a blind repeat.
+   if(readFailed)err.uncertain=true
+   throw err
+  }
+  let xrayReady=true
+  try{xrayReady=await waitForXrayV3()}catch{xrayReady=false}
+  return {value:{id:created.id},recovered:true,xrayReady,matchedAfterConflict:true}
+ }
+ if(result.recovered&&!result.value?.id&&confirmedCreated){
+  // Reuse the exact already-verified new ID; no second read can race recovery.
+  result.value={id:confirmedCreated.id}
+ }
+ return result
 }
 
 
@@ -172,33 +304,65 @@ async function openAccountModalV3(a=null){
 }
 
 async function toggleAccountV3(id,enabled,button){
+ if(button.disabled)return
  button.disabled=true
- try{await XportOperation.run({
-  title:enabled?'正在启用账号':'正在停用账号',detail:'账号 '+id,
-  perform:()=>mutationWithRecoveryV3(()=>api(`/api/accounts/${id}/enabled`,{method:'PATCH',body:JSON.stringify({enabled})}),async()=>{const cur=await api(`/api/accounts/${id}`);return Boolean(cur.enabled)===enabled}),
-  verify:()=>XportOperation.refreshAccounts()
- });await loadOnlineConnectionsV3(false);toast(enabled?'账号已启用':'账号已停用')}
- catch(e){toast(e.message,true);button.disabled=false}
+ try{
+  const result=await XportOperation.run({
+   title:enabled?'正在启用账号':'正在停用账号',detail:'账号 '+id,
+   perform:()=>applyConfirmedMutationV3(
+    ()=>api(`/api/accounts/${id}/enabled`,{method:'PATCH',body:JSON.stringify({enabled})}),
+    async()=>{const cur=await api(`/api/accounts/${id}`);return Boolean(cur.enabled)===enabled}),
+   verify:async()=>{
+    const rows=await XportOperation.refreshAccounts()
+    if(!rows.some(a=>Number(a.id)===id&&Boolean(a.enabled)===enabled))
+     throw uncertainMutationV3('账号启停状态未在最新列表中确认')
+   }
+  })
+  void loadOnlineConnectionsV3(false)
+  toast((enabled?'账号已启用':'账号已停用')+(result.xrayReady===false?'；Xray 尚未确认恢复':''),result.xrayReady===false)
+ }catch(err){
+  toast(err.message,true)
+  if(!err.applied&&!err.uncertain)button.disabled=false
+ }
 }
 function openCloneModalV3(id){
  const a=state.accounts.find(x=>x.id===id);openModal(`<div class="modal-title"><span>CLONE ACCOUNT</span><h2>克隆 ${esc(a?.name||'账号')}</h2></div><form id="clone-form" class="form-grid"><label>${reqLabelV3('新账号')}<input name="name" value="${esc((a?.name||'account')+' copy')}" required></label><label>${reqLabelV3('新端口')}<input name="port" type="number" min="1" max="65535" required></label><p class="muted tiny full">协议与传输参数会复制；UUID/密码自动重新生成，本期与累计流量清零。</p><div class="form-actions full"><button type="button" class="btn ghost" id="clone-cancel">取消</button><button class="btn primary" type="submit">克隆并应用</button></div></form>`)
  $('#clone-cancel').onclick=closeModal;$('#clone-form').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.currentTarget),name=String(f.get('name')||''),port=Number(f.get('port')||0),before=new Set(state.accounts.map(x=>Number(x.id)));try{await mutationWithRecoveryV3(()=>api(`/api/accounts/${id}/clone`,{method:'POST',body:JSON.stringify({name,port})}),async()=>{const d=await api('/api/accounts');return(d.accounts||[]).some(x=>!before.has(Number(x.id))&&x.name===name&&Number(x.port)===port)});closeModal();await loadAccounts();await loadOverview();await loadOnlineConnectionsV3(false);toast('账号已克隆')}catch(x){toast(x.message,true)}}
 }
 async function resetTrafficV3(id){
-  const a=state.accounts.find(x=>x.id===id)
-  if(!await XportOperation.ask({title:'确认清零本期流量',
-    detail:'账号「'+(a?.name||id)+'」的本期上下行流量将清零，累计总流量保留。',
-    confirmText:'确认清零',danger:true}))return
-  try{await XportOperation.run({
+ const a=state.accounts.find(x=>Number(x.id)===id)
+ if(!await XportOperation.ask({title:'确认清零本期流量',
+   detail:'账号「'+(a?.name||id)+'」的本期上下行流量将清零，累计总流量保留。',
+   confirmText:'确认清零',danger:true}))return
+ const cleared=async()=>{
+  const data=await api('/api/accounts')
+  const cur=(data.accounts||[]).find(x=>Number(x.id)===id)
+  return Boolean(cur&&Number(cur.upBytes||0)===0&&Number(cur.downBytes||0)===0)
+ }
+ try{
+  await XportOperation.run({
    title:'正在清零本期流量',detail:a?.name||String(id),
-   perform:()=>mutationWithRecoveryV3(()=>api(`/api/accounts/${id}/traffic/reset`,{method:'POST',body:'{}'}),async()=>{const d=await api('/api/accounts');const cur=(d.accounts||[]).find(x=>Number(x.id)===id);return cur&&Number(cur.upBytes||0)===0&&Number(cur.downBytes||0)===0},false),
-   verify:()=>XportOperation.refreshAccounts()
-  });toast('本期流量已清零')}catch(e){toast(e.message,true)}
+   perform:()=>applyConfirmedMutationV3(
+    ()=>api(`/api/accounts/${id}/traffic/reset`,{method:'POST',body:'{}'}),cleared,
+    {requireXray:false}),
+   verify:async()=>{
+    const rows=await XportOperation.refreshAccounts()
+    if(!rows.some(cur=>Number(cur.id)===id&&Number(cur.upBytes||0)===0&&Number(cur.downBytes||0)===0))
+     throw uncertainMutationV3('流量清零状态未在最新列表确认')
+   }
+  })
+  toast('本期流量已清零')
+ }catch(err){toast(err.message,true)}
 }
-async function refreshAccountsAfterDeleteV3(){
-  for(let attempt=0;attempt<5;attempt++){
-   try{const d=await api('/api/accounts');state.accounts=d.accounts||[];renderAccountsV3();return true}catch{}
-   await sleepV3(700)
+async function refreshAccountsAfterDeleteV3(id){
+  for(let attempt=0;attempt<6;attempt++){
+   try{
+    const d=await api('/api/accounts')
+    state.accounts=d.accounts||[]
+    renderAccountsV3()
+    if(!state.accounts.some(a=>Number(a.id)===Number(id)))return true
+   }catch{}
+   if(attempt<5)await sleepV3(700)
   }
   return false
 }
@@ -208,18 +372,22 @@ async function deleteAccountV3(id){
     detail:'删除账号「'+(a?.name||id)+'」？\n对应 inbound 会从 Xray 配置移除。',
     confirmText:'确认删除',danger:true}))return
   try{
-   await XportOperation.run({
+   const outcome=await XportOperation.run({
     title:'正在删除账号',detail:a?.name||String(id),
     perform:()=>mutationWithRecoveryV3(()=>api(`/api/accounts/${id}`,{method:'DELETE'}),async()=>{const d=await api('/api/accounts');return!(d.accounts||[]).some(x=>Number(x.id)===id)}),
-    verify:async()=>{if(!await refreshAccountsAfterDeleteV3())throw new Error('列表暂时无法刷新')}
+    verify:async()=>{if(!await refreshAccountsAfterDeleteV3(id))throw new Error('账号仍在列表中或列表暂时无法读取')}
    })
-   toast('账号已删除')
+   toast(outcome?.xrayReady===false?'账号已删除；Xray 尚未确认恢复，请检查核心状态':'账号已删除',outcome?.xrayReady===false)
    void loadOverview(false,true).catch(()=>{})
    void loadOnlineConnectionsV3(false)
   }catch(e){
-   // A lost response is ambiguous: never issue DELETE a second time.
-   if(!e.applied)await refreshAccountsAfterDeleteV3()
-   toast('删除结果未确认：'+e.message,true)
+   // Never replay DELETE. Read the account list before declaring uncertainty.
+   const absent=await refreshAccountsAfterDeleteV3(id)
+   if(absent){
+    toast('账号已从列表删除；Xray 状态请在概览中核对')
+   }else{
+    toast('删除结果未确认：'+e.message,true)
+   }
   }
 }
 

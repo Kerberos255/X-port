@@ -50,7 +50,38 @@ async function openAccountModal(a=null){let full=a||{};if(a?.id){try{full=await 
 function openCloneModal(id){const a=state.accounts.find(x=>x.id===id);openModal(`<div class="modal-title"><span>CLONE ACCOUNT</span><h2>克隆 ${esc(a?.name||'账号')}</h2></div><form id="clone-form" class="form-grid"><label>新账号名<input name="name" value="${esc((a?.name||'account')+' copy')}" required></label><label>新端口<input name="port" type="number" min="1" max="65535" placeholder="留空自动分配"></label><p class="muted tiny full">协议与传输参数会复制；UUID/密码自动重新生成，本期与累计流量清零。</p><div class="form-actions full"><button type="button" class="btn ghost" id="clone-cancel">取消</button><button class="btn primary" type="submit">克隆并应用</button></div></form>`);$('#clone-cancel').onclick=closeModal;$('#clone-form').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.currentTarget);try{await api(`/api/accounts/${id}/clone`,{method:'POST',body:JSON.stringify({name:f.get('name'),port:Number(f.get('port')||0)})});closeModal();await loadAccounts();await loadOverview();toast('账号已克隆')}catch(x){toast(x.message,true)}}}
 async function resetTraffic(id){const a=state.accounts.find(x=>x.id===id);if(!confirm(`清零「${a?.name||id}」的本期上下行流量？\n累计总流量不会清零。`))return;try{await api(`/api/accounts/${id}/traffic/reset`,{method:'POST',body:'{}'});await loadAccounts();await loadOverview();toast('本期流量已清零')}catch(e){toast(e.message,true)}}
 async function deleteAccount(id){const a=state.accounts.find(x=>x.id===id);if(!confirm(`删除账号「${a?.name||id}」？\n对应 inbound 会从 Xray 配置移除。`))return;try{await api(`/api/accounts/${id}`,{method:'DELETE'});await loadAccounts();await loadOverview();toast('账号已删除')}catch(e){toast(e.message,true)}}
-async function openShareModal(id){const a=state.accounts.find(x=>x.id===id),defaultHost=location.hostname;openModal(`<div class="modal-title"><span>SHARE</span><h2>${esc(a?.name||'账号')} · 分享</h2></div><div class="share-wrap"><div class="qr-box"><img id="share-qr" alt="QR code"></div><div class="share-side"><label>服务器域名 / IP<input id="share-host" value="${esc(defaultHost)}"></label><label>分享链接<textarea id="share-link" class="share-link" readonly></textarea></label><div class="button-row"><button id="copy-share" class="btn primary">复制链接</button><button id="reload-share" class="btn ghost">刷新</button></div></div></div>`);async function refresh(){const host=$('#share-host').value.trim();try{const d=await api(`/api/accounts/${id}/share?host=${encodeURIComponent(host)}`);$('#share-link').value=d.uri;$('#share-qr').src=`/api/accounts/${id}/qr?host=${encodeURIComponent(host)}&t=${Date.now()}`}catch(e){toast(e.message,true)}}$('#reload-share').onclick=refresh;$('#share-host').onchange=refresh;$('#copy-share').onclick=async()=>{await navigator.clipboard.writeText($('#share-link').value);toast('分享链接已复制')};await refresh()}
+async function openShareModal(id){
+ const account=state.accounts.find(a=>Number(a.id)===Number(id))
+ if(!account)return toast('账号不存在，请刷新列表后重试',true)
+ openModal(`<div class="modal-title"><span>SHARE</span><h2>${esc(account.name)} · 分享</h2></div><div class="share-wrap"><div class="qr-box"><img id="share-qr" alt="QR code"></div><div class="share-side"><label>服务器域名 / IP<input id="share-host" value="${esc(location.hostname)}"></label><label>分享链接<textarea id="share-link" class="share-link" readonly></textarea></label><div class="button-row"><button id="copy-share" class="btn primary">复制链接</button><button id="reload-share" class="btn ghost">刷新</button></div></div></div>`)
+ let requestID=0
+ async function refresh(){
+  const host=$('#share-host')?.value.trim()||'',idNow=++requestID
+  const link=$('#share-link'),qr=$('#share-qr')
+  if(!link||!qr)return
+  link.value='';qr.removeAttribute('src')
+  if(!host){toast('服务器域名 / IP 不能为空',true);return}
+  try{
+   const d=await api(`/api/accounts/${id}/share?host=${encodeURIComponent(host)}`)
+   if(idNow!==requestID||!link.isConnected)return
+   if(!d?.uri)throw new Error('服务器未返回分享链接')
+   link.value=d.uri
+   qr.src=`/api/accounts/${id}/qr?host=${encodeURIComponent(host)}&t=${Date.now()}`
+  }catch(err){if(idNow===requestID)toast('分享链接读取失败：'+err.message,true)}
+ }
+ $('#reload-share').onclick=()=>void refresh()
+ $('#share-host').onchange=()=>void refresh()
+ $('#copy-share').onclick=async()=>{
+  const uri=$('#share-link')?.value||''
+  if(!uri){toast('分享链接尚未加载，请先刷新',true);return}
+  try{
+   if(!navigator.clipboard?.writeText)throw new Error('当前浏览器不支持剪贴板写入')
+   await navigator.clipboard.writeText(uri)
+   toast('分享链接已复制')
+  }catch(err){toast('复制失败：'+err.message+'；可在上方文本框中手动选择复制',true)}
+ }
+ await refresh()
+}
 
 async function checkUpdate(manual=false){const latest=$('#update-latest'),note=$('#update-note'),btn=$('#do-update');latest.textContent='检查中';btn.disabled=true;try{const d=await api('/api/xray/update');state.update=d;$('#update-current').textContent=d.current?`v${String(d.current).replace(/^v/,'')}`:'未安装';latest.textContent=d.latest?`v${String(d.latest).replace(/^v/,'')}`:'—';note.textContent=d.available?`发现${d.prerelease?'预发布':''}新版本 · ${d.asset}`:'当前已是最新版本';btn.disabled=!d.available;btn.textContent=d.available?'更新 Xray':'已是最新';if(manual)toast(d.available?'发现可用更新':'Xray 已是最新')}catch(e){latest.textContent='检查失败';note.textContent=e.message;if(manual)toast(e.message,true)}}
 async function updateXray(){if(!state.update?.available){await checkUpdate(true);if(!state.update?.available)return}if(!confirm(`将 Xray 从 ${state.update.current||'当前版本'} 更新到 ${state.update.latest}。\n新核心会先测试当前配置，失败自动回滚。继续吗？`))return;const b=$('#do-update');b.disabled=true;b.textContent='更新中…';try{const d=await api('/api/xray/update',{method:'POST',body:'{}'});state.update=d;toast(`Xray 已更新到 ${d.current}`);await loadOverview();await checkUpdate()}catch(e){toast(e.message,true);b.disabled=false;b.textContent='重试更新'}}
@@ -61,17 +92,15 @@ async function restartXray(){
   confirmText:'确认重启'
  }))return
  try{
-  await XportOperation.run({
+  const result=await XportOperation.run({
    title:'正在重启 Xray',detail:'等待核心重新启动并核对运行状态',
-   perform:()=>api('/api/xray/restart',{method:'POST',body:'{}'}),
-   verify:async()=>{
-    await new Promise(resolve=>setTimeout(resolve,1000))
-    await api('/api/overview')
-    await loadOverview(false,true)
-   }
+   perform:()=>applyConfirmedMutationV3(
+    ()=>api('/api/xray/restart',{method:'POST',body:'{}'}),
+    readXrayReadyV3,{requireXray:false,attempts:10,delayMs:750}),
+   verify:async()=>{await confirmXrayReadyV3();await loadOverview(false,true)}
   })
-  toast('Xray 已重启')
- }catch(e){toast(e.message,true)}
+  toast('Xray 已重启并确认运行')
+ }catch(err){toast('Xray 重启结果未确认：'+err.message,true)}
 }
 async function loadLogs(){try{const service=$('#log-service').value,lines=$('#log-lines').value,d=await api(`/api/logs?service=${encodeURIComponent(service)}&lines=${lines}`);$('#log-output').textContent=d.logs||'(无日志)'}catch(e){$('#log-output').textContent=e.message;toast(e.message,true)}}
 function downloadLogs(){const service=$('#log-service').value,lines=$('#log-lines').value;location.href=`/api/logs?service=${encodeURIComponent(service)}&lines=${lines}&download=1`}
@@ -79,15 +108,39 @@ function downloadLogs(){const service=$('#log-service').value,lines=$('#log-line
 async function loadSettings(){try{const d=await api('/api/settings'),f=$('#settings-form');for(const [k,v] of Object.entries(d)){const el=f.elements.namedItem(k);if(el)el.value=v??''}f.elements.currentPassword.value='';f.elements.newPassword.value=''}catch(e){toast(e.message,true)}}
 async function saveSettings(e){e.preventDefault();const f=e.currentTarget,body={panelListen:formValue(f,'panelListen'),xrayApiPort:Number(formValue(f,'xrayApiPort')),portMin:Number(formValue(f,'portMin')),portMax:Number(formValue(f,'portMax')),defaultRealitySni:formValue(f,'defaultRealitySni'),defaultRealityDest:formValue(f,'defaultRealityDest'),adminUsername:formValue(f,'adminUsername'),currentPassword:formValue(f,'currentPassword'),newPassword:formValue(f,'newPassword')};try{const d=await api('/api/settings',{method:'PUT',body:JSON.stringify(body)});f.elements.currentPassword.value='';f.elements.newPassword.value='';toast(d.restartRequired?'设置已保存；相关监听设置重启 X-port 后生效':'设置已保存')}catch(x){toast(x.message,true)}}
 async function loadBackups(){try{const d=await api('/api/backups'),list=$('#backup-list'),arr=d.backups||[];if(!arr.length){list.innerHTML='<div class="empty small"><b>暂无手动备份</b></div>';return}list.innerHTML=arr.map(x=>`<div class="backup-row" data-name="${esc(x.name)}"><div><b>${esc(x.name)}</b><small>${new Date(x.createdAt).toLocaleString()} · ${fmtBytes(x.size)}</small></div><div class="row-actions"><button class="icon-btn" data-act="download" title="下载">↓</button><button class="icon-btn" data-act="restore" title="恢复">↺</button><button class="icon-btn" data-act="delete" title="删除">×</button></div></div>`).join('');$$('.backup-row').forEach(row=>row.onclick=e=>{const b=e.target.closest('button[data-act]');if(!b)return;const n=row.dataset.name;if(b.dataset.act==='download')location.href=`/api/backups/${encodeURIComponent(n)}/download`;if(b.dataset.act==='restore')void restoreBackup(n);if(b.dataset.act==='delete')void deleteBackup(n)})}catch(e){toast(e.message,true)}}
+async function readBackupsStrict(){
+ const result=await api('/api/backups')
+ if(!Array.isArray(result?.backups))throw new Error('备份列表返回格式异常')
+ return result.backups
+}
 async function createBackup(){
  try{
+  const before=new Set((await readBackupsStrict()).map(item=>item.name))
+  let createdName=''
   await XportOperation.run({
    title:'正在创建备份',detail:'保存系统快照并核对备份列表',
-   perform:()=>api('/api/backups',{method:'POST',body:'{}'}),
-   verify:async()=>{await api('/api/backups');await loadBackups()}
+   perform:()=>applyConfirmedMutationV3(
+    async()=>{
+     const d=await api('/api/backups',{method:'POST',body:'{}'})
+     createdName=String(d?.name||'')
+     return d
+    },
+    async()=>{
+     const rows=await readBackupsStrict()
+     const matches=rows.filter(item=>createdName?item.name===createdName:!before.has(item.name))
+     if(matches.length!==1)return false
+     createdName=matches[0].name
+     return true
+    },{requireXray:false}),
+   verify:async()=>{
+    const rows=await readBackupsStrict()
+    if(!rows.some(item=>item.name===createdName))
+     throw uncertainMutationV3('备份没有在最新列表中确认')
+    await loadBackups()
+   }
   })
   toast('备份已创建')
- }catch(e){toast(e.message,true)}
+ }catch(err){toast(err.message,true)}
 }
 async function restoreBackup(name){
  if(!await XportOperation.ask({
@@ -96,13 +149,18 @@ async function restoreBackup(name){
   confirmText:'确认恢复',danger:true
  }))return
  try{
-  await XportOperation.run({
+  const result=await XportOperation.run({
    title:'正在恢复备份',detail:'写入备份数据并等待服务器确认',
    perform:()=>api('/api/backups/'+encodeURIComponent(name)+'/restore',{method:'POST',body:'{}'})
   })
-  toast('备份已恢复，请重新登录')
+  if(!result?.loginRequired)throw uncertainMutationV3('恢复请求已返回，但没有收到重新登录确认')
+  toast('备份恢复已提交，请重新登录')
   setTimeout(()=>showLogin(),400)
- }catch(e){toast('恢复结果未确认：'+e.message,true)}
+ }catch(err){
+  // Restore invalidates all old sessions. A lost response is not proof of failure.
+  toast('备份恢复结果未确认：'+err.message+'。请重新登录后核对，不要直接重试',true)
+  if(isTransientNetworkErrorV3(err)||err?.status===401)showLogin()
+ }
 }
 async function deleteBackup(name){
  if(!await XportOperation.ask({
@@ -112,10 +170,21 @@ async function deleteBackup(name){
  try{
   await XportOperation.run({
    title:'正在删除备份',detail:'删除备份并核对备份列表',
-   perform:()=>api('/api/backups/'+encodeURIComponent(name),{method:'DELETE'}),
-   verify:async()=>{await api('/api/backups');await loadBackups()}
+   perform:()=>applyConfirmedMutationV3(
+    ()=>api('/api/backups/'+encodeURIComponent(name),{method:'DELETE'}),
+    async()=>{
+     const rows=await readBackupsStrict()
+     return !rows.some(item=>item.name===name)
+    },{requireXray:false}),
+   verify:async()=>{
+    const rows=await readBackupsStrict()
+    if(rows.some(item=>item.name===name))
+     throw uncertainMutationV3('待删除备份仍在列表中')
+    await loadBackups()
+   }
   })
   toast('备份已删除')
- }catch(e){toast(e.message,true)}
+ }catch(err){toast(err.message,true)}
 }
+
 document.addEventListener('DOMContentLoaded',boot)

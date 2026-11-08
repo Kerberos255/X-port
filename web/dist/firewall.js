@@ -151,6 +151,7 @@
       if (seq !== state.sequence) return
       state.data = data
       render()
+      return data
     } catch (err) {
       if (seq !== state.sequence) return
       state.data = null
@@ -162,8 +163,14 @@
   }
   // Keep the progress dialog active until the new firewall snapshot is read.
   // A returned write is not proof that the visible rule list is up to date.
-  const applyRule=(title,detail,perform)=>XportOperation.run({
-    title,detail,perform,verify:()=>refresh(true)
+  const applyRule=(title,detail,perform,check)=>XportOperation.run({
+    title,detail,perform,
+    verify:async result=>{
+      await readConfirmedStateV3(async()=>{
+        const data=await refresh(true)
+        return Boolean(data&&(!check||check(data,result)))
+      },{attempts:5,delayMs:650})
+    }
   })
   function setTab(tab) {
     state.tab=tab
@@ -185,7 +192,7 @@
           const result=await request('/api/firewall/'+endpoint,'PUT',{id:edit.id,[edit.key]:value})
           state.editing=null
           return result
-        })
+        },data=>data.rules?.some(r=>r.id===edit.id&&String(r[edit.key]||'')===value))
       toast('保存成功')
     } catch(err) {toast(err.message,true)}
   }
@@ -232,6 +239,18 @@
     edit.click()
   }
   let policyChangeBusy=false
+  function policyChangeConfirmed(data,result,action,rule){
+    if(result?.pending)
+      return Boolean(result.id&&result.token&&data.pending?.some(
+        item=>item.id===result.id&&item.token===result.token))
+    const actual=data.rules?.find(item=>item.id===rule.id)
+    if(action==='resume-allow')return Boolean(actual&&!actual.paused&&actual.runtime&&actual.permanent&&actual.action==='allow')
+    if(action==='resume-drop'||action==='add-drop')
+      return Boolean(actual&&!actual.paused&&actual.runtime&&actual.permanent&&actual.action==='deny'&&actual.kind==='rich')
+    if(action==='remove-drop')return !actual
+    // Mutations that delete connectivity must have a persisted native recovery timer.
+    return false
+  }
   async function runPolicyControl(action,r){
     if(policyChangeBusy||!editable())return
     const warning=action==='add-drop'||action==='resume-drop'
@@ -250,14 +269,15 @@
       const result=await applyRule('正在调整防火墙策略',portText(r)+' / '+r.protocol.toUpperCase(),
         ()=>request('/api/firewall/control','POST',{
           action,id:r.id,port:r.port,protocol:r.protocol,zone:r.zone||''
-        }))
+        }),(data,result)=>policyChangeConfirmed(data,result,action,r))
       if(result?.pending){
         const yes=await XportOperation.ask({title:'请确认连接仍然正常',
           detail:'规则已临时修改，请先验证管理面板仍可访问。\n若不确认，系统将在约 120 秒后自动恢复。',
           confirmText:'保留修改',cancelText:'等待恢复'})
         if(yes){
           await applyRule('正在确认防火墙规则','取消定时恢复任务',
-            ()=>request('/api/firewall/rules/confirm','POST',{id:result.id,token:result.token}))
+            ()=>request('/api/firewall/rules/confirm','POST',{id:result.id,token:result.token}),
+            data=>!data.pending?.some(item=>item.id===result.id))
           toast('规则已确认，外部恢复计时器已取消')
         }else toast('未确认，系统将按计时器恢复原规则')
       }else toast('规则已恢复')
@@ -299,16 +319,20 @@
         ()=>request('/api/firewall/edit','POST',{
           id:r.id,revision:r.revision,newPort:port,newProtocol:proto,
           externalAcknowledged:true
-        }))
+        }),(data,result)=>result?.pending
+          ?data.pending?.some(p=>p.id===result.id)
+          :data.rules?.some(row=>Number(row.port)===port&&row.protocol===proto&&
+            (row.zone||'')===(r.zone||'')))
       if(result?.pending){
         if(await XportOperation.ask({title:'请确认新端口可用',
           detail:'端口已临时修改。请确认仍能访问管理面板。\n不确认将在约 120 秒后自动恢复原端口。',
           confirmText:'保留新端口',cancelText:'等待恢复'})){
           await applyRule('正在确认端口修改','取消定时恢复任务',
-            ()=>request('/api/firewall/rules/confirm','POST',{id:result.id,token:result.token}))
+            ()=>request('/api/firewall/rules/confirm','POST',{id:result.id,token:result.token}),
+            data=>!data.pending?.some(item=>item.id===result.id))
           toast('外部规则已修改。请刷新原防火墙管理器确认新端口。')
         }else toast('未确认：系统将自动恢复原端口并撤销新端口')
-      }
+      }else toast('外部规则已修改并核对新端口，请在原管理器中确认')
     }catch(err){toast('外部规则编辑未完成：'+err.message,true);await refresh()}
     finally{externalEditBusy=false;selectedEditRule=null}
   }
@@ -365,7 +389,8 @@
         detail:'请确认当前仍可访问管理面板。确认后将取消防火墙定时恢复。',
         confirmText:'确认连接正常'})) return
       void applyRule('正在确认防火墙规则','取消定时恢复任务',
-        ()=>request('/api/firewall/rules/confirm','POST',{id,token:button.dataset.fwToken}))
+        ()=>request('/api/firewall/rules/confirm','POST',{id,token:button.dataset.fwToken}),
+        data=>!data.pending?.some(item=>item.id===id))
         .then(()=>toast('连接已确认，定时恢复已取消'))
         .catch(err=>toast(err.message,true))
       return
@@ -435,7 +460,9 @@
       confirmText:'确认添加'}))return
     try{
       await applyRule('正在添加防火墙规则',port+' / '+protocol.toUpperCase()+' · '+zone,
-        ()=>request('/api/firewall/rules','POST',{action:'add',port,protocol,zone}))
+        ()=>request('/api/firewall/rules','POST',{action:'add',port,protocol,zone}),
+        data=>data.rules?.some(r=>Number(r.port)===port&&r.protocol===protocol&&
+          (r.zone||'')===zone&&(r.action==='allow'||r.action==='accept'||!r.action)))
       toast('规则已添加')
     }catch(err){toast('添加结果未确认：'+err.message,true);await refresh()}
   })
@@ -455,13 +482,17 @@
       confirmText:'确认删除',danger:true}))return
     try{
       const result=await applyRule('正在删除防火墙规则',portText(r)+' / '+r.protocol.toUpperCase(),
-        ()=>request('/api/firewall/rules','POST',{action:'remove',port:r.port,protocol:r.protocol,zone:r.zone||''}))
+        ()=>request('/api/firewall/rules','POST',{action:'remove',port:r.port,protocol:r.protocol,zone:r.zone||''}),
+        (data,result)=>result?.pending
+          ?data.pending?.some(p=>p.id===result.id)
+          :!data.rules?.some(x=>x.id===r.id&&x.runtime&&x.permanent))
       if(result?.pending) {
         if(await XportOperation.ask({title:'请确认删除后仍可连接',
           detail:'端口规则已临时关闭。请先确认管理面板仍可访问。\n若不确认，系统约 120 秒后自动恢复放行。',
           confirmText:'确认删除',cancelText:'等待恢复',danger:true})) {
           await applyRule('正在确认删除规则','取消定时恢复任务',
-            ()=>request('/api/firewall/rules/confirm','POST',{id:result.id,token:result.token}))
+            ()=>request('/api/firewall/rules/confirm','POST',{id:result.id,token:result.token}),
+            data=>!data.pending?.some(item=>item.id===result.id))
           toast('删除已确认，恢复任务已取消')
         }else toast('未确认：恢复任务将在期限到达后重新开放该端口')
       }

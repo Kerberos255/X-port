@@ -46,6 +46,7 @@ cat > "$TMP/__mock.js" <<'JS'
     credential: '11111111-1111-4111-8111-111111111111', enabled: true, editable: true,
     monthlyReset: false, upBytes: 0, downBytes: 0, quotaBytes: 0, expiryTime: 0
   }
+  globalThis.__mockAccount = account
   const expert = {
     protocol:'vless', method:'raw', security:'tls', acceptProxyProtocol:false,
     fallbacksJson:'[{"path":"/legacy","dest":80,"xver":0}]', httpHeaderJson:'',
@@ -65,6 +66,37 @@ cat > "$TMP/__mock.js" <<'JS'
   globalThis.__accountDeleteHold = false
   globalThis.__accountDeleteRelease = null
   globalThis.__mockAccountDeleted = false
+  globalThis.__mockCreatedAccount = null
+  globalThis.__mockCreateCalls = 0
+  globalThis.__mockCreateMode = 'success'
+  globalThis.__mockShareURI='vless://example-token@proxy.example.com:23456'
+  globalThis.__mockShareFail=false
+  globalThis.__mockClipboardDenied=false
+  globalThis.__mockCopiedLink=''
+  Object.defineProperty(navigator,'clipboard',{configurable:true,value:{
+    writeText:async value=>{
+      if(globalThis.__mockClipboardDenied)throw new Error('permission denied')
+      globalThis.__mockCopiedLink=String(value)
+    }
+  }})
+  globalThis.__mockCloneCalls = 0
+  globalThis.__mockAccountResetCalls = 0
+  globalThis.__mockBackupCalls = 0
+  globalThis.__mockBackups = []
+  globalThis.__mockXrayActive = true
+  globalThis.__mockXrayVersion = 'test'
+  globalThis.__mockXrayLatest = 'test-next'
+  globalThis.__mockXrayAvailable = false
+  globalThis.__mockXrayRestartCalls = 0
+  globalThis.__mockGeodataCurrent = 'test'
+  globalThis.__mockGeodataLatest = 'test-next'
+  globalThis.__mockGeodataAvailable = false
+  globalThis.__mockGlobalConfig = {routing:{},dns:{},outbounds:[],policy:{}}
+  globalThis.__mockSettings = {panelListen:'127.0.0.1:8080',panelBasePath:'/',panelCertFile:'',
+    panelKeyFile:'',panelDomain:'',panelTLS:false,xrayApiPort:10085,portMin:20000,
+    portMax:60000,defaultRealitySni:'',defaultRealityDest:'',adminUsername:'admin'}
+  globalThis.__fwExtraRules = []
+  globalThis.__mockFwPending=null
   globalThis.__fwControlPending = false
   globalThis.__pendingConfirmSeenWhileBusy = null
   globalThis.__xportServerVersion = 'browser-test'
@@ -78,6 +110,9 @@ cat > "$TMP/__mock.js" <<'JS'
     return globalThis.__fwConfirmResult
   }
   let fwNote = '主节点 · REALITY'
+  let fwPurpose = 'Xray · VLESS'
+  let fwExternalPort = 443
+  let fwExternalProto = 'tcp'
   globalThis.fetch = (input, init = {}) => {
     const u = new URL(typeof input === 'string' ? input : input.url, location.href)
     const path = u.pathname
@@ -85,16 +120,56 @@ cat > "$TMP/__mock.js" <<'JS'
     if (path === '/api/overview') return json({
       system: {hostname:'ci-node', os:'Linux', distribution:'Linux', kernelVersion:'test', systemType:'linux', hostAddress:'127.0.0.1',hostIPv6:'2001:db8::1234',cpuCores:4,load5:0.2,load15:0.3, bootTime:0,
         uptimeSeconds:100, cpuPercent:1, load1:0.1, memoryUsed:1, memoryTotal:2, diskUsed:1, diskTotal:2,
-        networkRx:0, networkTx:0, xrayVersion:'test', xrayActive:true},
+        networkRx:0, networkTx:0, xrayVersion:globalThis.__mockXrayVersion, xrayActive:globalThis.__mockXrayActive},
       accounts: {total:1, enabled:1}, xportVersion:'browser-test'
     })
-    if (path === '/api/accounts' && method === 'GET') return json({accounts:globalThis.__mockAccountDeleted?[]:[account]})
+    if (path === '/api/accounts' && method === 'GET') return json({accounts:[
+      ...(globalThis.__mockAccountDeleted?[]:[account]),
+      ...(globalThis.__mockCreatedAccount?[globalThis.__mockCreatedAccount]:[])
+    ]})
+    if (path === '/api/accounts' && method === 'POST') {
+      globalThis.__mockCreateCalls++
+      const body=JSON.parse(init.body||'{}')
+      if(globalThis.__mockCreateMode==='conflict-recovered'){
+        globalThis.__mockCreatedAccount={id:2,name:body.name,port:body.port||23741,
+          protocol:body.protocol,enabled:Boolean(body.enabled),editable:true,upBytes:0,downBytes:0,
+          quotaBytes:Number(body.quotaBytes||0),expiryTime:Number(body.expiryTime||0),
+          monthlyReset:Boolean(body.monthlyReset)}
+        return json({error:'port '+(body.port||23741)+' is already used by "'+body.name+'"'},400)
+      }
+      if(globalThis.__mockCreateMode==='real-conflict')
+        return json({error:'port '+(body.port||23741)+' is already used by "existing"'},400)
+      globalThis.__mockCreatedAccount={id:2,name:body.name,port:body.port||23741,
+        protocol:body.protocol,enabled:Boolean(body.enabled),editable:true,upBytes:0,downBytes:0,
+          quotaBytes:Number(body.quotaBytes||0),expiryTime:Number(body.expiryTime||0),
+          monthlyReset:Boolean(body.monthlyReset)}
+      return json(globalThis.__mockCreatedAccount,201)
+    }
+    if (path === '/api/accounts/1/clone' && method === 'POST') {
+      globalThis.__mockCloneCalls++
+      const input=JSON.parse(init.body||'{}')
+      globalThis.__mockCreatedAccount={id:2,name:input.name,port:input.port||23741,
+        protocol:account.protocol,enabled:true,editable:true,upBytes:0,downBytes:0}
+      return json(globalThis.__mockCreatedAccount,201)
+    }
+    if (path === '/api/accounts/1/traffic/reset' && method === 'POST') {
+      globalThis.__mockAccountResetCalls++
+      account.upBytes=0;account.downBytes=0
+      return json({ok:true})
+    }
     if (path === '/api/accounts/1' && method === 'DELETE') {
       globalThis.__accountDeleteCalls++
       if(globalThis.__accountDeleteHold)
         return new Promise(resolve=>{globalThis.__accountDeleteRelease=()=>{globalThis.__mockAccountDeleted=true;resolve(json({ok:true}))}})
       globalThis.__mockAccountDeleted=true
       return json({ok:true})
+    }
+    if (path === '/api/accounts/1' && method === 'PUT') {
+      const body=JSON.parse(init.body||'{}')
+      Object.assign(account,{name:body.name,port:body.port,enabled:Boolean(body.enabled),
+        monthlyReset:Boolean(body.monthlyReset),quotaBytes:Number(body.quotaBytes||0),
+        expiryTime:Number(body.expiryTime||0)})
+      return json(account)
     }
     if (path === '/api/accounts/1' && method === 'GET') return json(account)
     if (path === '/api/accounts/1/enabled' && method === 'PATCH') {
@@ -105,15 +180,19 @@ cat > "$TMP/__mock.js" <<'JS'
       account.enabled=next
       return json({ok:true})
     }
+    if (path === '/api/accounts/1/share' && method === 'GET')
+      return globalThis.__mockShareFail?json({error:'share endpoint unavailable'},503):
+        json({uri:globalThis.__mockShareURI})
     if (path === '/api/accounts/1/expert' && method === 'GET') return json(expert)
     if (path === '/api/accounts/online') return json({connections:{}})
     if (path === '/api/accounts/port-suggestion') return json({port:23741,min:20000,max:60000})
     if (path === '/api/firewall' && method === 'GET') return json({
       backend:'firewalld',active:true,writable:!globalThis.__fwReadOnly,unsafeReason:globalThis.__fwReadOnly?'独立 INPUT 过滤链需要检查':'',managers:['firewalld'],defaultZone:'public',zones:['public'],services:{public:['ssh']},
-      notice:'预览：简单端口规则展示；底层链可能影响结果',rules:[
+      notice:'预览：简单端口规则展示；底层链可能影响结果',
+      pending:globalThis.__mockFwPending?[globalThis.__mockFwPending]:[],rules:[
         {id:'firewalld:public:22/tcp',port:22,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'未识别',purposeSource:'unknown',usage:'unused',note:'保留规则',protected:true,xray:false},
-        {id:'firewalld:public:443/tcp',port:443,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'HTTPS',purposeSource:'manual',note:'网站入口',protected:false,xray:false,kind:'port',action:'allow',managed:false,revision:'111122223333444455556666'},
-        {id:'firewalld:public:2053/tcp',port:2053,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'Xray · VLESS',purposeSource:'xray',note:fwNote,protected:false,managed:true,xray:true,usage:'used',usageDetails:[{port:2053,protocol:'tcp',pid:1242,name:'xray'}],action:'allow',kind:'port',canToggle:true,accountId:1,accountName:'Alpha inbound',accountEnabled:true},
+        {id:'firewalld:public:'+fwExternalPort+'/'+fwExternalProto,port:fwExternalPort,protocol:fwExternalProto,zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'HTTPS',purposeSource:'manual',note:'网站入口',protected:false,xray:false,kind:'port',action:'allow',managed:false,revision:'111122223333444455556666'},
+        {id:'firewalld:public:2053/tcp',port:2053,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:fwPurpose,purposeSource:'xray',note:fwNote,protected:false,managed:true,xray:true,usage:'used',usageDetails:[{port:2053,protocol:'tcp',pid:1242,name:'xray'}],action:'allow',kind:'port',canToggle:true,accountId:1,accountName:'Alpha inbound',accountEnabled:true},
         {id:'firewalld:public:8443/tcp',port:8443,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:false,access:'区域：public',purpose:'Xray · Trojan',purposeSource:'xray',note:'临时放行，需同步',protected:false,xray:true},
         {id:'firewalld:public:rich:443/udp:deny:ipv4',port:443,protocol:'udp',family:'ipv4',zone:'public',backend:'firewalld',runtime:true,permanent:true,action:'deny',kind:'rich',access:'区域：public',purpose:'未识别',protected:true,usage:'unused'},
         {id:'firewalld:public:rich:443/udp:deny:ipv6',port:443,protocol:'udp',family:'ipv6',zone:'public',backend:'firewalld',runtime:true,permanent:true,action:'deny',kind:'rich',access:'区域：public',purpose:'未识别',protected:true,usage:'unused'},
@@ -121,39 +200,130 @@ cat > "$TMP/__mock.js" <<'JS'
         {id:'firewalld:public:22022/tcp',port:22022,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'SSH · 管理端口',purposeSource:'ssh',note:'',protected:true,xray:false,usage:'used',usageDetails:[{port:22022,protocol:'tcp',pid:12345,name:'sshd'}],action:'allow',kind:'port',canToggle:false},
         {id:'firewalld:public:39000-40000/tcp',port:0,rangeStart:39000,rangeEnd:40000,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'FTP 被动模式 · Pure-FTPd（配置匹配）',purposeSource:'ftp-config',note:'',protected:true,xray:false,usage:'unused',action:'allow',kind:'port',canToggle:false},
         {id:'firewalld:public:8444/tcp',port:8444,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'未识别',purposeSource:'unknown',note:'',protected:true,xray:false,usage:'used',usageDetails:[{port:8444,protocol:'tcp',name:'web-svc',container:true}],action:'allow',kind:'port',canToggle:false}
+        ,...globalThis.__fwExtraRules
       ]})
     if (path === '/api/firewall/notes' && method === 'PUT') {
       fwNote = JSON.parse(init.body).note
       return json({note:fwNote})
     }
-    if (path === '/api/firewall/purpose' && method === 'PUT') return json({purpose:JSON.parse(init.body).purpose})
+    if (path === '/api/firewall/purpose' && method === 'PUT') {
+      fwPurpose=JSON.parse(init.body).purpose
+      return json({purpose:fwPurpose})
+    }
     if (path === '/api/firewall/raw' && method === 'GET') return json({ruleset:'table inet firewalld {\\n chain INPUT { type filter hook input priority 10; }\\n}'})
     if (path === '/api/firewall/rules' && method === 'POST') {
       globalThis.__fwMutationCalls=(globalThis.__fwMutationCalls||0)+1
+      const input=JSON.parse(init.body||'{}')
+      const commit=()=>{
+        if(input.action==='add')
+          globalThis.__fwExtraRules.push({
+            id:'firewalld:'+input.zone+':'+input.port+'/'+input.protocol,
+            port:input.port,protocol:input.protocol,zone:input.zone,
+            backend:'firewalld',runtime:true,permanent:true,managed:true,
+            protected:false,kind:'port',action:'allow',purpose:'未识别',note:'',usage:'unused'
+          })
+        if(input.action==='remove')
+          globalThis.__fwExtraRules=globalThis.__fwExtraRules.filter(
+            r=>r.port!==input.port||r.protocol!==input.protocol||r.zone!==input.zone)
+        return json({ok:true,pending:false})
+      }
       if(globalThis.__fwWriteHold)
-        return new Promise(resolve=>{globalThis.__fwReleaseWrite=()=>resolve(json({ok:true,pending:false}))})
-      return json({ok:true})
+        return new Promise(resolve=>{globalThis.__fwReleaseWrite=()=>resolve(commit())})
+      return commit()
     }
     if (path === '/api/firewall/control' && method === 'POST') {
       globalThis.__fwControlCalls=(globalThis.__fwControlCalls||0)+1
-      globalThis.__fwLastControl=JSON.parse(init.body||'{}')
-      return json({ok:true,pending:globalThis.__fwControlPending,id:'test-protected',token:'test-token'})
+      const req=JSON.parse(init.body||'{}')
+      globalThis.__fwLastControl=req
+      if(globalThis.__fwControlPending){
+        globalThis.__mockFwPending={
+          id:req.id,token:'test-token',deadline:Date.now()+120000,kind:req.action
+        }
+        return json({ok:true,pending:true,id:req.id,token:'test-token'})
+      }
+      if(req.action==='add-drop'){
+        globalThis.__fwExtraRules.push({
+          id:req.id,port:req.port,protocol:req.protocol,zone:req.zone,
+          backend:'firewalld',runtime:true,permanent:true,managed:true,
+          protected:false,kind:'rich',family:'both',action:'deny',
+          purpose:'拒绝策略',note:'',usage:'unused'
+        })
+      }
+      return json({ok:true,pending:false,id:req.id})
+    }
+    if(path==='/api/firewall/rules/confirm'&&method==='POST'){
+      globalThis.__mockFwPending=null
+      return json({ok:true})
     }
     if (path === '/api/firewall/edit' && method === 'POST') {
       globalThis.__fwEditCalls=(globalThis.__fwEditCalls||0)+1
       globalThis.__fwLastEdit=JSON.parse(init.body||'{}')
+      fwExternalPort=Number(globalThis.__fwLastEdit.newPort)
+      fwExternalProto=String(globalThis.__fwLastEdit.newProtocol)
       return json({ok:true,pending:false})
     }
     if (path === '/api/xport/version' && method === 'GET')
       return json({version:globalThis.__xportServerVersion})
+    if (path === '/api/xport/update' && method === 'GET')
+      return json({current:globalThis.__xportServerVersion,latest:'browser-test-next',available:false})
     if (path === '/api/xport/update-state' && method === 'GET')
       return json({firewallPending:globalThis.__xportPending})
-    if (path === '/api/xray/update' && method === 'GET') return json({current:'test',latest:'test',available:false})
-    if (path === '/api/xray/geodata' && method === 'GET') return json({current:'test',latest:'test',available:false})
-    if (path === '/api/settings') return json({panelListen:'127.0.0.1:8080',panelBasePath:'/',panelCertFile:'',panelKeyFile:'',panelDomain:'',panelTLS:false,xrayApiPort:10085,portMin:20000,portMax:60000,defaultRealitySni:'',defaultRealityDest:'',adminUsername:'admin'})
-    if (path === '/api/backups') return json({backups:[]})
-    if (path === '/api/logs') return json({logs:''})
-    if (path === '/api/xray/config') return json({config:{routing:{},dns:{},outbounds:[],policy:{}}})
+    if (path === '/api/xray/restart' && method === 'POST') {
+      globalThis.__mockXrayRestartCalls++
+      return json({ok:true})
+    }
+    if (path === '/api/xray/update' && method === 'GET') return json({
+      current:globalThis.__mockXrayVersion,latest:globalThis.__mockXrayLatest,
+      available:globalThis.__mockXrayAvailable
+    })
+    if (path === '/api/xray/update' && method === 'POST') {
+      globalThis.__mockXrayVersion=globalThis.__mockXrayLatest
+      globalThis.__mockXrayAvailable=false
+      return json({current:globalThis.__mockXrayVersion})
+    }
+    if (path === '/api/xray/rollback' && method === 'GET') return json({current:globalThis.__mockXrayVersion,previous:'test',available:true})
+    if (path === '/api/xray/rollback' && method === 'POST') {
+      globalThis.__mockXrayVersion='test'
+      return json({current:'test'})
+    }
+    if (path === '/api/xray/geodata' && method === 'GET') return json({
+      current:globalThis.__mockGeodataCurrent,latest:globalThis.__mockGeodataLatest,
+      available:globalThis.__mockGeodataAvailable
+    })
+    if (path === '/api/xray/geodata' && method === 'POST') {
+      globalThis.__mockGeodataCurrent=globalThis.__mockGeodataLatest
+      globalThis.__mockGeodataAvailable=false
+      return json({current:globalThis.__mockGeodataCurrent})
+    }
+    if (path === '/api/settings' && method === 'PUT') {
+      Object.assign(globalThis.__mockSettings,JSON.parse(init.body||'{}'))
+      return json({restartRequired:false})
+    }
+    if (path === '/api/settings') return json(globalThis.__mockSettings)
+    if (path === '/api/backups/import' && method === 'POST') {
+      globalThis.__mockBackupCalls++
+      const entry={name:'browser-import-'+globalThis.__mockBackupCalls+'.json.gz',createdAt:Date.now(),size:1024}
+      globalThis.__mockBackups.push(entry)
+      return json(entry,201)
+    }
+    if (path === '/api/backups' && method === 'POST') {
+      globalThis.__mockBackupCalls++
+      const entry={name:'browser-backup-'+globalThis.__mockBackupCalls+'.json.gz',createdAt:Date.now(),size:1024}
+      globalThis.__mockBackups.push(entry)
+      return json(entry,201)
+    }
+    if (path === '/api/backups' && method === 'GET') return json({backups:globalThis.__mockBackups})
+    if (path.startsWith('/api/backups/') && method === 'DELETE') {
+      const name=decodeURIComponent(path.split('/').at(-1))
+      globalThis.__mockBackups=globalThis.__mockBackups.filter(x=>x.name!==name)
+      return json({ok:true})
+    }
+    if (path === '/api/logs') return json({logs:'browser-log-ok'})
+    if (path === '/api/xray/config' && method === 'PUT') {
+      globalThis.__mockGlobalConfig=JSON.parse(init.body||'{}').config
+      return json({config:globalThis.__mockGlobalConfig})
+    }
+    if (path === '/api/xray/config') return json({config:globalThis.__mockGlobalConfig})
     return json({ok:true})
   }
   // Act on the real custom confirmation rather than a browser-native
@@ -164,7 +334,9 @@ cat > "$TMP/__mock.js" <<'JS'
     nativeShow()
     globalThis.__fwConfirmCalls++
     const text=confirmDialog.querySelector('#operation-confirm-detail').textContent
-    const pending=globalThis.__fwControlPending&&text.includes('120 秒')
+    // An initial risk confirmation may also mention 120 seconds.
+    // Only the POST-write recovery prompt is intentionally declined.
+    const pending=globalThis.__fwControlPending&&text.includes('规则已临时修改')
     if(pending)globalThis.__pendingConfirmSeenWhileBusy=Boolean(document.querySelector('#operation-progress')?.open)
     const agree=pending?false:Boolean(globalThis.__fwConfirmResult)
     queueMicrotask(()=>confirmDialog.querySelector(agree?'#operation-confirm-apply':'#operation-confirm-cancel').click())
@@ -294,6 +466,46 @@ cat > "$TMP/__driver.js" <<'JS'
       if ((cloneForm.textContent || '').includes('协议与传输参数会复制')) throw new Error('legacy clone explanation is visible')
       if (Number(globalThis.__legacyCloneHits || 0) !== 0) throw new Error(`legacy clone handler hits=${globalThis.__legacyCloneHits}`)
       document.querySelector('#clone-cancel').click()
+      // Execute the real clone submit twice and verify one POST + new ID.
+      document.querySelector('.account-row button[data-act="clone"]').click()
+      const liveClone=await waitFor('#clone-form')
+      await waitForValue('#clone-port','23741')
+      liveClone.querySelector('input[name="name"]').value='cloned-browser'
+      const priorClones=globalThis.__mockCloneCalls
+      const cloneEvent={preventDefault(){},currentTarget:liveClone}
+      await Promise.all([liveClone.onsubmit(cloneEvent),liveClone.onsubmit(cloneEvent)])
+      if(globalThis.__mockCloneCalls!==priorClones+1)
+        throw new Error('clone must send exactly one write despite simultaneous submits')
+      if(!state.accounts.some(x=>Number(x.id)===2&&x.name==='cloned-browser'&&Number(x.port)===23741))
+        throw new Error('clone did not confirm newly created ID, name and port')
+      if(XportOperation.busy||!document.querySelector('#modal').classList.contains('hidden'))
+        throw new Error('clone operation did not finish and close its editor')
+      globalThis.__mockCreatedAccount=null
+      await loadAccounts()
+      // Share modal, QR URL, clipboard permission denial and empty host.
+      const shareButton=await waitFor('.account-row button[data-act="share"]')
+      shareButton.click()
+      const shareLink=await waitForValueContains('#share-link','vless://')
+      if(!document.querySelector('#share-qr')?.src.includes('/api/accounts/1/qr?host='))
+        throw new Error('share QR URL did not include authenticated account route')
+      document.querySelector('#copy-share').click()
+      await sleep(20)
+      if(globalThis.__mockCopiedLink!==shareLink.value)
+        throw new Error('share link was not copied to clipboard')
+      globalThis.__mockClipboardDenied=true
+      document.querySelector('#copy-share').click()
+      await waitForTextContains('#toast','复制失败')
+      globalThis.__mockClipboardDenied=false
+      const shareHost=document.querySelector('#share-host')
+      shareHost.value=''
+      document.querySelector('#reload-share').click()
+      await sleep(25)
+      if(document.querySelector('#share-link').value!=='')
+        throw new Error('invalid share host retained a stale link')
+      shareHost.value='proxy.example.com'
+      document.querySelector('#reload-share').click()
+      await waitForValueContains('#share-link','vless://')
+      document.querySelector('#modal-close').click()
 
       const edit = await waitFor('.account-row button[data-act="edit"]')
       edit.click()
@@ -316,6 +528,16 @@ cat > "$TMP/__driver.js" <<'JS'
         throw new Error(`account editor scroll width overflow: ${editorScroll.scrollWidth}>${editorScroll.clientWidth}`)
       }
       document.querySelector('#modal-close').click()
+      // An edit with a changed quota must persist all configured account fields.
+      const currentEdit=document.querySelector('.account-row button[data-act="edit"]')
+      currentEdit.click()
+      const editForm=await waitFor('#account-form')
+      editForm.querySelector('input[name="quota"]').value='1.25'
+      await editForm.onsubmit({preventDefault(){},currentTarget:editForm})
+      if(Number(state.accounts.find(x=>x.id===1)?.quotaBytes)!==Math.round(1.25*1073741824))
+        throw new Error('account edit quota not persisted in authoritative readback')
+      if(XportOperation.busy||!document.querySelector('#modal').classList.contains('hidden'))
+        throw new Error('account edit did not release progress and close')
 
       document.querySelector('#nav [data-page="xray"]').click()
       await waitFor('#xray-global-config-panel')
@@ -324,6 +546,26 @@ cat > "$TMP/__driver.js" <<'JS'
       if (!globalConfig.routing || !Array.isArray(globalConfig.outbounds)) throw new Error('global Xray config editor did not load expected sections')
 
       document.querySelector('#nav [data-page="firewall"]').click()
+      await waitFor('#fw-rows button[data-fw-id="firewalld:public:2053/tcp"]')
+      // Tabs, filters, search, and return to full rule list.
+      for(const tab of ['raw','xray','rules']){
+        const control=document.querySelector('#page-firewall [data-fw-tab="'+tab+'"]')
+        control.click()
+        if(!control.classList.contains('active')||
+           document.querySelector('#fw-'+tab+'-view')?.hidden)
+          throw new Error('firewall tab did not activate: '+tab)
+      }
+      for(const filter of ['xray','warn','all']){
+        const control=document.querySelector('#page-firewall [data-fw-filter="'+filter+'"]')
+        control.click()
+        if(!control.classList.contains('active'))
+          throw new Error('firewall filter did not activate: '+filter)
+      }
+      const search=document.querySelector('#fw-search')
+      search.value='2053';search.dispatchEvent(new Event('input',{bubbles:true}))
+      if(!document.querySelector('#fw-count').textContent.includes('显示 1 /'))
+        throw new Error('firewall search failed to isolate selected port')
+      search.value='';search.dispatchEvent(new Event('input',{bubbles:true}))
       const fwNoteButton=await waitFor('#fw-rows button[data-fw-id="firewalld:public:2053/tcp"][data-fw-key="note"]')
       fwNoteButton.click()
       const fwInput=await waitFor('.fw-edit-input')
@@ -463,6 +705,19 @@ cat > "$TMP/__driver.js" <<'JS'
       globalThis.__accountToggleHold=false
       if(progress.open||XportOperation.busy)
         throw new Error('progress did not close after refreshed account list')
+      // Traffic reset must confirm the account's actual zeroed counters.
+      accountToggle.disabled=false
+      globalThis.__mockAccount.upBytes=800
+      globalThis.__mockAccount.downBytes=700
+      await loadAccounts()
+      globalThis.__fwConfirmResult=true
+      const resetBefore=globalThis.__mockAccountResetCalls
+      await resetTrafficV3(1)
+      globalThis.__fwConfirmResult=false
+      if(globalThis.__mockAccountResetCalls!==resetBefore+1||
+         state.accounts.find(x=>x.id===1)?.upBytes!==0||
+         state.accounts.find(x=>x.id===1)?.downBytes!==0)
+        throw new Error('account traffic reset did not confirm zero counters from the server')
       // Ordinary validation and success notices share the centered visual style,
       // but never trap focus or block the page.
       const notice=document.querySelector('#toast')
@@ -627,6 +882,18 @@ cat > "$TMP/__driver.js" <<'JS'
       if(document.querySelector('#operation-progress')?.open)
         throw new Error('firewall recovery confirmation left progress locked')
       globalThis.__fwControlPending=false
+      globalThis.__fwConfirmResult=true
+      const pendingButton=await waitFor('#fw-pending [data-fw-act="confirm-pending"]',850)
+        .catch(()=>{throw new Error('missing recovery control: '+JSON.stringify({
+          pending:globalThis.__mockFwPending,
+          row:document.querySelector('#fw-pending')?.innerHTML.slice(0,600),
+          last:globalThis.__fwLastControl,
+          calls:globalThis.__fwControlCalls
+        }))})
+      pendingButton.click()
+      await sleep(110)
+      if(globalThis.__mockFwPending||document.querySelector('#fw-pending [data-fw-act="confirm-pending"]'))
+        throw new Error('native firewall pending confirmation did not clear recovered timer')
       globalThis.__fwConfirmResult=false
       document.querySelector('#nav [data-page="accounts"]').click()
       const deleteButton=await waitFor('.account-row button[data-act="delete"]')
@@ -647,6 +914,123 @@ cat > "$TMP/__driver.js" <<'JS'
       await sleep(100)
       if(progress.open||XportOperation.busy||document.querySelector('.account-row'))
         throw new Error('account delete did not finish and refresh after its single write')
+      // Real browser submit: a persisted account and a port-conflict response
+      // must be reconciled by its new ID without sending POST twice.
+      globalThis.__mockCreateMode='conflict-recovered'
+      document.querySelector('#add-account').click()
+      const createForm=await waitFor('#account-form')
+      createForm.querySelector('input[name="name"]').value='fresh-browser'
+      const submitEvent={preventDefault(){},currentTarget:createForm}
+      const countBefore=globalThis.__mockCreateCalls
+      const createRequest=createForm.onsubmit(submitEvent)
+      const doubleSubmit=createForm.onsubmit(submitEvent)
+      await Promise.all([createRequest,doubleSubmit])
+      if(globalThis.__mockCreateCalls!==countBefore+1)
+        throw new Error('account create sent multiple POST requests')
+      if(!state.accounts.some(x=>Number(x.id)===2&&x.name==='fresh-browser'))
+        throw new Error('account create did not reconcile newly persisted ID')
+      if(XportOperation.busy||document.querySelector('#modal')?.classList.contains('hidden')!==true)
+        throw new Error('account creation did not close its modal')
+      // A genuine 400 conflict with no new matching ID must keep the editor
+      // actionable; it must never claim the account was created.
+      globalThis.__mockCreatedAccount=null
+      globalThis.__mockCreateMode='real-conflict'
+      document.querySelector('#add-account').click()
+      const conflictForm=await waitFor('#account-form')
+      conflictForm.querySelector('input[name="name"]').value='new-conflict'
+      const conflictButton=conflictForm.querySelector('button[type="submit"]')
+      await conflictForm.onsubmit({preventDefault(){},currentTarget:conflictForm})
+      if(conflictButton.disabled || conflictForm.dataset.submitting!=='0')
+        throw new Error('genuine conflict did not allow correction')
+      if(document.querySelector('#modal')?.classList.contains('hidden')===true)
+        throw new Error('genuine conflict incorrectly closed account editor')
+      document.querySelector('#modal-close').click()
+      globalThis.__mockCreateMode='success'
+      globalThis.__mockCreatedAccount=null
+
+      // The remaining pages are tested with stateful, never-real API mocks.
+      // Each action below must read back its persisted state.
+      globalThis.__fwConfirmResult=true
+      document.querySelector('#nav [data-page="xray"]').click()
+      await loadLogs()
+      if(!document.querySelector('#log-output').textContent.includes('browser-log-ok'))
+        throw new Error('Xray log refresh did not update the visible log')
+      const restarts=globalThis.__mockXrayRestartCalls
+      await restartXray()
+      if(globalThis.__mockXrayRestartCalls!==restarts+1)
+        throw new Error('Xray restart did not submit exactly once')
+      globalThis.__mockXrayAvailable=true
+      await checkUpdate(false)
+      await updateXray()
+      if(globalThis.__mockXrayVersion!=='test-next')
+        throw new Error('Xray update did not confirm target running version')
+      await checkXrayRollback()
+      await rollbackXray()
+      if(globalThis.__mockXrayVersion!=='test')
+        throw new Error('Xray rollback did not confirm prior running version')
+      globalThis.__mockGeodataAvailable=true
+      await checkGeodata(false)
+      await updateGeodata()
+      if(globalThis.__mockGeodataCurrent!=='test-next')
+        throw new Error('GeoData update did not confirm persisted version')
+      const configEditor=await waitFor('#xray-global-config')
+      await loadGlobalXrayConfigV11(false)
+      const altered={routing:{rules:[]},dns:{},outbounds:[],policy:{}}
+      configEditor.value=JSON.stringify(altered)
+      await saveGlobalXrayConfigV11()
+      if(!sameJSONV3(globalThis.__mockGlobalConfig,altered))
+        throw new Error('Xray global editor did not persist exact changed JSON')
+      document.querySelector('#nav [data-page="overview"]').click()
+      document.querySelector('#refresh-overview').click()
+      await waitForTextContains('#toast','服务器状态已刷新')
+      document.querySelector('#nav [data-page="system"]').click()
+      await loadSettingsV6()
+      const settingsForm=document.querySelector('#settings-form')
+      settingsForm.elements.namedItem('portMin').value='20001'
+      await settingsForm.onsubmit({preventDefault(){},currentTarget:settingsForm})
+      if(Number(globalThis.__mockSettings.portMin)!==20001)
+        throw new Error('system settings save did not persist the changed port minimum')
+      // Create/import/delete backup controls must mutate and verify named rows.
+      const backupBefore=globalThis.__mockBackupCalls
+      await createBackup()
+      if(globalThis.__mockBackupCalls!==backupBefore+1||
+         !document.querySelector('#backup-list .backup-row'))
+        throw new Error('backup creation did not persist and render its identity')
+      await importBackupFile(new File(['gzip-fixture'],'browser.gz',{type:'application/gzip'}))
+      if(globalThis.__mockBackups.length!==2)
+        throw new Error('backup import did not confirm second persisted identity')
+      const firstBackup=globalThis.__mockBackups[0].name
+      await deleteBackup(firstBackup)
+      if(globalThis.__mockBackups.some(x=>x.name===firstBackup)||
+         globalThis.__mockBackups.length!==1)
+        throw new Error('backup delete did not confirm exact target absence')
+      const secondBackup=globalThis.__mockBackups[0].name
+      await deleteBackup(secondBackup)
+      if(globalThis.__mockBackups.length||document.querySelector('#backup-list .backup-row'))
+        throw new Error('backup deletion left a stale row')
+      // All page navigation and non-write controls should remain operable.
+      document.querySelector('#check-xport-update').click()
+      await sleep(50)
+      if(!document.querySelector('#xport-update-state'))
+        throw new Error('panel update check control missing')
+      const modeBefore=document.documentElement.dataset.theme
+      document.querySelector('#theme-toggle').click()
+      if(document.documentElement.dataset.theme===modeBefore)
+        throw new Error('theme toggle did not switch mode')
+      document.querySelector('#theme-toggle').click()
+      globalThis.__fwConfirmResult=false
+      document.querySelector('#export-accounts').click()
+      await sleep(15)
+      if(document.querySelector('.operation-confirm-input'))
+        throw new Error('cancelled account-export prompt left an input behind')
+      document.querySelector('#restart-xport').click()
+      await sleep(25)
+      if(XportOperation.busy)
+        throw new Error('cancelled panel restart issued an operation')
+      document.querySelector('#nav [data-page="firewall"]').click()
+      document.querySelector('#fw-load-raw').click()
+      await waitForTextContains('#fw-raw','table inet firewalld')
+      globalThis.__fwConfirmResult=false
       // A verification failure must release the modal but prevent blind retry.
       const uncertain=await XportOperation.run({
         title:'状态核对测试',perform:async()=>({ok:true}),
@@ -657,7 +1041,7 @@ cat > "$TMP/__driver.js" <<'JS'
       globalThis.__fwConfirmResult=false
       mark('pass', `clonePort=${portInput.value};legacyHits=0;fallbackDest=${dest};layout=contained;globalXray=ok;firewallEdits=guarded`)
     } catch (err) {
-      mark('fail', String(err && err.message || err))
+      mark('fail', String(err?.stack || err).slice(0,900))
     }
   }, {once:true})
 })()
@@ -677,7 +1061,7 @@ done
 curl -fsS "http://127.0.0.1:$PORT/" >/dev/null
 
 DOM="$TMP/dom.html"
-"$BROWSER" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage --virtual-time-budget=7000 --dump-dom "http://127.0.0.1:$PORT/" > "$DOM" 2>"$TMP/browser.log" || {
+"$BROWSER" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage --virtual-time-budget=18000 --dump-dom "http://127.0.0.1:$PORT/" > "$DOM" 2>"$TMP/browser.log" || {
   cat "$TMP/browser.log" >&2
   exit 1
 }
