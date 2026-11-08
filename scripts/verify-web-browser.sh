@@ -460,6 +460,16 @@ cat > "$TMP/__driver.js" <<'JS'
         throw new Error(`account editor scroll width overflow: ${editorScroll.scrollWidth}>${editorScroll.clientWidth}`)
       }
       document.querySelector('#modal-close').click()
+      // An edit with a changed quota must persist all configured account fields.
+      const currentEdit=document.querySelector('.account-row button[data-act="edit"]')
+      currentEdit.click()
+      const editForm=await waitFor('#account-form')
+      editForm.querySelector('input[name="quota"]').value='1.25'
+      await editForm.onsubmit({preventDefault(){},currentTarget:editForm})
+      if(Number(state.accounts.find(x=>x.id===1)?.quotaBytes)!==Math.round(1.25*1073741824))
+        throw new Error('account edit quota not persisted in authoritative readback')
+      if(XportOperation.busy||!document.querySelector('#modal').classList.contains('hidden'))
+        throw new Error('account edit did not release progress and close')
 
       document.querySelector('#nav [data-page="xray"]').click()
       await waitFor('#xray-global-config-panel')
