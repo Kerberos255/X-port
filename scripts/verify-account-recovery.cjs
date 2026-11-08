@@ -196,6 +196,31 @@ async function testMultipleMatchingNewAccountsAreAmbiguous(){
  await assert.rejects(vm.runInContext('createAccountWithRecoveryV3(input,before)',page.context),/already used/)
 }
 
+
+async function testPanelUnavailableMarksWriteUncertain(){
+ const page=makePage(async()=>{throw new Error('Unexpected read')})
+ vm.runInContext('waitForPanelV3=async()=>false',page.context)
+ page.context.failure=responseError(502)
+ const err=await vm.runInContext(
+  'mutationWithRecoveryV3(()=>Promise.reject(failure),()=>Promise.resolve(false))',page.context)
+  .then(()=>null,e=>e)
+ assert.equal(err.uncertain,true)
+ assert.match(err.message,/刷新列表/)
+}
+async function testConflictWithUnreadableListIsNotSafeToRepeat(){
+ const page=makePage(async (path,options)=>{
+  if(options?.method==='POST')throw responseError(400,'port 2233 is already used by "new"')
+  if(path==='/api/accounts')throw responseError(503,'read unavailable')
+  throw new Error('Unexpected API '+path)
+ })
+ page.context.input={name:'new',port:2233,protocol:'vless'}
+ page.context.before=new Set([7])
+ const err=await vm.runInContext('createAccountWithRecoveryV3(input,before)',page.context)
+   .then(()=>null,e=>e)
+ assert.equal(err.uncertain,true)
+ assert.equal(page.calls.filter(([p,m])=>m==='POST').length,1)
+}
+
 async function main() {
   await testRecoveredDelete()
   await testFailedDeleteNotRetried()
@@ -208,8 +233,10 @@ async function main() {
   await testRealPortConflictIsNotSuppressed()
   await testUnrelatedNewAccountIsNotMistakenForOurs()
   await testMultipleMatchingNewAccountsAreAmbiguous()
+  await testPanelUnavailableMarksWriteUncertain()
+  await testConflictWithUnreadableListIsNotSafeToRepeat()
   await testValidationErrorNotRetried()
   await testBackend502PreservesError()
-  console.log('X-port account recovery regression: 13 scenarios passed')
+  console.log('X-port account recovery regression: 15 scenarios passed')
 }
 main().catch(error => {console.error(error);process.exitCode=1})
