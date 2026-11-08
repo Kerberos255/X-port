@@ -386,6 +386,22 @@ cat > "$TMP/__driver.js" <<'JS'
       if ((cloneForm.textContent || '').includes('协议与传输参数会复制')) throw new Error('legacy clone explanation is visible')
       if (Number(globalThis.__legacyCloneHits || 0) !== 0) throw new Error(`legacy clone handler hits=${globalThis.__legacyCloneHits}`)
       document.querySelector('#clone-cancel').click()
+      // Execute the real clone submit twice and verify one POST + new ID.
+      document.querySelector('.account-row button[data-act="clone"]').click()
+      const liveClone=await waitFor('#clone-form')
+      await waitForValue('#clone-port','23741')
+      liveClone.querySelector('input[name="name"]').value='cloned-browser'
+      const priorClones=globalThis.__mockCloneCalls
+      const cloneEvent={preventDefault(){},currentTarget:liveClone}
+      await Promise.all([liveClone.onsubmit(cloneEvent),liveClone.onsubmit(cloneEvent)])
+      if(globalThis.__mockCloneCalls!==priorClones+1)
+        throw new Error('clone must send exactly one write despite simultaneous submits')
+      if(!state.accounts.some(x=>Number(x.id)===2&&x.name==='cloned-browser'&&Number(x.port)===23741))
+        throw new Error('clone did not confirm newly created ID, name and port')
+      if(XportOperation.busy||!document.querySelector('#modal').classList.contains('hidden'))
+        throw new Error('clone operation did not finish and close its editor')
+      globalThis.__mockCreatedAccount=null
+      await loadAccounts()
 
       const edit = await waitFor('.account-row button[data-act="edit"]')
       edit.click()
