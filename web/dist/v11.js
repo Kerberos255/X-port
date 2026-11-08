@@ -184,9 +184,17 @@ async function saveGlobalXrayConfigV11(){
  try{
   await XportOperation.run({
    title:'正在应用 Xray 高级配置',detail:'校验 JSON、执行 Xray 配置测试并重启',
-   perform:()=>api('/api/xray/config',{method:'PUT',body:JSON.stringify({config})}),
+   perform:()=>applyConfirmedMutationV3(
+    ()=>api('/api/xray/config',{method:'PUT',body:JSON.stringify({config})}),
+    async()=>{
+     const fresh=await api('/api/xray/config')
+     return sameJSONV3(fresh.config,config)
+    }),
    verify:async()=>{
     const fresh=await api('/api/xray/config')
+    if(!sameJSONV3(fresh.config,config))
+     throw uncertainMutationV3('最新 Xray 高级配置与提交内容不一致')
+    await confirmXrayReadyV3()
     editor.value=JSON.stringify(fresh.config||{},null,2)
     xrayGlobalLoadedV11=true
    }
