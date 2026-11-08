@@ -139,7 +139,12 @@
     const data=await api('/api/accounts')
     state.accounts=data.accounts||[]
     renderAccounts()
-    if(typeof loadOverview==='function')await loadOverview(false,true)
+    // A failed overview/online status read must not invalidate a successful
+    // authoritative account-list read during an Xray restart.
+    if(typeof loadOverview==='function'){
+      try{await loadOverview(false,true)}catch{}
+    }
+    return state.accounts
   }
   document.addEventListener('DOMContentLoaded',()=>{
     const node=dialog()
