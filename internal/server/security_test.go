@@ -129,9 +129,12 @@ func TestVersionProbeAuthenticatedAndPendingGuard(t *testing.T){
  expired,_:=json.Marshal(firewallPending{ID:"test",Unit:"xport-ci.timer",Deadline:time.Now().Add(-3*time.Minute).UnixMilli()})
  if err:=s.store.SetSetting("firewall_pending:test",string(expired));err!=nil{t.Fatal(err)}
  if result:=state();result["firewallPending"]!=false{t.Fatalf("old recovery metadata must expire: %v",result)}
- // Even a logged-out client sees only the version, never pending metadata.
+ // An unauthenticated version probe only exposes the version and random
+ // instance marker, never pending firewall information or user data.
  code,v,_=request("/api/xport/version",nil)
- if code!=200||len(v)!=1||v["version"]!=buildinfo.Current{t.Fatalf("state leaked in public version: %v",v)}
+ if code!=200||len(v)!=2||v["version"]!=buildinfo.Current||v["instance"]!=instance{
+  t.Fatalf("state leaked in public version: %v",v)
+ }
 }
 
 func TestUpdatePanelRejectsPendingWithoutStaging(t *testing.T){
