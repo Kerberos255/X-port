@@ -96,6 +96,7 @@ cat > "$TMP/__mock.js" <<'JS'
     panelKeyFile:'',panelDomain:'',panelTLS:false,xrayApiPort:10085,portMin:20000,
     portMax:60000,defaultRealitySni:'',defaultRealityDest:'',adminUsername:'admin'}
   globalThis.__fwExtraRules = []
+  globalThis.__mockFwPending=null
   globalThis.__fwControlPending = false
   globalThis.__pendingConfirmSeenWhileBusy = null
   globalThis.__xportServerVersion = 'browser-test'
@@ -187,7 +188,8 @@ cat > "$TMP/__mock.js" <<'JS'
     if (path === '/api/accounts/port-suggestion') return json({port:23741,min:20000,max:60000})
     if (path === '/api/firewall' && method === 'GET') return json({
       backend:'firewalld',active:true,writable:!globalThis.__fwReadOnly,unsafeReason:globalThis.__fwReadOnly?'独立 INPUT 过滤链需要检查':'',managers:['firewalld'],defaultZone:'public',zones:['public'],services:{public:['ssh']},
-      notice:'预览：简单端口规则展示；底层链可能影响结果',rules:[
+      notice:'预览：简单端口规则展示；底层链可能影响结果',
+      pending:globalThis.__mockFwPending?[globalThis.__mockFwPending]:[],rules:[
         {id:'firewalld:public:22/tcp',port:22,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'未识别',purposeSource:'unknown',usage:'unused',note:'保留规则',protected:true,xray:false},
         {id:'firewalld:public:'+fwExternalPort+'/'+fwExternalProto,port:fwExternalPort,protocol:fwExternalProto,zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'HTTPS',purposeSource:'manual',note:'网站入口',protected:false,xray:false,kind:'port',action:'allow',managed:false,revision:'111122223333444455556666'},
         {id:'firewalld:public:2053/tcp',port:2053,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:fwPurpose,purposeSource:'xray',note:fwNote,protected:false,managed:true,xray:true,usage:'used',usageDetails:[{port:2053,protocol:'tcp',pid:1242,name:'xray'}],action:'allow',kind:'port',canToggle:true,accountId:1,accountName:'Alpha inbound',accountEnabled:true},
@@ -231,8 +233,27 @@ cat > "$TMP/__mock.js" <<'JS'
     }
     if (path === '/api/firewall/control' && method === 'POST') {
       globalThis.__fwControlCalls=(globalThis.__fwControlCalls||0)+1
-      globalThis.__fwLastControl=JSON.parse(init.body||'{}')
-      return json({ok:true,pending:globalThis.__fwControlPending,id:'test-protected',token:'test-token'})
+      const req=JSON.parse(init.body||'{}')
+      globalThis.__fwLastControl=req
+      if(globalThis.__fwControlPending){
+        globalThis.__mockFwPending={
+          id:req.id,token:'test-token',deadline:Date.now()+120000,kind:req.action
+        }
+        return json({ok:true,pending:true,id:req.id,token:'test-token'})
+      }
+      if(req.action==='add-drop'){
+        globalThis.__fwExtraRules.push({
+          id:req.id,port:req.port,protocol:req.protocol,zone:req.zone,
+          backend:'firewalld',runtime:true,permanent:true,managed:true,
+          protected:false,kind:'rich',family:'both',action:'deny',
+          purpose:'拒绝策略',note:'',usage:'unused'
+        })
+      }
+      return json({ok:true,pending:false,id:req.id})
+    }
+    if(path==='/api/firewall/rules/confirm'&&method==='POST'){
+      globalThis.__mockFwPending=null
+      return json({ok:true})
     }
     if (path === '/api/firewall/edit' && method === 'POST') {
       globalThis.__fwEditCalls=(globalThis.__fwEditCalls||0)+1
@@ -858,6 +879,12 @@ cat > "$TMP/__driver.js" <<'JS'
       if(document.querySelector('#operation-progress')?.open)
         throw new Error('firewall recovery confirmation left progress locked')
       globalThis.__fwControlPending=false
+      globalThis.__fwConfirmResult=true
+      const pendingButton=await waitFor('#fw-pending [data-fw-act="confirm-pending"]')
+      pendingButton.click()
+      await sleep(110)
+      if(globalThis.__mockFwPending||document.querySelector('#fw-pending [data-fw-act="confirm-pending"]'))
+        throw new Error('native firewall pending confirmation did not clear recovered timer')
       globalThis.__fwConfirmResult=false
       document.querySelector('#nav [data-page="accounts"]').click()
       const deleteButton=await waitFor('.account-row button[data-act="delete"]')
