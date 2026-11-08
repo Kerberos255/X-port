@@ -840,6 +840,49 @@ cat > "$TMP/__driver.js" <<'JS'
       if(document.querySelector('#expert-reality-target').value!=='www.microsoft.com:443')
         throw new Error('reopened account lost saved REALITY advanced fields')
       document.querySelector('#modal-close').click()
+      // Exact reported case: a persisted XHTTP + NONE account switches back
+      // to REALITY while the advanced editor remains expanded.
+      Object.assign(globalThis.__mockAccount,{network:'xhttp',security:'none',serverName:'',
+        privateKey:'',shortId:'',dest:''})
+      Object.assign(globalThis.__mockExpert,{method:'xhttp',security:'none',
+        supportsReality:false,supportsTls:false,supportsXhttp:true,
+        supportsFallbacks:false,supportsHttpHeader:false})
+      await openAccountModalV3(state.accounts.find(a=>a.id===1))
+      const xhttpForm=await waitFor('#account-form')
+      const xhttpAdvanced=xhttpForm.querySelector('#account-advanced')
+      xhttpAdvanced.open=true
+      await waitFor('#expert-xhttp-mode')
+      if(document.querySelector('#expert-reality-target'))
+        throw new Error('inactive REALITY was shown for persisted XHTTP + NONE')
+      const xhttpSecurity=xhttpForm.querySelector('#security-select')
+      xhttpSecurity.value='reality'
+      xhttpSecurity.dispatchEvent(new Event('change',{bubbles:true}))
+      await waitFor('#expert-reality-target')
+      if(!document.querySelector('#expert-xhttp-mode')||
+         !document.querySelector('#expert-reality-private')||
+         document.querySelector('#expert-tls-alpn'))
+        throw new Error('XHTTP + REALITY must show transport and security advanced sections together')
+      const xhttpTarget=document.querySelector('#expert-reality-target')
+      const xhttpNames=document.querySelector('#expert-reality-names')
+      xhttpTarget.value='www.example.com:443'
+      xhttpTarget.dispatchEvent(new Event('input',{bubbles:true}))
+      xhttpNames.value='www.example.com'
+      xhttpNames.dispatchEvent(new Event('input',{bubbles:true}))
+      const xhttpWrites=globalThis.__mockExpertWrites
+      await xhttpForm.onsubmit({preventDefault(){},currentTarget:xhttpForm})
+      if(globalThis.__mockLastAccountEdit?.network!=='xhttp' ||
+         globalThis.__mockLastAccountEdit?.security!=='reality' ||
+         globalThis.__mockLastAccountEdit?.serverName!=='www.example.com' ||
+         globalThis.__mockLastAccountEdit?.dest!=='www.example.com:443' ||
+         globalThis.__mockExpertWrites!==xhttpWrites+1)
+        throw new Error('persisted XHTTP to REALITY edit did not save both modes')
+      await openAccountModalV3(state.accounts.find(a=>a.id===1))
+      const checkXhttpAdvanced=document.querySelector('#account-advanced')
+      checkXhttpAdvanced.open=true
+      await waitFor('#expert-reality-target')
+      if(!document.querySelector('#expert-xhttp-mode'))
+        throw new Error('reopened XHTTP+REALITY account lost XHTTP section')
+      document.querySelector('#modal-close').click()
       // Exercise the actual firewall add flow with a held write response.
       document.querySelector('#nav [data-page="firewall"]').click()
       globalThis.__fwConfirmResult=true
