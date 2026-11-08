@@ -334,7 +334,9 @@ cat > "$TMP/__mock.js" <<'JS'
     nativeShow()
     globalThis.__fwConfirmCalls++
     const text=confirmDialog.querySelector('#operation-confirm-detail').textContent
-    const pending=globalThis.__fwControlPending&&text.includes('120 秒')
+    // An initial risk confirmation may also mention 120 seconds.
+    // Only the POST-write recovery prompt is intentionally declined.
+    const pending=globalThis.__fwControlPending&&text.includes('规则已临时修改')
     if(pending)globalThis.__pendingConfirmSeenWhileBusy=Boolean(document.querySelector('#operation-progress')?.open)
     const agree=pending?false:Boolean(globalThis.__fwConfirmResult)
     queueMicrotask(()=>confirmDialog.querySelector(agree?'#operation-confirm-apply':'#operation-confirm-cancel').click())
