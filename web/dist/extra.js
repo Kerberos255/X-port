@@ -254,7 +254,11 @@ async function restartXport(){
  try{
   await XportOperation.run({
    title:'正在提交面板重启',detail:'等待服务器确认重启安排',
-   perform:()=>api('/api/xport/restart',{method:'POST',body:'{}'})
+   perform:async()=>{
+    const result=await api('/api/xport/restart',{method:'POST',body:'{}'})
+    if(result?.scheduled!==true)throw uncertainMutationV3('服务器未确认已安排重启；请检查服务状态，不要重复点击')
+    return result
+   }
   })
   toast('已安排重启，页面将自动重新连接')
   setTimeout(()=>location.reload(),3500)
@@ -298,7 +302,9 @@ async function updateXport(){
    title:'正在更新 X-port',detail:'下载、校验并安排面板版本切换',
    perform:()=>api('/api/xport/update',{method:'POST',body:'{}'})
   })
-  const info=d.update||d
+  const info=d?.update||d
+  if(d?.scheduled!==true&&d?.alreadyLatest!==true)
+   throw uncertainMutationV3('更新接口已返回，但未明确确认安排更新或已经是最新版；请核对版本后再操作')
   toast(d.scheduled?'已接受更新请求，正在等待新版本启动':'X-port 已是最新')
   if(d.scheduled){
    // Close progress before version monitoring; the monitor avoids refreshing open dialogs.
