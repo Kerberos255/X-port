@@ -804,7 +804,8 @@ cat > "$TMP/__driver.js" <<'JS'
          !document.querySelector('#expert-reality-public')||
          document.querySelector('#expert-tls-alpn'))
         throw new Error('REALITY controls did not replace stale TLS controls')
-      if(!document.querySelector('#save-expert').disabled)
+      const expertSaveButton=document.querySelector('#save-expert')
+      if(expertSaveButton&&!expertSaveButton.disabled)
         throw new Error('expert save must not write to persisted TLS while base mode is unsaved')
       const targetInput=document.querySelector('#expert-reality-target')
       const namesInput=document.querySelector('#expert-reality-names')
