@@ -171,7 +171,9 @@ async function loadSettingsV6(){
 }
 async function saveSettingsV6(e){
  e.preventDefault()
- const f=e.currentTarget,port=String(formValue(f,'panelListen')||'').trim()
+ const f=e.currentTarget
+ if(f.dataset.submitting==='1')return
+ const port=String(formValue(f,'panelListen')||'').trim()
  if(!/^\d+$/.test(port)||Number(port)<1||Number(port)>65535){
   toast('面板端口必须是 1–65535',true);return
  }
@@ -192,18 +194,35 @@ async function saveSettingsV6(e){
   defaultRealityDest:formValue(f,'defaultRealityDest'),
   adminUsername:formValue(f,'adminUsername'),currentPassword:current,
   newPassword:formValue(f,'newPassword')}
+ const fields=['panelListen','panelBasePath','panelDomain','panelCertFile',
+  'panelKeyFile','xrayApiPort','portMin','portMax','defaultRealitySni','defaultRealityDest']
+ const readMatches=async()=>{
+  const d=await api('/api/settings')
+  return fields.every(key=>String(d[key]??'')===String(body[key]??''))
+ }
+ f.dataset.submitting='1'
+ const button=f.querySelector('button[type="submit"]')
+ if(button)button.disabled=true
  try{
-  const d=await XportOperation.run({
+  const result=await XportOperation.run({
    title:'正在保存系统设置',detail:'提交面板参数并核对最新配置',
-   perform:()=>api('/api/settings',{method:'PUT',body:JSON.stringify(body)}),
+   perform:()=>changing
+    ?api('/api/settings',{method:'PUT',body:JSON.stringify(body)})
+    :applyConfirmedMutationV3(
+     ()=>api('/api/settings',{method:'PUT',body:JSON.stringify(body)}),readMatches,
+     {requireXray:false}),
    // Credential changes may invalidate the current session immediately.
-   verify:changing?undefined:async()=>{await api('/api/settings');await loadSettingsV6()}
+   verify:changing?undefined:async()=>{if(!await readMatches())throw uncertainMutationV3('系统设置未在最新配置中确认')}
   })
-  if(changing){const pw=f.elements.namedItem('currentPassword'),newPw=f.elements.namedItem('newPassword');if(pw)pw.value='';if(newPw)newPw.value=''}
-  toast(d.restartRequired?'设置已保存，重启 X-port 后生效':'设置已保存')
- }catch(x){toast(x.message,true)}
+  if(changing){
+   const pw=f.elements.namedItem('currentPassword'),newPw=f.elements.namedItem('newPassword')
+   if(pw)pw.value=''
+   if(newPw)newPw.value=''
+  }else await loadSettingsV6()
+  toast(result.value?.restartRequired||result.restartRequired?'设置已保存，重启 X-port 后生效':'设置已保存')
+ }catch(err){toast((err.applied||err.uncertain?'设置结果未确认：':'')+err.message,true)}
+ finally{f.dataset.submitting='0';if(button)button.disabled=false}
 }
-
 function initV6(){
  loadSettings=loadSettingsV6
  const f=$('#settings-form');if(f){f.onsubmit=saveSettingsV6;f.querySelector('.listen-hint')?.remove();f.elements.namedItem('adminUsername')?.addEventListener('input',syncAdminReauthV6);f.elements.namedItem('newPassword')?.addEventListener('input',syncAdminReauthV6)}
