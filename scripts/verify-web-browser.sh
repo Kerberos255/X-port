@@ -881,7 +881,13 @@ cat > "$TMP/__driver.js" <<'JS'
         throw new Error('firewall recovery confirmation left progress locked')
       globalThis.__fwControlPending=false
       globalThis.__fwConfirmResult=true
-      const pendingButton=await waitFor('#fw-pending [data-fw-act="confirm-pending"]')
+      const pendingButton=await waitFor('#fw-pending [data-fw-act="confirm-pending"]',850)
+        .catch(()=>{throw new Error('missing recovery control: '+JSON.stringify({
+          pending:globalThis.__mockFwPending,
+          row:document.querySelector('#fw-pending')?.innerHTML.slice(0,600),
+          last:globalThis.__fwLastControl,
+          calls:globalThis.__fwControlCalls
+        }))})
       pendingButton.click()
       await sleep(110)
       if(globalThis.__mockFwPending||document.querySelector('#fw-pending [data-fw-act="confirm-pending"]'))
