@@ -118,13 +118,17 @@ cat > "$TMP/__mock.js" <<'JS'
       const body=JSON.parse(init.body||'{}')
       if(globalThis.__mockCreateMode==='conflict-recovered'){
         globalThis.__mockCreatedAccount={id:2,name:body.name,port:body.port||23741,
-          protocol:body.protocol,enabled:true,editable:true,upBytes:0,downBytes:0}
+          protocol:body.protocol,enabled:Boolean(body.enabled),editable:true,upBytes:0,downBytes:0,
+          quotaBytes:Number(body.quotaBytes||0),expiryTime:Number(body.expiryTime||0),
+          monthlyReset:Boolean(body.monthlyReset)}
         return json({error:'port '+(body.port||23741)+' is already used by "'+body.name+'"'},400)
       }
       if(globalThis.__mockCreateMode==='real-conflict')
         return json({error:'port '+(body.port||23741)+' is already used by "existing"'},400)
       globalThis.__mockCreatedAccount={id:2,name:body.name,port:body.port||23741,
-        protocol:body.protocol,enabled:true,editable:true,upBytes:0,downBytes:0}
+        protocol:body.protocol,enabled:Boolean(body.enabled),editable:true,upBytes:0,downBytes:0,
+          quotaBytes:Number(body.quotaBytes||0),expiryTime:Number(body.expiryTime||0),
+          monthlyReset:Boolean(body.monthlyReset)}
       return json(globalThis.__mockCreatedAccount,201)
     }
     if (path === '/api/accounts/1/clone' && method === 'POST') {
@@ -145,6 +149,13 @@ cat > "$TMP/__mock.js" <<'JS'
         return new Promise(resolve=>{globalThis.__accountDeleteRelease=()=>{globalThis.__mockAccountDeleted=true;resolve(json({ok:true}))}})
       globalThis.__mockAccountDeleted=true
       return json({ok:true})
+    }
+    if (path === '/api/accounts/1' && method === 'PUT') {
+      const body=JSON.parse(init.body||'{}')
+      Object.assign(account,{name:body.name,port:body.port,enabled:Boolean(body.enabled),
+        monthlyReset:Boolean(body.monthlyReset),quotaBytes:Number(body.quotaBytes||0),
+        expiryTime:Number(body.expiryTime||0)})
+      return json(account)
     }
     if (path === '/api/accounts/1' && method === 'GET') return json(account)
     if (path === '/api/accounts/1/enabled' && method === 'PATCH') {
