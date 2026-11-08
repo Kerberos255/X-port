@@ -99,10 +99,12 @@ func TestVersionProbeAuthenticatedAndPendingGuard(t *testing.T){
   _=json.Unmarshal(rr.Body.Bytes(),&out)
   return rr.Code,out,rr.Header().Get("Cache-Control")
  }
- // Session storage is process-local. The public version alone must still
- // be readable after restart, without disclosing live firewall state.
+ // Session storage is process-local. The public version and random process
+ // generation must be readable after restart, without disclosing firewall state.
  code,v,cache:=request("/api/xport/version",nil)
- if code!=200||v["version"]!=buildinfo.Current||len(v)!=1||!strings.Contains(cache,"no-store"){
+ instance,ok:=v["instance"].(string)
+ if code!=200||v["version"]!=buildinfo.Current||!ok||len(instance)!=32||
+  len(v)!=2||!strings.Contains(cache,"no-store"){
   t.Fatalf("public version=%d %v cache=%q",code,v,cache)
  }
  if code,_,_:=request("/api/xport/update-state",nil);code!=http.StatusUnauthorized{
