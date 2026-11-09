@@ -29,6 +29,7 @@ func (s *Server) registerExtraRoutes(mux *http.ServeMux) {
  mux.Handle("POST /api/firewall/rules", s.require(http.HandlerFunc(s.firewallRuleChange)))
  mux.Handle("POST /api/firewall/control", s.require(http.HandlerFunc(s.firewallControl)))
  mux.Handle("POST /api/firewall/edit", s.require(http.HandlerFunc(s.firewallExternalEdit)))
+	mux.Handle("POST /api/firewall/external/remove", s.require(http.HandlerFunc(s.firewallExternalRemove)))
  mux.Handle("POST /api/firewall/rules/confirm", s.require(http.HandlerFunc(s.firewallRuleConfirm)))
  mux.Handle("GET /api/firewall/raw", s.require(http.HandlerFunc(s.firewallRaw)))
 	mux.Handle("GET /api/accounts/export", s.require(http.HandlerFunc(s.exportAccounts)))

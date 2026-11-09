@@ -673,3 +673,84 @@ func (s *Server) firewallExternalEdit(w http.ResponseWriter,r *http.Request){
   "newId":targetID,
  })
 }
+
+
+// firewallExternalRemove deletes a single idle, unrestricted firewalld allowance
+// after validating the exact selected revision. External ownership is retained
+// (i.e. it is never silently converted into an X-port-owned rule).
+func (s *Server) firewallExternalRemove(w http.ResponseWriter,r *http.Request) {
+ var in struct{
+  ID string `json:"id"`
+  Revision string `json:"revision"`
+  ExternalAcknowledged bool `json:"externalAcknowledged"`
+ }
+ if decodeJSONLimit(w,r,&in,4<<10)!=nil{return}
+ if !in.ExternalAcknowledged||in.ID==""||len(in.ID)>140||len(in.Revision)!=24 {
+  writeError(w,400,"explicit consent and a valid rule revision are required");return
+ }
+ s.firewallMu.Lock();defer s.firewallMu.Unlock()
+ ctx,cancel:=context.WithTimeout(r.Context(),100*time.Second);defer cancel()
+ snap,err:=ops.InspectFirewall(ctx,s.store.Dir())
+ if err!=nil{writeError(w,502,"cannot inspect firewall before external removal");return}
+ if snap.Backend!="firewalld"||!snap.Writable {
+  writeError(w,409,"firewalld is read-only");return
+ }
+ var source firewall.Rule
+ found:=false
+ for _,rr:=range snap.Rules {if rr.ID==in.ID{source=rr;found=true;break}}
+ if !found{writeError(w,409,"source rule changed or disappeared");return}
+ if firewallRuleRevision(source)!=in.Revision {
+  writeError(w,409,"source rule changed since page load; refresh before deleting");return
+ }
+ if source.IsRange()||source.Kind!="port"||source.Action!="allow"||
+    !source.Runtime||!source.Permanent||source.Conflict||
+    !firewall.ValidRule(source.Port,source.Protocol)||
+    !firewall.ValidZone(source.Zone)||snap.OpaqueRichZones[source.Zone] {
+  writeError(w,409,"only synchronized simple firewalld port allowances can be deleted");return
+ }
+ zoneFound:=false
+ for _,zone:=range snap.Zones{if zone==source.Zone{zoneFound=true;break}}
+ if !zoneFound{writeError(w,409,"source zone no longer exists");return}
+ // The legacy owned-rule endpoint remains unchanged and strict.
+ owned,_,err:=s.store.Setting("firewall_owned:"+source.ID)
+ if err!=nil{writeError(w,500,"cannot inspect rule ownership");return}
+ if owned=="v1"{writeError(w,403,"managed rule must use the managed-rule deletion path");return}
+ if source.Port==22||source.Port==s.firewallGuardPort(){
+  writeError(w,403,"SSH and panel ports are protected");return
+ }
+ if err:=s.firewallCriticalPorts(ctx,source.Port);err!=nil{writeError(w,409,err.Error());return}
+ if err:=s.ensureNoPending(source.ID);err!=nil{writeError(w,409,err.Error());return}
+ for _,rr:=range snap.Rules{
+  if rr.ID==source.ID{continue}
+  if rr.Protocol==source.Protocol&&rr.ContainsPort(source.Port){
+   writeError(w,409,"overlapping or cross-zone firewall policy requires manual review");return
+  }
+ }
+ value,_,err:=s.store.Setting(firewallPausedKey(source.ID))
+ if err!=nil{writeError(w,500,"cannot inspect paused rule metadata");return}
+ if value!=""{writeError(w,409,"paused rule metadata conflicts with the selected rule");return}
+ listeners,err:=ops.FirewallListeners(ctx,s.store.Dir())
+ if err!=nil{writeError(w,409,"cannot verify listeners; deletion blocked");return}
+ if listeners[source.Port]{writeError(w,409,"port has an active listener; deletion blocked");return}
+ // The rollback uses native firewalld and a systemd timer, survives X-port
+ // restarts/updates, and is armed BEFORE the destructive operation.
+ unit,deadline,err:=ops.ScheduleFirewallRestore(ctx,"firewalld",source.Port,source.Protocol,source.Zone)
+ if err!=nil{writeError(w,409,"cannot arm external-rule recovery: "+err.Error());return}
+ if err:=ops.ApplyFirewall(ctx,s.store.Dir(),"remove",source.Port,source.Protocol,source.Zone);err!=nil{
+  writeError(w,409,"external deletion failed; recovery remains armed: "+err.Error());return
+ }
+ changed,err:=ops.InspectFirewall(ctx,s.store.Dir())
+ if err!=nil{writeError(w,502,"cannot verify deletion; recovery remains armed");return}
+ for _,rr:=range changed.Rules{
+  if rr.ID==source.ID||(rr.Protocol==source.Protocol&&rr.ContainsPort(source.Port)){
+   writeError(w,409,"rule still present or overlapped; recovery remains armed");return
+  }
+ }
+ pending,err:=s.firewallPendingSaveKind(source.ID,unit,deadline,"remove-allow",source)
+ if err!=nil{writeError(w,500,"deletion pending but confirmation state could not be saved; recovery remains armed");return}
+ s.firewallAudit("remove-external-pending",source.ID)
+ writeJSON(w,http.StatusAccepted,map[string]any{
+  "ok":true,"pending":true,"id":source.ID,"token":pending.Token,
+  "deadline":pending.Deadline,"kind":"remove-allow",
+ })
+}
