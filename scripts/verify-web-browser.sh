@@ -1013,6 +1013,23 @@ cat > "$TMP/__driver.js" <<'JS'
          document.querySelector('#expert-tls-alpn'))
         throw new Error('stale expert response overwrote current REALITY selection')
       document.querySelector('#modal-close').click()
+
+      globalThis.__mockHoldNextExpertRead=true
+      await openAccountModalV3(state.accounts.find(a=>a.id===1))
+      const abandonedAdvanced=document.querySelector('#account-advanced')
+      abandonedAdvanced.open=true
+      for(let i=0;i<60&&!globalThis.__releaseHeldExpertRead;i++)await sleep(15)
+      if(!globalThis.__releaseHeldExpertRead)
+        throw new Error('abandoned-load test could not hold request')
+      abandonedAdvanced.open=false
+      globalThis.__releaseHeldExpertRead()
+      globalThis.__releaseHeldExpertRead=null
+      await sleep(75)
+      if(abandonedAdvanced.dataset.loaded==='1')
+        throw new Error('closed advanced panel still cached an unrendered GET')
+      abandonedAdvanced.open=true
+      await waitFor('#expert-tls-alpn')
+      document.querySelector('#modal-close').click()
       // Exercise the actual firewall add flow with a held write response.
       document.querySelector('#nav [data-page="firewall"]').click()
       globalThis.__fwConfirmResult=true
