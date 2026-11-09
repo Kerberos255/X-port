@@ -122,6 +122,7 @@ func TestManagementAPIBoundaryWithRealXray(t *testing.T) {
             for _,target:=range []string{
                 protected.URL,
                 fmt.Sprintf("http://localhost:%d/",protectedPort),
+                fmt.Sprintf("http://xport-loopback-ci.test:%d/",protectedPort),
             } {
                 resp,err=client.Get(target)
                 if err==nil {
