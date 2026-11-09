@@ -38,6 +38,7 @@ type Server struct {
 	sessions       *auth.Sessions
 	loginLimiter   *auth.LoginLimiter
 	ipLimiter      *auth.LoginLimiter
+	peerLimiter    *auth.LoginLimiter
 	updater        *xray.Updater
 	static         fs.FS
 	dataDir        string
@@ -64,6 +65,9 @@ func New(st *store.Store, accounts *service.Accounts, updater *xray.Updater, sta
 		sessions:       auth.NewSessions(24 * time.Hour),
 		loginLimiter:   auth.NewLoginLimiter(8, 10*time.Minute),
 		ipLimiter:      auth.NewLoginLimiter(24, 30*time.Minute),
+		// Independent peer limit: spoofed forwarded headers cannot reset the
+		// failure budget of the actual TCP peer (including local reverse proxies).
+		peerLimiter:    auth.NewLoginLimiter(180, 30*time.Minute),
 		trustedProxies: trustedProxyPrefixes(),
 		instanceID:     newServerInstanceID(),
 	}
@@ -172,8 +176,9 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	}
 	username := strings.TrimSpace(req.Username)
 	ip := s.remoteIP(r)
+	peer := directRemoteIP(r)
 	key := loginRateKey(ip, username)
-	if !s.ipLimiter.Allowed(ip) || !s.loginLimiter.Allowed(key) {
+	if !s.peerLimiter.Allowed(peer) || !s.ipLimiter.Allowed(ip) || !s.loginLimiter.Allowed(key) {
 		writeError(w, http.StatusTooManyRequests, "too many login attempts; try again later")
 		return
 	}
@@ -189,6 +194,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	if invalidSize || !knownUser || passwordErr != nil {
 		s.loginLimiter.Fail(key)
 		s.ipLimiter.Fail(ip)
+		s.peerLimiter.Fail(peer)
 		time.Sleep(120 * time.Millisecond)
 		writeError(w, http.StatusUnauthorized, "invalid credentials")
 		return
@@ -196,6 +202,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 
 	s.loginLimiter.Success(key)
 	s.ipLimiter.Success(ip)
+	s.peerLimiter.Success(peer)
 	token, err := s.sessions.Create(admin.Username)
 	if err != nil {
 		writeError(w, 500, "session failure")
