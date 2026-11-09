@@ -282,3 +282,18 @@ html[data-theme="light"] #page-overview .traffic-split b,
 html[data-theme="light"] #page-overview .service-row code {color:#4d647d}
 html[data-theme="light"] .status.ok {color:#266a54}
 html[data-theme="light"] .status.bad {color:#9c3647}
+
+/* Long backup names need the full row on narrow screens. Keep all three
+   actions visible, but move them under the filename/metadata. */
+@media(max-width:700px){
+  #page-system .backup-row,
+  #page-system .backup-item {
+    grid-template-columns:minmax(0,1fr);
+  }
+  #page-system .backup-row>div:last-child,
+  #page-system .backup-item>div:last-child {
+    grid-column:1;
+    justify-content:flex-end;
+    padding-top:2px;
+  }
+}
