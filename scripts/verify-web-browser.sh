@@ -402,6 +402,9 @@ cat > "$TMP/__mock.js" <<'JS'
   confirmDialog.showModal=()=>{
     nativeShow()
     globalThis.__fwConfirmCalls++
+    // Click-through coverage exercises explicit Confirm/Cancel buttons.
+    // The older regression suite keeps its automatic confirmation helper.
+    if(globalThis.__manualConfirmationTest)return
     const text=confirmDialog.querySelector('#operation-confirm-detail').textContent
     // An initial risk confirmation may also mention 120 seconds.
     // Only the POST-write recovery prompt is intentionally declined.
@@ -1492,6 +1495,8 @@ cat > "$TMP/__driver.js" <<'JS'
 
       // Click the external deletion control, cancel once, then accept both
       // the destructive operation and the recovery-timer confirmation.
+      // Disable the fixture's automatic confirmation driver for this segment.
+      globalThis.__manualConfirmationTest=true
       document.querySelector('#nav [data-page="firewall"]').click()
       const externalDeleteID='firewalld:public:19553/tcp'
       const externalRevision='0123456789abcdef01234567'
@@ -1577,6 +1582,7 @@ cat > "$TMP/__driver.js" <<'JS'
         throw new Error('confirmed external deletion failed to update native state and UI')
       if(document.querySelector('#operation-progress').open||XportOperation.busy)
         throw new Error('external delete left busy modal')
+      globalThis.__manualConfirmationTest=false
       mark('pass','new REALITY create/edit + external delete cancel/confirm + existing regressions')
     } catch (err) {
       mark('fail', String(err?.stack || err).slice(0,900))
