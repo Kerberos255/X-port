@@ -298,7 +298,12 @@ func (s *Server) getAccount(w http.ResponseWriter, r *http.Request) {
 }
 func (s *Server) createAccount(w http.ResponseWriter, r *http.Request) {
 	if !s.acquireMaintenance(w) { return }
-	defer s.maintenanceMu.Unlock()
+	locked := true
+	defer func() {
+		if locked {
+			s.maintenanceMu.Unlock()
+		}
+	}()
 	var in accountcfg.Input
 	if decodeJSON(w, r, &in) != nil {
 		return
@@ -308,11 +313,20 @@ func (s *Server) createAccount(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, e.Error())
 		return
 	}
+	// Release before writing the response: the client may start an expert PUT
+	// as soon as it receives the successful base mutation response.
+	s.maintenanceMu.Unlock()
+	locked = false
 	writeJSON(w, 201, v)
 }
 func (s *Server) updateAccount(w http.ResponseWriter, r *http.Request) {
 	if !s.acquireMaintenance(w) { return }
-	defer s.maintenanceMu.Unlock()
+	locked := true
+	defer func() {
+		if locked {
+			s.maintenanceMu.Unlock()
+		}
+	}()
 	id, e := pathID(r)
 	if e != nil {
 		writeError(w, 400, "invalid account id")
@@ -327,6 +341,10 @@ func (s *Server) updateAccount(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, e.Error())
 		return
 	}
+	// Release before writing the response: the client may start an expert PUT
+	// as soon as it receives the successful base mutation response.
+	s.maintenanceMu.Unlock()
+	locked = false
 	writeJSON(w, 200, v)
 }
 func (s *Server) deleteAccount(w http.ResponseWriter, r *http.Request) {

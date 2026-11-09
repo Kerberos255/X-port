@@ -74,8 +74,14 @@ cat > "$TMP/__mock.js" <<'JS'
   globalThis.__mockAccountDeleted = false
   globalThis.__mockCreatedAccount = null
   globalThis.__mockCreateCalls = 0
+  globalThis.__mockCreateMaintenanceBusy=0
+  globalThis.__mockExpertMaintenanceBusy=0
+  globalThis.__mockRejectedMaintenanceWrites=0
   globalThis.__mockCreatedRequest = null
   globalThis.__mockNewExpert = null
+  globalThis.__mockEditMaintenanceBusy=0
+  globalThis.__mockEditCalls=0
+  globalThis.__mockNewExpertWrites=0
   globalThis.__fwExternalRemoveCalls = 0
   globalThis.__fwExternalConfirmCalls = 0
   globalThis.__fwExternalLastRemove = null
@@ -139,12 +145,17 @@ cat > "$TMP/__mock.js" <<'JS'
       ...(globalThis.__mockCreatedAccount?[globalThis.__mockCreatedAccount]:[])
     ]})
     if (path === '/api/accounts' && method === 'POST') {
+      if(globalThis.__mockCreateMaintenanceBusy>0){
+        globalThis.__mockCreateMaintenanceBusy--
+        globalThis.__mockRejectedMaintenanceWrites++
+        return json({error:'another maintenance operation is in progress'},409)
+      }
       globalThis.__mockCreateCalls++
       const body=JSON.parse(init.body||'{}')
       globalThis.__mockCreatedRequest=body
       if(globalThis.__mockCreateMode==='conflict-recovered'){
         globalThis.__mockCreatedAccount={id:2,name:body.name,port:body.port||23741,
-          protocol:body.protocol,enabled:Boolean(body.enabled),editable:true,upBytes:0,downBytes:0,
+          protocol:body.protocol,credential:body.credential||account.credential,enabled:Boolean(body.enabled),editable:true,upBytes:0,downBytes:0,
           quotaBytes:Number(body.quotaBytes||0),expiryTime:Number(body.expiryTime||0),
           monthlyReset:Boolean(body.monthlyReset),network:body.network,security:body.security,
           serverName:body.serverName,dest:body.dest,privateKey:body.privateKey,shortId:body.shortId}
@@ -153,7 +164,7 @@ cat > "$TMP/__mock.js" <<'JS'
       if(globalThis.__mockCreateMode==='real-conflict')
         return json({error:'port '+(body.port||23741)+' is already used by "existing"'},400)
       globalThis.__mockCreatedAccount={id:2,name:body.name,port:body.port||23741,
-        protocol:body.protocol,enabled:Boolean(body.enabled),editable:true,upBytes:0,downBytes:0,
+        protocol:body.protocol,credential:body.credential||account.credential,enabled:Boolean(body.enabled),editable:true,upBytes:0,downBytes:0,
           quotaBytes:Number(body.quotaBytes||0),expiryTime:Number(body.expiryTime||0),
           monthlyReset:Boolean(body.monthlyReset),network:body.network,security:body.security,
           serverName:body.serverName,dest:body.dest,privateKey:body.privateKey,shortId:body.shortId}
@@ -192,6 +203,25 @@ cat > "$TMP/__mock.js" <<'JS'
       return json(account)
     }
     if (path === '/api/accounts/1' && method === 'GET') return json(account)
+    if (path === '/api/accounts/2' && method === 'PUT') {
+      if(globalThis.__mockEditMaintenanceBusy>0){
+        globalThis.__mockEditMaintenanceBusy--
+        globalThis.__mockRejectedMaintenanceWrites++
+        return json({error:'another maintenance operation is in progress'},409)
+      }
+      globalThis.__mockEditCalls++
+      const body=JSON.parse(init.body||'{}')
+      if(!globalThis.__mockCreatedAccount)return json({error:'missing account'},404)
+      Object.assign(globalThis.__mockCreatedAccount,{
+        name:body.name,credential:body.credential||globalThis.__mockCreatedAccount.credential,
+        port:body.port||globalThis.__mockCreatedAccount.port,
+        enabled:Boolean(body.enabled),monthlyReset:Boolean(body.monthlyReset),
+        quotaBytes:Number(body.quotaBytes||0),expiryTime:Number(body.expiryTime||0),
+        network:body.network,security:body.security,serverName:body.serverName,
+        dest:body.dest,privateKey:body.privateKey,shortId:body.shortId
+      })
+      return json(globalThis.__mockCreatedAccount)
+    }
     if (path === '/api/accounts/2' && method === 'GET')
       return json(globalThis.__mockCreatedAccount||{error:'missing newly created account'})
     if (path === '/api/accounts/1/enabled' && method === 'PATCH') {
@@ -206,7 +236,13 @@ cat > "$TMP/__mock.js" <<'JS'
       return globalThis.__mockShareFail?json({error:'share endpoint unavailable'},503):
         json({uri:globalThis.__mockShareURI})
     if (path === '/api/accounts/2/expert' && method === 'PUT') {
+      if(globalThis.__mockExpertMaintenanceBusy>0){
+        globalThis.__mockExpertMaintenanceBusy--
+        globalThis.__mockRejectedMaintenanceWrites++
+        return json({error:'another maintenance operation is in progress'},409)
+      }
       const body=JSON.parse(init.body||'{}')
+      globalThis.__mockNewExpertWrites++
       globalThis.__mockNewExpert={
         ...body,supportsReality:body.security==='reality',supportsTls:body.security==='tls',
         supportsXhttp:body.method==='xhttp',supportsFallbacks:false,supportsHttpHeader:false
@@ -1378,6 +1414,33 @@ cat > "$TMP/__driver.js" <<'JS'
       if(globalThis.__mockBackupCalls!==backupBefore+1||
          !document.querySelector('#backup-list .backup-row'))
         throw new Error('backup creation did not persist and render its identity')
+      // Real rendered backup rows previously kept dark-theme filename colors
+      // after switching to light mode. Check readable metadata and contrast.
+      const savedBackupTheme=document.documentElement.dataset.theme
+      const backupFilename=await waitFor('#backup-list .backup-row b')
+      const backupMetadata=await waitFor('#backup-list .backup-row small')
+      const bg=document.querySelector('#backup-list .backup-row')
+      const contrast=(fg,bg)=>{
+        const rgb=x=>(x.match(/\\d+(?:\\.\\d+)?/g)||[]).slice(0,3).map(Number)
+        const l=x=>{
+          const channels=rgb(x).map(c=>{
+            c=c/255
+            return c<=0.04045?c/12.92:((c+0.055)/1.055)**2.4
+          })
+          return channels[0]*0.2126+channels[1]*0.7152+channels[2]*0.0722
+        }
+        const a=l(fg),b=l(bg)
+        return (Math.max(a,b)+0.05)/(Math.min(a,b)+0.05)
+      }
+      document.documentElement.dataset.theme='light'
+      for(const [label,node] of [['filename',backupFilename],['timestamp and size',backupMetadata]]){
+        const style=getComputedStyle(node)
+        const ratio=contrast(style.color,getComputedStyle(bg).backgroundColor)
+        if(ratio<4.5||parseFloat(style.fontSize)<11)
+          throw new Error('light backup '+label+' readability regression: contrast='+
+            ratio.toFixed(2)+', font='+style.fontSize+', color='+style.color)
+      }
+      document.documentElement.dataset.theme=savedBackupTheme||'dark'
       await importBackupFile(new File(['gzip-fixture'],'browser.gz',{type:'application/gzip'}))
       if(globalThis.__mockBackups.length!==2)
         throw new Error('backup import did not confirm second persisted identity')
@@ -1452,8 +1515,31 @@ cat > "$TMP/__driver.js" <<'JS'
       globalThis.__mockNewExpert=null
       globalThis.__mockCreateMode='success'
       document.querySelector('#nav [data-page="accounts"]').click()
+      // CANCEL on a new account must not make any POST or leave an account row.
+      const cancelCreateBaseline=globalThis.__mockCreateCalls
+      document.querySelector('#add-account').click()
+      const canceledCreate=await waitFor('#account-form')
+      canceledCreate.querySelector('input[name="name"]').value='cancel-me'
+      canceledCreate.querySelector('#cancel-form').click()
+      if(globalThis.__mockCreateCalls!==cancelCreateBaseline||
+         document.querySelector('#account-form')||
+         state.accounts.some(a=>a.name==='cancel-me'))
+        throw new Error('canceling new account unexpectedly performed a write')
       document.querySelector('#add-account').click()
       const newRealityForm=await waitFor('#account-form')
+      // Native form validation must block an empty name and out-of-range port.
+      const newNameInput=newRealityForm.querySelector('input[name="name"]')
+      if(newRealityForm.checkValidity())
+        throw new Error('empty account name should be rejected before save')
+      newNameInput.value='reality-preset-browser'
+      const newPortInput=newRealityForm.querySelector('input[name="port"]')
+      newPortInput.value='65536'
+      if(newRealityForm.checkValidity())
+        throw new Error('port above 65535 accepted by browser form')
+      // The active v9 account editor requires an explicit valid port.
+      // Restore one before submitting; clearing it would correctly block
+      // the browser form and would not exercise the save API.
+      newPortInput.value='23741'
       newRealityForm.querySelector('input[name="name"]').value='reality-preset-browser'
       const newNet=newRealityForm.querySelector('#network-select')
       newNet.value='xhttp'
@@ -1465,14 +1551,52 @@ cat > "$TMP/__driver.js" <<'JS'
       newSec.dispatchEvent(new Event('change',{bubbles:true}))
       newRealityForm.querySelector('#account-advanced').open=true
       const newPreset=await waitFor('#expert-reality-template')
+      const privateHint=newRealityForm.querySelector('#expert-reality-private')
+      const publicHint=newRealityForm.querySelector('#expert-reality-public')
+      const shortIdsHint=newRealityForm.querySelector('#expert-reality-shortids')
+      if(privateHint?.placeholder!=='留空自动生成'||
+         publicHint?.placeholder!=='创建后自动派生（只读）'||
+         !publicHint.readOnly||
+         shortIdsHint?.placeholder!=='留空自动生成')
+        throw new Error('new REALITY inputs lost correct auto-generation placeholders')
       newPreset.value='mozilla'
       newPreset.dispatchEvent(new Event('change',{bubbles:true}))
       if(newRealityForm.querySelector('#expert-reality-target').value!=='www.mozilla.org:443'||
          newRealityForm.querySelector('#expert-reality-names').value!=='www.mozilla.org')
         throw new Error('new REALITY template failed to populate Target/SNI')
       const callsBeforeNew=globalThis.__mockCreateCalls
-      newRealityForm.querySelector('button[type="submit"]').click()
-      await waitFor('#modal.hidden',6500)
+      const rejectedBeforeNew=globalThis.__mockRejectedMaintenanceWrites
+      // Two server-side, proven pre-mutation maintenance rejections on the
+      // base POST and one on the subsequent expert PUT must not duplicate
+      // the account or cause a false failure toast.
+      globalThis.__mockCreateMaintenanceBusy=2
+      globalThis.__mockExpertMaintenanceBusy=1
+      const newSubmitButton=newRealityForm.querySelector('button[type="submit"]')
+      if(!newRealityForm.checkValidity())
+        throw new Error('new-account browser form invalid before submit: '+
+          JSON.stringify([...newRealityForm.querySelectorAll(':invalid')]
+            .map(x=>({name:x.name||x.id,missing:x.validity.valueMissing,
+              badInput:x.validity.badInput,under:x.validity.rangeUnderflow,
+              over:x.validity.rangeOverflow,type:x.validity.typeMismatch}))))
+      newSubmitButton.click()
+      newSubmitButton.click()
+      await waitFor('#modal.hidden',8500).catch(err=>{
+        throw new Error('new-account save did not complete: '+JSON.stringify({
+          submitting:newRealityForm.dataset.submitting,
+          submitDisabled:newSubmitButton.disabled,
+          modalHidden:document.querySelector('#modal')?.classList.contains('hidden'),
+          createCalls:globalThis.__mockCreateCalls,
+          rejected:globalThis.__mockRejectedMaintenanceWrites,
+          createBusy:globalThis.__mockCreateMaintenanceBusy,
+          expertBusy:globalThis.__mockExpertMaintenanceBusy,
+          createdName:globalThis.__mockCreatedAccount?.name,
+          advancedWrites:globalThis.__mockNewExpertWrites,
+          operationBusy:XportOperation.busy,
+          toast:document.querySelector('#toast')?.textContent?.slice(0,180)
+        })+'; '+err.message)
+      })
+      if(globalThis.__mockRejectedMaintenanceWrites!==rejectedBeforeNew+3)
+        throw new Error('new REALITY account did not recover all maintenance 409s')
       if(globalThis.__mockCreateCalls!==callsBeforeNew+1||
          globalThis.__mockCreatedRequest?.protocol!=='vless'||
          globalThis.__mockCreatedRequest?.network!=='xhttp'||
@@ -1482,8 +1606,10 @@ cat > "$TMP/__driver.js" <<'JS'
          globalThis.__mockNewExpert?.realityTarget!=='www.mozilla.org:443'||
          globalThis.__mockNewExpert?.realityServerNames?.[0]!=='www.mozilla.org')
         throw new Error('NEW REALITY account save missed base or expert template payload')
-      const justCreated=state.accounts.find(a=>a.name==='reality-preset-browser')
-      if(!justCreated)throw new Error('new REALITY account missing after create')
+      const createdMatches=state.accounts.filter(a=>a.name==='reality-preset-browser')
+      if(createdMatches.length!==1||globalThis.__mockCreateCalls!==callsBeforeNew+1)
+        throw new Error('maintenance retry created duplicate or missing accounts')
+      const justCreated=createdMatches[0]
       await openAccountModalV3(justCreated)
       const savedNewAdvanced=await waitFor('#account-advanced')
       savedNewAdvanced.open=true
@@ -1493,6 +1619,131 @@ cat > "$TMP/__driver.js" <<'JS'
         throw new Error('new REALITY account edit/reopen lost the preset')
       document.querySelector('#cancel-form').click()
 
+      // CANCEL an existing edit must not commit even if the form was changed.
+      const canceledEditWrites=globalThis.__mockEditCalls
+      const editRow=()=>document.querySelector('.account-row[data-id="2"] button[data-act="edit"]')
+      if(!editRow())throw new Error('new account edit button missing')
+      editRow().click()
+      const canceledEdit=await waitFor('#account-form')
+      canceledEdit.querySelector('input[name="name"]').value='unsaved-edit'
+      canceledEdit.querySelector('input[name="quota"]').value='3'
+      canceledEdit.querySelector('#cancel-form').click()
+      if(globalThis.__mockEditCalls!==canceledEditWrites||
+         state.accounts.some(a=>a.name==='unsaved-edit'))
+        throw new Error('canceling account edit unexpectedly committed changes')
+
+      // Edit using the real SAVE button. Simulate maintenance contention
+      // during both the base PUT and the subsequent REALITY expert PUT.
+      editRow().click()
+      const editCreated=await waitFor('#account-form')
+      editCreated.querySelector('input[name="name"]').value='reality-edited-browser'
+      editCreated.querySelector('input[name="quota"]').value='2'
+      const editCreatedAdvanced=editCreated.querySelector('#account-advanced')
+      editCreatedAdvanced.open=true
+      const editCreatedPreset=await waitFor('#expert-reality-template')
+      editCreatedPreset.value='apple'
+      editCreatedPreset.dispatchEvent(new Event('change',{bubbles:true}))
+      if(editCreated.querySelector('#expert-reality-target').value!=='www.apple.com:443')
+        throw new Error('editing REALITY account did not update Target')
+      globalThis.__mockEditMaintenanceBusy=1
+      globalThis.__mockExpertMaintenanceBusy=1
+      const editBefore=globalThis.__mockEditCalls
+      const expertBefore=globalThis.__mockNewExpertWrites
+      const rejectedBeforeEdit=globalThis.__mockRejectedMaintenanceWrites
+      const saveEdited=editCreated.querySelector('button[type="submit"]')
+      if(!editCreated.checkValidity())
+        throw new Error('edited-account form invalid before submit: '+
+          JSON.stringify([...editCreated.querySelectorAll(':invalid')]
+            .map(x=>({name:x.name||x.id,missing:x.validity.valueMissing,
+              over:x.validity.rangeOverflow,under:x.validity.rangeUnderflow}))))
+      saveEdited.click()
+      saveEdited.click()
+      await waitFor('#modal.hidden',7500).catch(err=>{
+        throw new Error('edited-account save did not complete: '+JSON.stringify({
+          submitting:editCreated.dataset.submitting,
+          disabled:saveEdited.disabled,
+          formValid:editCreated.checkValidity(),
+          modalHidden:document.querySelector('#modal')?.classList.contains('hidden'),
+          editCalls:globalThis.__mockEditCalls,
+          expertWrites:globalThis.__mockNewExpertWrites,
+          rejectedWrites:globalThis.__mockRejectedMaintenanceWrites,
+          editBusy:globalThis.__mockEditMaintenanceBusy,
+          expertBusy:globalThis.__mockExpertMaintenanceBusy,
+          savedName:globalThis.__mockCreatedAccount?.name,
+          operationBusy:XportOperation.busy,
+          toast:document.querySelector('#toast')?.textContent?.slice(0,190)
+        })+'; '+err.message)
+      })
+      if(globalThis.__mockRejectedMaintenanceWrites!==rejectedBeforeEdit+2||
+         globalThis.__mockEditCalls!==editBefore+1||
+         globalThis.__mockNewExpertWrites!==expertBefore+1)
+        throw new Error('edit/save maintenance retries performed duplicate or missing writes')
+      const editedAccount=globalThis.__mockCreatedAccount
+      if(editedAccount.name!=='reality-edited-browser'||
+         editedAccount.quotaBytes!==2*1073741824||
+         editedAccount.serverName!=='www.apple.com'||
+         editedAccount.dest!=='www.apple.com:443'||
+         globalThis.__mockNewExpert?.realityTarget!=='www.apple.com:443'||
+         globalThis.__mockNewExpert?.realityServerNames?.[0]!=='www.apple.com')
+        throw new Error('edited account base/advanced fields were not saved consistently')
+      const editedRow=()=>document.querySelector('.account-row[data-id="2"] button[data-act="edit"]')
+      if(!editedRow())throw new Error('edited account missing in refreshed list')
+      editedRow().click()
+      const reopenedEdited=await waitFor('#account-form')
+      if(reopenedEdited.querySelector('input[name="name"]').value!=='reality-edited-browser'||
+         reopenedEdited.querySelector('input[name="quota"]').value!=='2.00')
+        throw new Error('edited name/quota not restored on reopen')
+      reopenedEdited.querySelector('#account-advanced').open=true
+      await waitFor('#expert-reality-template')
+      if(reopenedEdited.querySelector('#expert-reality-template').value!=='apple'||
+         reopenedEdited.querySelector('#expert-reality-names').value!=='www.apple.com')
+        throw new Error('edited REALITY preset not restored on reopen')
+      // Advanced settings use the single bottom Save & Apply action.
+      // v5 intentionally removes the legacy stand-alone expert button.
+      if(reopenedEdited.querySelector('#save-expert'))
+        throw new Error('advanced editor unexpectedly offers a duplicate save action')
+      reopenedEdited.querySelector('#cancel-form').click()
+
+      // Only the exact, known pre-write 409 may be retried. Another 409,
+      // or any lost network response, must not replay the mutation.
+      let unrelatedWrites=0
+      try{
+        await accountWriteAfterMaintenanceV3(()=>{
+          unrelatedWrites++
+          throw Object.assign(new Error('port already in use'),{
+            status:409,serverError:true
+          })
+        },{attempts:3,delayMs:1})
+        throw new Error('unrelated conflict unexpectedly accepted')
+      }catch(err){
+        if(err.message!=='port already in use'||unrelatedWrites!==1)
+          throw new Error('unrelated 409 was replayed')
+      }
+      let networkAttempts=0
+      try{
+        await accountWriteAfterMaintenanceV3(()=>{
+          networkAttempts++
+          throw new TypeError('Failed to fetch')
+        },{attempts:3,delayMs:1})
+        throw new Error('lost response unexpectedly accepted')
+      }catch(err){
+        if(err.message!=='Failed to fetch'||networkAttempts!==1)
+          throw new Error('network timeout blindly replayed a non-idempotent write')
+      }
+      let exhaustedWrites=0
+      try{
+        await accountWriteAfterMaintenanceV3(()=>{
+          exhaustedWrites++
+          throw Object.assign(new Error('another maintenance operation is in progress'),{
+            status:409,serverError:true
+          })
+        },{attempts:2,delayMs:1})
+        throw new Error('persistent maintenance incorrectly accepted')
+      }catch(err){
+        if(err.status!==409||exhaustedWrites!==2||
+           !String(err.message).includes('本次账号写入未执行'))
+          throw new Error('exhausted maintenance must fail without inventing success')
+      }
       // Click the external deletion control, cancel once, then accept both
       // the destructive operation and the recovery-timer confirmation.
       // Disable the fixture's automatic confirmation driver for this segment.
@@ -1605,7 +1856,7 @@ done
 curl -fsS "http://127.0.0.1:$PORT/" >/dev/null
 
 DOM="$TMP/dom.html"
-"$BROWSER" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage --virtual-time-budget=18000 --dump-dom "http://127.0.0.1:$PORT/" > "$DOM" 2>"$TMP/browser.log" || {
+"$BROWSER" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage --virtual-time-budget=35000 --dump-dom "http://127.0.0.1:$PORT/" > "$DOM" 2>"$TMP/browser.log" || {
   cat "$TMP/browser.log" >&2
   exit 1
 }
