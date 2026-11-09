@@ -211,15 +211,40 @@ cat > "$TMP/__preview.js" <<'JS'
         clone.click()
         await waitFor('#clone-form')
         await waitForValue('#clone-port', 23741)
-      } else if (preview === 'account') {
+      } else if (preview === 'account' || preview === 'account-reality') {
         document.querySelector('#nav [data-page="accounts"]').click()
         const edit = await waitFor('.account-row button[data-act="edit"]')
         edit.click()
         await waitFor('#account-form')
         const advanced = await waitFor('#account-advanced')
-        if (!advanced.open) advanced.querySelector('summary').click()
-        const fallback = await waitFor('.fallback-section')
-        fallback.scrollIntoView({block:'center', inline:'nearest'})
+        if(preview === 'account-reality'){
+          const network=await waitFor('#network-select')
+          network.value='xhttp'
+          network.dispatchEvent(new Event('change',{bubbles:true}))
+          const security=await waitFor('#security-select')
+          security.value='reality'
+          security.dispatchEvent(new Event('change',{bubbles:true}))
+          if(!advanced.open)advanced.querySelector('summary').click()
+          const target=await waitFor('#expert-reality-target')
+          const names=await waitFor('#expert-reality-names')
+          if(!document.querySelector('#expert-xhttp-mode')||
+             !document.querySelector('#expert-reality-public')||
+             document.querySelector('#expert-tls-alpn'))
+            throw new Error('XHTTP + REALITY advanced preview is incomplete')
+          target.value='www.example.com:443'
+          names.value='www.example.com'
+          const section=target.closest('.expert-section')
+          section?.scrollIntoView({block:'center',inline:'nearest'})
+          for(const el of [target,names,document.querySelector('#expert-reality-private')]){
+            const rect=el?.getBoundingClientRect()
+            if(!rect||rect.width<90||rect.left<0||rect.right>innerWidth+1)
+              throw new Error('XHTTP REALITY field clipped beyond viewport')
+          }
+        }else{
+          if (!advanced.open) advanced.querySelector('summary').click()
+          const fallback = await waitFor('.fallback-section')
+          fallback.scrollIntoView({block:'center', inline:'nearest'})
+        }
       } else if (preview === 'account-centered' || preview === 'account-centered-light' || preview === 'clone-centered') {
         document.querySelector('#nav [data-page="accounts"]').click()
         if(preview === 'clone-centered'){
@@ -356,6 +381,7 @@ capture overview-tooltip overview-tooltip
 capture accounts accounts
 capture clone-account clone
 capture account-advanced account
+capture account-reality account-reality
 capture account-centered account-centered
 capture account-centered-light account-centered-light
 capture clone-centered clone-centered
@@ -436,7 +462,7 @@ if ! grep -Fq 'data-preview-ready="firewall-long-ipv6"' "$TMP/firewall-long-ipv6
   exit 1
 fi
 # Check real mobile dialogs, centered with no viewport clipping.
-for preview in account-centered operation-account operation-firewall operation-update operation-update-error operation-update-error-light confirm-account confirm-firewall notice-success notice-error-light; do
+for preview in account-reality account-centered operation-account operation-firewall operation-update operation-update-error operation-update-error-light confirm-account confirm-firewall notice-success notice-error-light; do
   "$BROWSER" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage \
     --window-size=390,844 --force-device-scale-factor=1 --virtual-time-budget=6500 \
     --screenshot="$OUT/$preview-mobile.png" "http://127.0.0.1:$PORT/?preview=$preview" \
