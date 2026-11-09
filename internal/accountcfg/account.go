@@ -502,9 +502,12 @@ func buildStream(in Input, existing []byte) (string, error) {
 		r := object(stream, "realitySettings")
 		r["target"] = in.Dest
 		delete(r, "dest")
-		r["serverNames"] = []string{in.ServerName}
+		// The basic editor edits the primary SNI/Short ID only. Preserve any
+		// additional values configured in Advanced instead of silently
+		// collapsing multi-value REALITY settings on an ordinary account edit.
+		r["serverNames"] = preserveRealityList(r["serverNames"], in.ServerName)
 		r["privateKey"] = in.PrivateKey
-		r["shortIds"] = []string{in.ShortID}
+		r["shortIds"] = preserveRealityList(r["shortIds"], in.ShortID)
 		stream["realitySettings"] = r
 	} else {
 		delete(stream, "realitySettings")
@@ -520,6 +523,27 @@ func buildStream(in Input, existing []byte) (string, error) {
 		return "", err
 	}
 	return string(b), nil
+}
+
+// preserveRealityList keeps the extra values written by the advanced editor
+// when the base account editor updates the first SNI or Short ID.
+func preserveRealityList(raw any, primary string) []string {
+ values := []string{primary}
+ var existing []string
+ switch list := raw.(type) {
+ case []any:
+  for _, value := range list {
+   if str, ok := value.(string); ok { existing = append(existing, str) }
+  }
+ case []string:
+  existing = list
+ }
+ if len(existing)>1 {
+  for _, value := range existing[1:] {
+   if value!="" && value!=primary { values=append(values,value) }
+  }
+ }
+ return values
 }
 
 func applyTransport(stream map[string]any, in Input) {
