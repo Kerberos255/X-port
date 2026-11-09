@@ -1508,7 +1508,10 @@ cat > "$TMP/__driver.js" <<'JS'
       newPortInput.value='65536'
       if(newRealityForm.checkValidity())
         throw new Error('port above 65535 accepted by browser form')
-      newPortInput.value=''
+      // The active v9 account editor requires an explicit valid port.
+      // Restore one before submitting; clearing it would correctly block
+      // the browser form and would not exercise the save API.
+      newPortInput.value='23741'
       newRealityForm.querySelector('input[name="name"]').value='reality-preset-browser'
       const newNet=newRealityForm.querySelector('#network-select')
       newNet.value='xhttp'
