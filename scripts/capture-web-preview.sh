@@ -507,8 +507,8 @@ capture overview-light overview-light
 # Dedicated navigation screenshots. The preview driver clicks all five
 # destinations in order, checks active states, icon size and phone overflow.
 for spec in '1440,1000:desktop' '960,900:compact' '390,844:mobile'; do
-  dimensions="\${spec%%:*}"
-  label="\${spec##*:}"
+  dimensions="${spec%%:*}"
+  label="${spec##*:}"
   for theme in nav-audit nav-audit-light; do
     filename="$theme-$label"
     "$BROWSER" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage \
