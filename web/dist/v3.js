@@ -329,7 +329,12 @@ async function loadExpertV3(id,details){
    }catch(e){toast(e.message,true);save.disabled=false;save.textContent='保存高级设置'}
   }
  }catch(e){
-  if((details._expertEpoch||0)===epoch)c.innerHTML=`<p class="error tiny">${esc(e.message)}</p>`
+  if((details._expertEpoch||0)===epoch){
+   // A transient GET error must be retryable after closing/reopening Advanced.
+   delete details.dataset.loaded
+   details._expertData=null
+   c.innerHTML=`<p class="error tiny">${esc(e.message)}（收起并重新展开可重试）</p>`
+  }
  }
 }
 async function openAccountModalV3(a=null){
