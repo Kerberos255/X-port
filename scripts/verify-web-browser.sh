@@ -79,6 +79,9 @@ cat > "$TMP/__mock.js" <<'JS'
   globalThis.__mockRejectedMaintenanceWrites=0
   globalThis.__mockCreatedRequest = null
   globalThis.__mockNewExpert = null
+  globalThis.__mockEditMaintenanceBusy=0
+  globalThis.__mockEditCalls=0
+  globalThis.__mockNewExpertWrites=0
   globalThis.__fwExternalRemoveCalls = 0
   globalThis.__fwExternalConfirmCalls = 0
   globalThis.__fwExternalLastRemove = null
@@ -200,6 +203,24 @@ cat > "$TMP/__mock.js" <<'JS'
       return json(account)
     }
     if (path === '/api/accounts/1' && method === 'GET') return json(account)
+    if (path === '/api/accounts/2' && method === 'PUT') {
+      if(globalThis.__mockEditMaintenanceBusy>0){
+        globalThis.__mockEditMaintenanceBusy--
+        globalThis.__mockRejectedMaintenanceWrites++
+        return json({error:'another maintenance operation is in progress'},409)
+      }
+      globalThis.__mockEditCalls++
+      const body=JSON.parse(init.body||'{}')
+      if(!globalThis.__mockCreatedAccount)return json({error:'missing account'},404)
+      Object.assign(globalThis.__mockCreatedAccount,{
+        name:body.name,port:body.port||globalThis.__mockCreatedAccount.port,
+        enabled:Boolean(body.enabled),monthlyReset:Boolean(body.monthlyReset),
+        quotaBytes:Number(body.quotaBytes||0),expiryTime:Number(body.expiryTime||0),
+        network:body.network,security:body.security,serverName:body.serverName,
+        dest:body.dest,privateKey:body.privateKey,shortId:body.shortId
+      })
+      return json(globalThis.__mockCreatedAccount)
+    }
     if (path === '/api/accounts/2' && method === 'GET')
       return json(globalThis.__mockCreatedAccount||{error:'missing newly created account'})
     if (path === '/api/accounts/1/enabled' && method === 'PATCH') {
@@ -220,6 +241,7 @@ cat > "$TMP/__mock.js" <<'JS'
         return json({error:'another maintenance operation is in progress'},409)
       }
       const body=JSON.parse(init.body||'{}')
+      globalThis.__mockNewExpertWrites++
       globalThis.__mockNewExpert={
         ...body,supportsReality:body.security==='reality',supportsTls:body.security==='tls',
         supportsXhttp:body.method==='xhttp',supportsFallbacks:false,supportsHttpHeader:false
@@ -1465,8 +1487,28 @@ cat > "$TMP/__driver.js" <<'JS'
       globalThis.__mockNewExpert=null
       globalThis.__mockCreateMode='success'
       document.querySelector('#nav [data-page="accounts"]').click()
+      // CANCEL on a new account must not make any POST or leave an account row.
+      const cancelCreateBaseline=globalThis.__mockCreateCalls
+      document.querySelector('#add-account').click()
+      const canceledCreate=await waitFor('#account-form')
+      canceledCreate.querySelector('input[name="name"]').value='cancel-me'
+      canceledCreate.querySelector('#cancel-form').click()
+      if(globalThis.__mockCreateCalls!==cancelCreateBaseline||
+         document.querySelector('#account-form')||
+         state.accounts.some(a=>a.name==='cancel-me'))
+        throw new Error('canceling new account unexpectedly performed a write')
       document.querySelector('#add-account').click()
       const newRealityForm=await waitFor('#account-form')
+      // Native form validation must block an empty name and out-of-range port.
+      const newNameInput=newRealityForm.querySelector('input[name="name"]')
+      if(newRealityForm.checkValidity())
+        throw new Error('empty account name should be rejected before save')
+      newNameInput.value='reality-preset-browser'
+      const newPortInput=newRealityForm.querySelector('input[name="port"]')
+      newPortInput.value='65536'
+      if(newRealityForm.checkValidity())
+        throw new Error('port above 65535 accepted by browser form')
+      newPortInput.value=''
       newRealityForm.querySelector('input[name="name"]').value='reality-preset-browser'
       const newNet=newRealityForm.querySelector('#network-select')
       newNet.value='xhttp'
@@ -1498,7 +1540,9 @@ cat > "$TMP/__driver.js" <<'JS'
       // the account or cause a false failure toast.
       globalThis.__mockCreateMaintenanceBusy=2
       globalThis.__mockExpertMaintenanceBusy=1
-      newRealityForm.querySelector('button[type="submit"]').click()
+      const newSubmitButton=newRealityForm.querySelector('button[type="submit"]')
+      newSubmitButton.click()
+      newSubmitButton.click()
       await waitFor('#modal.hidden',8500)
       if(globalThis.__mockRejectedMaintenanceWrites!==rejectedBeforeNew+3)
         throw new Error('new REALITY account did not recover all maintenance 409s')
@@ -1523,6 +1567,84 @@ cat > "$TMP/__driver.js" <<'JS'
          document.querySelector('#expert-reality-names').value!=='www.mozilla.org')
         throw new Error('new REALITY account edit/reopen lost the preset')
       document.querySelector('#cancel-form').click()
+
+      // CANCEL an existing edit must not commit even if the form was changed.
+      const canceledEditWrites=globalThis.__mockEditCalls
+      const editRow=()=>document.querySelector('.account-row[data-id="2"] button[data-act="edit"]')
+      if(!editRow())throw new Error('new account edit button missing')
+      editRow().click()
+      const canceledEdit=await waitFor('#account-form')
+      canceledEdit.querySelector('input[name="name"]').value='unsaved-edit'
+      canceledEdit.querySelector('input[name="quota"]').value='3'
+      canceledEdit.querySelector('#cancel-form').click()
+      if(globalThis.__mockEditCalls!==canceledEditWrites||
+         state.accounts.some(a=>a.name==='unsaved-edit'))
+        throw new Error('canceling account edit unexpectedly committed changes')
+
+      // Edit using the real SAVE button. Simulate maintenance contention
+      // during both the base PUT and the subsequent REALITY expert PUT.
+      editRow().click()
+      const editCreated=await waitFor('#account-form')
+      editCreated.querySelector('input[name="name"]').value='reality-edited-browser'
+      editCreated.querySelector('input[name="quota"]').value='2'
+      const editCreatedAdvanced=editCreated.querySelector('#account-advanced')
+      editCreatedAdvanced.open=true
+      const editCreatedPreset=await waitFor('#expert-reality-template')
+      editCreatedPreset.value='apple'
+      editCreatedPreset.dispatchEvent(new Event('change',{bubbles:true}))
+      if(editCreated.querySelector('#expert-reality-target').value!=='www.apple.com:443')
+        throw new Error('editing REALITY account did not update Target')
+      globalThis.__mockEditMaintenanceBusy=1
+      globalThis.__mockExpertMaintenanceBusy=1
+      const editBefore=globalThis.__mockEditCalls
+      const expertBefore=globalThis.__mockNewExpertWrites
+      const rejectedBeforeEdit=globalThis.__mockRejectedMaintenanceWrites
+      const saveEdited=editCreated.querySelector('button[type="submit"]')
+      saveEdited.click()
+      saveEdited.click()
+      await waitFor('#modal.hidden',7500)
+      if(globalThis.__mockRejectedMaintenanceWrites!==rejectedBeforeEdit+2||
+         globalThis.__mockEditCalls!==editBefore+1||
+         globalThis.__mockNewExpertWrites!==expertBefore+1)
+        throw new Error('edit/save maintenance retries performed duplicate or missing writes')
+      const editedAccount=globalThis.__mockCreatedAccount
+      if(editedAccount.name!=='reality-edited-browser'||
+         editedAccount.quotaBytes!==2*1073741824||
+         editedAccount.serverName!=='www.apple.com'||
+         editedAccount.dest!=='www.apple.com:443'||
+         globalThis.__mockNewExpert?.realityTarget!=='www.apple.com:443'||
+         globalThis.__mockNewExpert?.realityServerNames?.[0]!=='www.apple.com')
+        throw new Error('edited account base/advanced fields were not saved consistently')
+      const editedRow=()=>document.querySelector('.account-row[data-id="2"] button[data-act="edit"]')
+      if(!editedRow())throw new Error('edited account missing in refreshed list')
+      editedRow().click()
+      const reopenedEdited=await waitFor('#account-form')
+      if(reopenedEdited.querySelector('input[name="name"]').value!=='reality-edited-browser'||
+         reopenedEdited.querySelector('input[name="quota"]').value!=='2.00')
+        throw new Error('edited name/quota not restored on reopen')
+      reopenedEdited.querySelector('#account-advanced').open=true
+      await waitFor('#expert-reality-template')
+      if(reopenedEdited.querySelector('#expert-reality-template').value!=='apple'||
+         reopenedEdited.querySelector('#expert-reality-names').value!=='www.apple.com')
+        throw new Error('edited REALITY preset not restored on reopen')
+      // The stand-alone Advanced SAVE button must also handle a temporary
+      // maintenance mutex conflict without losing the draft or double-writing.
+      const extraShortIds=reopenedEdited.querySelector('#expert-reality-shortids')
+      extraShortIds.value='0a0b0c0d'
+      extraShortIds.dispatchEvent(new Event('input',{bubbles:true}))
+      const standaloneSave=reopenedEdited.querySelector('#save-expert')
+      if(!standaloneSave||standaloneSave.disabled)
+        throw new Error('stand-alone Advanced Save unavailable for unchanged security mode')
+      const standaloneExpertBefore=globalThis.__mockNewExpertWrites
+      const standaloneRejectBefore=globalThis.__mockRejectedMaintenanceWrites
+      globalThis.__mockExpertMaintenanceBusy=1
+      standaloneSave.click()
+      await waitForTextContains('#toast','高级设置已应用',6500)
+      if(globalThis.__mockRejectedMaintenanceWrites!==standaloneRejectBefore+1||
+         globalThis.__mockNewExpertWrites!==standaloneExpertBefore+1||
+         globalThis.__mockNewExpert?.realityShortIds?.[0]!=='0a0b0c0d')
+        throw new Error('stand-alone Advanced Save duplicated or lost the contended write')
+      reopenedEdited.querySelector('#cancel-form').click()
 
       // Only the exact, known pre-write 409 may be retried. Another 409,
       // or any lost network response, must not replay the mutation.
