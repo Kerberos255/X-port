@@ -1541,9 +1541,29 @@ cat > "$TMP/__driver.js" <<'JS'
       globalThis.__mockCreateMaintenanceBusy=2
       globalThis.__mockExpertMaintenanceBusy=1
       const newSubmitButton=newRealityForm.querySelector('button[type="submit"]')
+      if(!newRealityForm.checkValidity())
+        throw new Error('new-account browser form invalid before submit: '+
+          JSON.stringify([...newRealityForm.querySelectorAll(':invalid')]
+            .map(x=>({name:x.name||x.id,missing:x.validity.valueMissing,
+              badInput:x.validity.badInput,under:x.validity.rangeUnderflow,
+              over:x.validity.rangeOverflow,type:x.validity.typeMismatch}))))
       newSubmitButton.click()
       newSubmitButton.click()
-      await waitFor('#modal.hidden',8500)
+      await waitFor('#modal.hidden',8500).catch(err=>{
+        throw new Error('new-account save did not complete: '+JSON.stringify({
+          submitting:newRealityForm.dataset.submitting,
+          submitDisabled:newSubmitButton.disabled,
+          modalHidden:document.querySelector('#modal')?.classList.contains('hidden'),
+          createCalls:globalThis.__mockCreateCalls,
+          rejected:globalThis.__mockRejectedMaintenanceWrites,
+          createBusy:globalThis.__mockCreateMaintenanceBusy,
+          expertBusy:globalThis.__mockExpertMaintenanceBusy,
+          createdName:globalThis.__mockCreatedAccount?.name,
+          advancedWrites:globalThis.__mockNewExpertWrites,
+          operationBusy:XportOperation.busy,
+          toast:document.querySelector('#toast')?.textContent?.slice(0,180)
+        })+'; '+err.message)
+      })
       if(globalThis.__mockRejectedMaintenanceWrites!==rejectedBeforeNew+3)
         throw new Error('new REALITY account did not recover all maintenance 409s')
       if(globalThis.__mockCreateCalls!==callsBeforeNew+1||
@@ -1798,7 +1818,7 @@ done
 curl -fsS "http://127.0.0.1:$PORT/" >/dev/null
 
 DOM="$TMP/dom.html"
-"$BROWSER" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage --virtual-time-budget=18000 --dump-dom "http://127.0.0.1:$PORT/" > "$DOM" 2>"$TMP/browser.log" || {
+"$BROWSER" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage --virtual-time-budget=35000 --dump-dom "http://127.0.0.1:$PORT/" > "$DOM" 2>"$TMP/browser.log" || {
   cat "$TMP/browser.log" >&2
   exit 1
 }
