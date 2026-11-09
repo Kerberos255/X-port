@@ -188,7 +188,7 @@ func TestForwardedIPSpoofCannotBypassActualPeerLoginLimit(t *testing.T) {
 	s,h := newSecurityTestServer(t)
 	// Keep the regression quick; production uses a much higher threshold.
 	s.peerLimiter = auth.NewLoginLimiter(2, 10*time.Minute)
-	body := []byte("{\\"username\\":\\"admin\\",\\"password\\":\\"wrong-password\\"}")
+	body, _ := json.Marshal(map[string]string{"username":"admin","password":"wrong-password"})
 	for i:=0;i<3;i++ {
 		req := httptest.NewRequest(http.MethodPost, "http://panel/api/login", bytes.NewReader(body))
 		req.RemoteAddr = "127.0.0.1:22222"
