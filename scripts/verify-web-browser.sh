@@ -1671,34 +1671,10 @@ cat > "$TMP/__driver.js" <<'JS'
       if(reopenedEdited.querySelector('#expert-reality-template').value!=='apple'||
          reopenedEdited.querySelector('#expert-reality-names').value!=='www.apple.com')
         throw new Error('edited REALITY preset not restored on reopen')
-      // The stand-alone Advanced SAVE button must also handle a temporary
-      // maintenance mutex conflict without losing the draft or double-writing.
-      const extraShortIds=reopenedEdited.querySelector('#expert-reality-shortids')
-      extraShortIds.value='0a0b0c0d'
-      extraShortIds.dispatchEvent(new Event('input',{bubbles:true}))
-      const standaloneSave=reopenedEdited.querySelector('#save-expert')
-      if(!standaloneSave||standaloneSave.disabled)
-        throw new Error('stand-alone Advanced Save unavailable: '+JSON.stringify({
-          found:Boolean(standaloneSave),
-          disabled:standaloneSave?.disabled,
-          label:standaloneSave?.textContent,
-          storedProtocol:globalThis.__mockNewExpert?.protocol,
-          storedMethod:globalThis.__mockNewExpert?.method,
-          storedSecurity:globalThis.__mockNewExpert?.security,
-          uiProtocol:reopenedEdited.querySelector('#protocol-select')?.value,
-          uiNetwork:reopenedEdited.querySelector('#network-select')?.value,
-          uiSecurity:reopenedEdited.querySelector('#security-select')?.value,
-          loaded:reopenedEdited.querySelector('#account-advanced')?.dataset.loaded
-        }))
-      const standaloneExpertBefore=globalThis.__mockNewExpertWrites
-      const standaloneRejectBefore=globalThis.__mockRejectedMaintenanceWrites
-      globalThis.__mockExpertMaintenanceBusy=1
-      standaloneSave.click()
-      await waitForTextContains('#toast','高级设置已应用',6500)
-      if(globalThis.__mockRejectedMaintenanceWrites!==standaloneRejectBefore+1||
-         globalThis.__mockNewExpertWrites!==standaloneExpertBefore+1||
-         globalThis.__mockNewExpert?.realityShortIds?.[0]!=='0a0b0c0d')
-        throw new Error('stand-alone Advanced Save duplicated or lost the contended write')
+      // Advanced settings use the single bottom Save & Apply action.
+      // v5 intentionally removes the legacy stand-alone expert button.
+      if(reopenedEdited.querySelector('#save-expert'))
+        throw new Error('advanced editor unexpectedly offers a duplicate save action')
       reopenedEdited.querySelector('#cancel-form').click()
 
       // Only the exact, known pre-write 409 may be retried. Another 409,

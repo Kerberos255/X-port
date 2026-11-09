@@ -353,7 +353,7 @@ async function loadExpertV3(id,details){
    try{
     await XportOperation.run({
      title:'正在保存高级设置',detail:'账号 '+id+' · Xray 配置',
-     perform:()=>mutationWithRecoveryV3(()=>accountWriteAfterMaintenanceV3(()=>api(`/api/accounts/${id}/expert`,{method:'PUT',body:JSON.stringify(body)})),async()=>Boolean(await api(`/api/accounts/${id}/expert`))),
+     perform:()=>mutationWithRecoveryV3(()=>api(`/api/accounts/${id}/expert`,{method:'PUT',body:JSON.stringify(body)}),async()=>Boolean(await api(`/api/accounts/${id}/expert`))),
      verify:()=>XportOperation.refreshAccounts()
     })
     details._expertDraft=null
