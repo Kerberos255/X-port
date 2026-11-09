@@ -37,8 +37,17 @@ func TestNewCloneShareReality(t *testing.T) {
 		t.Fatal(err)
 	}
 	cv, _ := ToView(clone)
-	if cv.Credential == v.Credential || clone.Port != 21002 || clone.ID != 0 {
+	if cv.Credential == v.Credential || clone.Port != 21002 || clone.ID != 0 ||
+	 cv.PrivateKey==v.PrivateKey || cv.ShortID==v.ShortID {
 		t.Fatalf("clone not isolated: %+v", cv)
+	}
+	clonedURI,err:=ShareURI(clone,"proxy.example.net")
+	if err!=nil{t.Fatal(err)}
+	clonedURL,err:=url.Parse(clonedURI)
+	if err!=nil{t.Fatal(err)}
+	if clonedURL.Query().Get("pbk")==u.Query().Get("pbk") ||
+	 clonedURL.Query().Get("sid")==u.Query().Get("sid") {
+	 t.Fatal("REALITY clone reused public key or short ID")
 	}
 }
 
