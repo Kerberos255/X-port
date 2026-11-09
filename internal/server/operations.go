@@ -114,6 +114,8 @@ func (s *Server) listBackups(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"backups": items})
 }
 func (s *Server) createBackup(w http.ResponseWriter, r *http.Request) {
+	if !s.acquireMaintenance(w) { return }
+	defer s.maintenanceMu.Unlock()
 	dir := s.backupDir()
 	if dir == "" {
 		writeError(w, 503, "backup directory is not configured")
