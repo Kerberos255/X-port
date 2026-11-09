@@ -7,10 +7,12 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"strconv"
 	"testing"
 	"time"
 
 	"github.com/Kerberos255/X-port/internal/service"
+	"github.com/Kerberos255/X-port/internal/auth"
  "github.com/Kerberos255/X-port/internal/buildinfo"
 	"github.com/Kerberos255/X-port/internal/store"
 	"golang.org/x/crypto/bcrypt"
@@ -179,5 +181,22 @@ func TestConcurrentMaintenanceAndAccountMutationsFailFast(t *testing.T) {
 		if rec.Code != http.StatusConflict {
 			t.Errorf("%s %s: expected 409 during maintenance, got %d: %s",method,path,rec.Code,rec.Body.String())
 		}
+	}
+}
+
+func TestForwardedIPSpoofCannotBypassActualPeerLoginLimit(t *testing.T) {
+	s,h := newSecurityTestServer(t)
+	// Keep the regression quick; production uses a much higher threshold.
+	s.peerLimiter = auth.NewLoginLimiter(2, 10*time.Minute)
+	body := []byte("{\\"username\\":\\"admin\\",\\"password\\":\\"wrong-password\\"}")
+	for i:=0;i<3;i++ {
+		req := httptest.NewRequest(http.MethodPost, "http://panel/api/login", bytes.NewReader(body))
+		req.RemoteAddr = "127.0.0.1:22222"
+		req.Header.Set("X-Forwarded-For", "198.51.100."+strconv.Itoa(i+10))
+		rec:=httptest.NewRecorder()
+		h.ServeHTTP(rec,req)
+		want:=http.StatusUnauthorized
+		if i==2 {want=http.StatusTooManyRequests}
+		if rec.Code!=want {t.Fatalf("spoofed forwarded client %d: status %d, want %d",i,rec.Code,want)}
 	}
 }
