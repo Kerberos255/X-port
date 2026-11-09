@@ -144,7 +144,6 @@ cat > "$TMP/__preview.js" <<'JS'
           throw new Error('navigation order wrong or duplicated')
         const nav=document.querySelector('#nav')
         const outer=nav.getBoundingClientRect()
-        let previousRight=-1
         for (const button of buttons) {
           const icon=button.querySelector(':scope > svg.nav-icon')
           if(!icon||icon.getAttribute('viewBox')!=='0 0 24 24'||
@@ -154,11 +153,18 @@ cat > "$TMP/__preview.js" <<'JS'
           if(Math.abs(iconBox.width-20)>1||Math.abs(iconBox.height-20)>1)
             throw new Error('icon size mismatch at '+innerWidth+': '+button.dataset.page)
           if(innerWidth<701){
-            const rect=button.getBoundingClientRect()
-            if(rect.left<outer.left-1||rect.right>outer.right+1||
-               rect.left<previousRight-1||rect.width<35)
-              throw new Error('mobile navigation clips or overlaps '+button.dataset.page)
-            previousRight=rect.right
+            // Clicking between short and long pages can add a scrollbar and
+            // resize the fixed bottom bar. Compare every button against
+            // neighbours in the SAME layout frame, not against stale bounds.
+            const currentNav=nav.getBoundingClientRect()
+            const rectangles=buttons.map(b=>b.getBoundingClientRect())
+            for(let i=0;i<rectangles.length;i++){
+              const rect=rectangles[i]
+              if(rect.left<currentNav.left-1||rect.right>currentNav.right+1||
+                 rect.width<35||(i>0&&rect.left<rectangles[i-1].right-1))
+                throw new Error('mobile navigation clips or overlaps '+buttons[i].dataset.page+
+                  ': '+JSON.stringify(rectangles.map(x=>[x.left,x.right])))
+            }
             if(parseFloat(getComputedStyle(button).fontSize)<9)
               throw new Error('mobile navigation label is too small')
           }
