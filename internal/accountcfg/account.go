@@ -716,6 +716,29 @@ func rotateCredential(a *model.Account, name string, port int) error {
 	}
 	b, _ := json.Marshal(settings)
 	a.SettingsJSON = string(b)
+	// A clone must not share the source inbound's REALITY private key or
+	// Short IDs. These are server-side authentication material, just like the
+	// client UUID/password above.
+	if strings.ToLower(a.Protocol)=="vless" || strings.ToLower(a.Protocol)=="trojan" {
+		stream := map[string]any{}
+		if err := json.Unmarshal([]byte(defaultJSON(a.StreamSettingsJSON)),&stream);err!=nil{return err}
+		if strings.ToLower(stringValue(stream["security"]))=="reality" {
+			r,ok:=stream["realitySettings"].(map[string]any)
+			if !ok {return errors.New("cannot clone REALITY account without realitySettings")}
+			private,_,err:=newX25519Keypair()
+			if err!=nil {return fmt.Errorf("generate clone REALITY keypair: %w",err)}
+			r["privateKey"]=private
+			count:=1
+			if ids,ok:=r["shortIds"].([]any);ok&&len(ids)>0 {count=len(ids)}
+			fresh:=make([]string,count)
+			for i:=range fresh {fresh[i]=newShortID()}
+			r["shortIds"]=fresh
+			stream["realitySettings"]=r
+			raw,err:=json.Marshal(stream)
+			if err!=nil{return err}
+			a.StreamSettingsJSON=string(raw)
+		}
+	}
 	return nil
 }
 
