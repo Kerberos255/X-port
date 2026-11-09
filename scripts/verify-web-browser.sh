@@ -57,6 +57,9 @@ cat > "$TMP/__mock.js" <<'JS'
   globalThis.__mockExpert = expert
   globalThis.__mockExpertWrites = 0
   globalThis.__mockLastAccountEdit = null
+  globalThis.__mockHoldNextExpertRead = false
+  globalThis.__mockFailNextExpertRead = false
+  globalThis.__releaseHeldExpertRead = null
   globalThis.__legacyCloneHits = 0
   globalThis.__fwConfirmCalls = 0
   globalThis.__fwConfirmResult = false
@@ -192,7 +195,18 @@ cat > "$TMP/__mock.js" <<'JS'
     if (path === '/api/accounts/1/share' && method === 'GET')
       return globalThis.__mockShareFail?json({error:'share endpoint unavailable'},503):
         json({uri:globalThis.__mockShareURI})
-    if (path === '/api/accounts/1/expert' && method === 'GET') return json(expert)
+    if (path === '/api/accounts/1/expert' && method === 'GET') {
+      if(globalThis.__mockFailNextExpertRead){
+        globalThis.__mockFailNextExpertRead=false
+        return json({error:'temporary advanced read failure'},503)
+      }
+      if(globalThis.__mockHoldNextExpertRead){
+        globalThis.__mockHoldNextExpertRead=false
+        const snapshot=JSON.parse(JSON.stringify(expert))
+        return new Promise(resolve=>{globalThis.__releaseHeldExpertRead=()=>resolve(json(snapshot))})
+      }
+      return json(expert)
+    }
     if (path === '/api/accounts/1/expert' && method === 'PUT') {
       globalThis.__mockExpertWrites++
       Object.assign(expert,JSON.parse(init.body||'{}'))
@@ -882,6 +896,122 @@ cat > "$TMP/__driver.js" <<'JS'
       await waitFor('#expert-reality-target')
       if(!document.querySelector('#expert-xhttp-mode'))
         throw new Error('reopened XHTTP+REALITY account lost XHTTP section')
+      document.querySelector('#modal-close').click()
+      // Comprehensive protocol/editor matrix: each protocol change replaces
+      // advanced settings immediately, without stacking stale toggle handlers.
+      await openAccountModalV3(null)
+      const matrixForm=await waitFor('#account-form')
+      const matrixProtocol=matrixForm.querySelector('#protocol-select')
+      const matrixAdvanced=matrixForm.querySelector('#account-advanced')
+      matrixAdvanced.open=true
+      await waitFor('#expert-reality-target')
+      for(const matrixName of ['trojan','vmess','shadowsocks','socks','http','vless']){
+        matrixProtocol.value=matrixName
+        matrixProtocol.dispatchEvent(new Event('change',{bubbles:true}))
+        if(matrixAdvanced._expertData?.protocol!==matrixName)
+          throw new Error('advanced editor retained stale protocol on switch to '+matrixName)
+        if(matrixName==='vless'&&!document.querySelector('#expert-reality-target'))
+          throw new Error('switching back to VLESS did not restore REALITY fields')
+        if(matrixName==='vmess'&&document.querySelector('#expert-reality-target'))
+          throw new Error('VMess was presented with REALITY settings')
+      }
+      const matrixNetwork=matrixForm.querySelector('#network-select')
+      const matrixSecurity=matrixForm.querySelector('#security-select')
+      if(matrixNetwork.value!=='tcp'||matrixSecurity.value!=='reality')
+        throw new Error('protocol switch to VLESS did not reset network/security correctly')
+      matrixNetwork.value='ws'
+      matrixNetwork.dispatchEvent(new Event('change',{bubbles:true}))
+      if(matrixSecurity.value!=='tls'||document.querySelector('#expert-reality-target')||
+         !document.querySelector('#expert-tls-alpn')||
+         matrixForm.querySelector('select[name="flow"]:not(:disabled)'))
+        throw new Error('RAW REALITY to WebSocket failed to enforce TLS and disable Vision')
+      matrixNetwork.value='xhttp'
+      matrixNetwork.dispatchEvent(new Event('change',{bubbles:true}))
+      if(matrixSecurity.value!=='reality'||!document.querySelector('#expert-xhttp-mode')||
+         !document.querySelector('#expert-reality-target'))
+        throw new Error('WebSocket to XHTTP did not restore supported REALITY settings')
+      matrixNetwork.value='grpc'
+      matrixNetwork.dispatchEvent(new Event('change',{bubbles:true}))
+      if(document.querySelector('#expert-xhttp-mode')||!document.querySelector('#expert-reality-target'))
+        throw new Error('gRPC REALITY retains stale XHTTP advanced fields')
+      matrixNetwork.value='httpupgrade'
+      matrixNetwork.dispatchEvent(new Event('change',{bubbles:true}))
+      if(matrixSecurity.value!=='tls'||document.querySelector('#expert-reality-target'))
+        throw new Error('HTTPUpgrade incorrectly permits REALITY')
+      document.querySelector('#modal-close').click()
+
+      // Structured Fallbacks are editable without directly editing the JSON
+      // textarea. Their add/edit/remove actions must reach bottom Save.
+      Object.assign(globalThis.__mockAccount,{network:'tcp',security:'tls',
+        serverName:'www.example.com',dest:'',privateKey:'',shortId:''})
+      Object.assign(globalThis.__mockExpert,{method:'raw',security:'tls',
+        supportsFallbacks:true,supportsHttpHeader:true,supportsReality:false,
+        supportsTls:true,supportsXhttp:false,fallbacksJson:'[]'})
+      await openAccountModalV3(state.accounts.find(a=>a.id===1))
+      const fallbackForm=await waitFor('#account-form')
+      const fallbackAdvanced=fallbackForm.querySelector('#account-advanced')
+      fallbackAdvanced.open=true
+      const addFallback=await waitFor('.fallback-add')
+      if(fallbackAdvanced._expertData!==null)
+        throw new Error('opening advanced without edits incorrectly schedules expert PUT')
+      addFallback.click()
+      const fallbackDest=await waitFor('.fallback-rule [data-fallback-key="dest"]')
+      if(fallbackForm.checkValidity())
+        throw new Error('incomplete added fallback must fail required-field validation')
+      fallbackDest.value='8080'
+      fallbackDest.dispatchEvent(new Event('input',{bubbles:true}))
+      if(!fallbackAdvanced._expertData)
+        throw new Error('structured fallback changes did not mark expert config dirty')
+      const fallbackBefore=globalThis.__mockExpertWrites
+      await fallbackForm.onsubmit({preventDefault(){},currentTarget:fallbackForm})
+      if(globalThis.__mockExpertWrites!==fallbackBefore+1||
+         JSON.parse(globalThis.__mockExpert.fallbacksJson)[0]?.dest!==8080)
+        throw new Error('structured fallback was not saved with account')
+      await openAccountModalV3(state.accounts.find(a=>a.id===1))
+      const fallbackRemoveForm=await waitFor('#account-form')
+      const fallbackRemoveAdvanced=fallbackRemoveForm.querySelector('#account-advanced')
+      fallbackRemoveAdvanced.open=true
+      const removeFallback=await waitFor('.fallback-remove')
+      removeFallback.click()
+      if(!fallbackRemoveAdvanced._expertData)
+        throw new Error('fallback delete did not mark expert config dirty')
+      const removeBefore=globalThis.__mockExpertWrites
+      await fallbackRemoveForm.onsubmit({preventDefault(){},currentTarget:fallbackRemoveForm})
+      if(globalThis.__mockExpertWrites!==removeBefore+1||
+         JSON.parse(globalThis.__mockExpert.fallbacksJson).length!==0)
+        throw new Error('structured fallback deletion was not saved')
+
+      // A failed advanced GET should be retryable; an older in-flight GET
+      // must never repaint after a security-mode change.
+      globalThis.__mockFailNextExpertRead=true
+      await openAccountModalV3(state.accounts.find(a=>a.id===1))
+      const retryAdvanced=document.querySelector('#account-advanced')
+      retryAdvanced.open=true
+      await waitFor('#expert-content .error')
+      if(retryAdvanced.dataset.loaded==='1')
+        throw new Error('failed advanced read remained permanently cached')
+      retryAdvanced.open=false
+      retryAdvanced.open=true
+      await waitFor('#expert-tls-alpn')
+      document.querySelector('#modal-close').click()
+      globalThis.__mockHoldNextExpertRead=true
+      await openAccountModalV3(state.accounts.find(a=>a.id===1))
+      const raceForm=await waitFor('#account-form')
+      const raceAdvanced=raceForm.querySelector('#account-advanced')
+      raceAdvanced.open=true
+      for(let i=0;i<60&&!globalThis.__releaseHeldExpertRead;i++)await sleep(15)
+      if(!globalThis.__releaseHeldExpertRead)
+        throw new Error('browser did not hold the first expert read')
+      const raceSecurity=raceForm.querySelector('#security-select')
+      raceSecurity.value='reality'
+      raceSecurity.dispatchEvent(new Event('change',{bubbles:true}))
+      await waitFor('#expert-reality-target')
+      globalThis.__releaseHeldExpertRead()
+      globalThis.__releaseHeldExpertRead=null
+      await sleep(75)
+      if(!document.querySelector('#expert-reality-target')||
+         document.querySelector('#expert-tls-alpn'))
+        throw new Error('stale expert response overwrote current REALITY selection')
       document.querySelector('#modal-close').click()
       // Exercise the actual firewall add flow with a held write response.
       document.querySelector('#nav [data-page="firewall"]').click()
