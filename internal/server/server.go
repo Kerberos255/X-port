@@ -38,6 +38,7 @@ type Server struct {
 	sessions       *auth.Sessions
 	loginLimiter   *auth.LoginLimiter
 	ipLimiter      *auth.LoginLimiter
+	peerLimiter    *auth.LoginLimiter
 	updater        *xray.Updater
 	static         fs.FS
 	dataDir        string
@@ -46,7 +47,27 @@ type Server struct {
 	instanceID     string
 	manager        *xray.Manager
 	firewallMu     sync.Mutex
+	maintenanceMu  sync.Mutex
+	panelHandoffUntil time.Time
 	trustedProxies []netip.Prefix
+}
+
+// Maintenance and account mutations share a fail-fast gate. Never replace an
+// executable or restart Xray in parallel with an account/configuration write.
+func (s *Server) acquireMaintenance(w http.ResponseWriter) bool {
+	if !s.maintenanceMu.TryLock() {
+		writeError(w, http.StatusConflict, "another maintenance operation is in progress")
+		return false
+	}
+	// systemd-run schedules a restart after the HTTP response. The old process
+	// must not accept another privileged mutation before the replacement takes
+	// over; the deadline avoids an indefinite lock if the restart never fires.
+	if time.Now().Before(s.panelHandoffUntil) {
+		s.maintenanceMu.Unlock()
+		writeError(w, http.StatusConflict, "panel restart is pending")
+		return false
+	}
+	return true
 }
 
 func New(st *store.Store, accounts *service.Accounts, updater *xray.Updater, static fs.FS) *Server {
@@ -55,6 +76,9 @@ func New(st *store.Store, accounts *service.Accounts, updater *xray.Updater, sta
 		sessions:       auth.NewSessions(24 * time.Hour),
 		loginLimiter:   auth.NewLoginLimiter(8, 10*time.Minute),
 		ipLimiter:      auth.NewLoginLimiter(24, 30*time.Minute),
+		// Independent peer limit: spoofed forwarded headers cannot reset the
+		// failure budget of the actual TCP peer (including local reverse proxies).
+		peerLimiter:    auth.NewLoginLimiter(180, 30*time.Minute),
 		trustedProxies: trustedProxyPrefixes(),
 		instanceID:     newServerInstanceID(),
 	}
@@ -163,8 +187,9 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	}
 	username := strings.TrimSpace(req.Username)
 	ip := s.remoteIP(r)
+	peer := directRemoteIP(r)
 	key := loginRateKey(ip, username)
-	if !s.ipLimiter.Allowed(ip) || !s.loginLimiter.Allowed(key) {
+	if !s.peerLimiter.Allowed(peer) || !s.ipLimiter.Allowed(ip) || !s.loginLimiter.Allowed(key) {
 		writeError(w, http.StatusTooManyRequests, "too many login attempts; try again later")
 		return
 	}
@@ -180,6 +205,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	if invalidSize || !knownUser || passwordErr != nil {
 		s.loginLimiter.Fail(key)
 		s.ipLimiter.Fail(ip)
+		s.peerLimiter.Fail(peer)
 		time.Sleep(120 * time.Millisecond)
 		writeError(w, http.StatusUnauthorized, "invalid credentials")
 		return
@@ -187,6 +213,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 
 	s.loginLimiter.Success(key)
 	s.ipLimiter.Success(ip)
+	s.peerLimiter.Success(peer)
 	token, err := s.sessions.Create(admin.Username)
 	if err != nil {
 		writeError(w, 500, "session failure")
@@ -270,6 +297,8 @@ func (s *Server) getAccount(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, v)
 }
 func (s *Server) createAccount(w http.ResponseWriter, r *http.Request) {
+	if !s.acquireMaintenance(w) { return }
+	defer s.maintenanceMu.Unlock()
 	var in accountcfg.Input
 	if decodeJSON(w, r, &in) != nil {
 		return
@@ -282,6 +311,8 @@ func (s *Server) createAccount(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 201, v)
 }
 func (s *Server) updateAccount(w http.ResponseWriter, r *http.Request) {
+	if !s.acquireMaintenance(w) { return }
+	defer s.maintenanceMu.Unlock()
 	id, e := pathID(r)
 	if e != nil {
 		writeError(w, 400, "invalid account id")
@@ -299,6 +330,8 @@ func (s *Server) updateAccount(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, v)
 }
 func (s *Server) deleteAccount(w http.ResponseWriter, r *http.Request) {
+	if !s.acquireMaintenance(w) { return }
+	defer s.maintenanceMu.Unlock()
 	id, e := pathID(r)
 	if e != nil {
 		writeError(w, 400, "invalid account id")
@@ -311,6 +344,8 @@ func (s *Server) deleteAccount(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"ok": true})
 }
 func (s *Server) cloneAccount(w http.ResponseWriter, r *http.Request) {
+	if !s.acquireMaintenance(w) { return }
+	defer s.maintenanceMu.Unlock()
 	id, e := pathID(r)
 	if e != nil {
 		writeError(w, 400, "invalid account id")
@@ -390,6 +425,8 @@ func (s *Server) checkXrayUpdate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, info)
 }
 func (s *Server) updateXray(w http.ResponseWriter, r *http.Request) {
+	if !s.acquireMaintenance(w) { return }
+	defer s.maintenanceMu.Unlock()
 	if s.updater == nil {
 		writeError(w, 503, "updater not configured")
 		return

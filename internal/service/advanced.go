@@ -144,6 +144,7 @@ func (s *Accounts) UpdateAdvanced(id int64, in AdvancedConfig) (AdvancedConfig, 
 	a.SettingsJSON = string(settingsJSON)
 	a.StreamSettingsJSON = string(streamJSON)
 	a.UpdatedAt = time.Now().UnixMilli()
+	if accountStateEqual(old[idx], *a) { return advancedView(old[idx]) }
 
 	if err := s.applyAndPersist(old, next); err != nil {
 		return AdvancedConfig{}, err

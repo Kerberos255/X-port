@@ -3,6 +3,7 @@ package xray
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 
 	"github.com/Kerberos255/X-port/internal/model"
 )
@@ -26,6 +27,7 @@ func BuildConfig(accounts []model.Account, apiPort int) ([]byte, error) {
 // X-port always owns api, stats, inbounds and the stats policy switches.
 func BuildConfigWithBase(accounts []model.Account, apiPort int, baseJSON string) ([]byte, error) {
 	inbounds := make([]inbound, 0, len(accounts)+1)
+	clientTags := make([]string, 0, len(accounts))
 	seenPorts := map[int]bool{}
 	seenTags := map[string]bool{}
 	for _, a := range accounts {
@@ -35,6 +37,7 @@ func BuildConfigWithBase(accounts []model.Account, apiPort int, baseJSON string)
 		if a.Tag=="" { return nil,fmt.Errorf("account %q has empty tag",a.Name) }
 		if seenTags[a.Tag] { return nil,fmt.Errorf("duplicate tag %q",a.Tag) }
 		seenPorts[a.Port],seenTags[a.Tag]=true,true
+		clientTags=append(clientTags,a.Tag)
 		if !json.Valid([]byte(a.SettingsJSON)){return nil,fmt.Errorf("account %q has invalid settings JSON",a.Name)}
 		if !json.Valid([]byte(a.StreamSettingsJSON)){return nil,fmt.Errorf("account %q has invalid stream settings JSON",a.Name)}
 		if !json.Valid([]byte(a.SniffingJSON)){return nil,fmt.Errorf("account %q has invalid sniffing JSON",a.Name)}
@@ -49,6 +52,12 @@ func BuildConfigWithBase(accounts []model.Account, apiPort int, baseJSON string)
 	}
 	if _,ok:=cfg["log"];!ok{cfg["log"]=map[string]any{"loglevel":"warning"}}
 	if _,ok:=cfg["outbounds"];!ok{cfg["outbounds"]=[]any{map[string]any{"protocol":"freedom","tag":"direct"},map[string]any{"protocol":"blackhole","tag":"blocked"}}}
+
+	outbounds, ok := cfg["outbounds"].([]any)
+	if !ok { return nil, fmt.Errorf("global Xray outbounds must be an array") }
+	outbounds, err := protectManagementAPIOutbounds(outbounds, apiPort)
+	if err != nil { return nil, err }
+	cfg["outbounds"] = outbounds
 	cfg["api"]=map[string]any{"tag":"api","services":[]string{"HandlerService","LoggerService","StatsService"}}
 	cfg["stats"]=map[string]any{}
 	cfg["inbounds"]=inbounds
@@ -60,8 +69,24 @@ func BuildConfigWithBase(accounts []model.Account, apiPort int, baseJSON string)
 	policy["system"]=system
 	cfg["policy"]=policy
 
-	routing:=mapObject(cfg["routing"]);oldRules,_:=routing["rules"].([]any);rules:=make([]any,0,len(oldRules)+1)
+
+	routing:=mapObject(cfg["routing"]);oldRules,_:=routing["rules"].([]any);rules:=make([]any,0,len(oldRules)+3)
 	rules=append(rules,map[string]any{"type":"field","inboundTag":[]string{"api"},"outboundTag":"api"})
+	// Keep LAN traffic untouched: only client requests to the management port
+	// on loopback IPs or localhost hostnames are redirected to a blackhole.
+	if len(clientTags)>0 {
+		for _,match:=range []map[string]any{
+			{"ip":[]string{"127.0.0.0/8","::1/128"}},
+			{"domain":[]string{"full:localhost","domain:localhost"}},
+		} {
+			match["type"]="field"
+			match["network"]="tcp"
+			match["port"]=strconv.Itoa(apiPort)
+			match["inboundTag"]=clientTags
+			match["outboundTag"]=managementAPIBlockTag
+			rules=append(rules,match)
+		}
+	}
 	for _,r:=range oldRules{if !isAPIRule(r){rules=append(rules,r)}}
 	routing["rules"]=rules;cfg["routing"]=routing
 	return json.MarshalIndent(cfg,"","  ")
@@ -69,3 +94,36 @@ func BuildConfigWithBase(accounts []model.Account, apiPort int, baseJSON string)
 
 func mapObject(v any) map[string]any { if m,ok:=v.(map[string]any);ok&&m!=nil{return m};return map[string]any{} }
 func isAPIRule(v any) bool { m,ok:=v.(map[string]any);if !ok||m["outboundTag"]!="api"{return false};tags,ok:=m["inboundTag"].([]any);if ok{for _,t:=range tags{if t=="api"{return true}}};if tags2,ok:=m["inboundTag"].([]string);ok{for _,t:=range tags2{if t=="api"{return true}}};return false }
+
+const managementAPIBlockTag = "xport-management-api-block"
+
+// Routing protects direct loopback requests, including custom outbounds.
+// Freedom finalRules inspect the actual dialed IP after DNS resolution so
+// a domain alias resolving to localhost cannot bypass the routing guard.
+func protectManagementAPIOutbounds(outbounds []any, apiPort int) ([]any, error) {
+	guard := map[string]any{
+		"action": "block",
+		"network": "tcp",
+		"ip": []string{"127.0.0.0/8", "::1/128"},
+		"port": strconv.Itoa(apiPort),
+		"delay": "0",
+	}
+	for _, item := range outbounds {
+		outbound, ok := item.(map[string]any)
+		if !ok { return nil, fmt.Errorf("invalid global Xray outbound") }
+		if outbound["tag"] == managementAPIBlockTag {
+			return nil, fmt.Errorf("outbound tag %q is reserved for management API protection", managementAPIBlockTag)
+		}
+		if outbound["protocol"] != "freedom" { continue }
+		settings := mapObject(outbound["settings"])
+		var existing []any
+		if raw, exists := settings["finalRules"]; exists && raw != nil {
+			var valid bool
+			existing, valid = raw.([]any)
+			if !valid { return nil, fmt.Errorf("freedom finalRules must be an array") }
+		}
+		settings["finalRules"] = append([]any{guard}, existing...)
+		outbound["settings"] = settings
+	}
+	return append(outbounds, map[string]any{"protocol":"blackhole", "tag":managementAPIBlockTag}), nil
+}

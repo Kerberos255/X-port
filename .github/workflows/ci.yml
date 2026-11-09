@@ -61,5 +61,20 @@ jobs:
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o /tmp/xport ./cmd/xport
           go version -m /tmp/xport | grep -Fq 'go1.27.3'
 
+      - name: Xray management API boundary using real core (disposable runner)
+        run: |
+          for attempt in 1 2 3 4; do
+            if /tmp/xport xray-update --binary "$RUNNER_TEMP/xport-test-xray" --config "$RUNNER_TEMP/xport-missing-test-config.json"; then
+              break
+            fi
+            if [ "$attempt" -eq 4 ]; then
+              echo "Official Xray download failed after four verified attempts" >&2
+              exit 1
+            fi
+            sleep "$((attempt * 10))"
+          done
+          echo '127.0.0.1 xport-loopback-ci.test' | sudo tee -a /etc/hosts >/dev/null
+          XPORT_INTEGRATION_XRAY="$RUNNER_TEMP/xport-test-xray" go test ./internal/xray -run '^TestManagementAPIBoundaryWithRealXray$' -count=1 -timeout=90s -v
+
       - name: Firewall WebUI Linux systemd deployment (old unit sandbox)
         run: sudo bash scripts/verify-firewall-runtime.sh /tmp/xport

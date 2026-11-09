@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 
@@ -80,6 +81,11 @@ func (s *Accounts) UpdateExpert(id int64, in ExpertConfig) (ExpertConfig, error)
 	idx := indexID(old, id)
 	if idx < 0 {
 		return ExpertConfig{}, errors.New("account not found")
+	}
+	// A no-op expert save must not normalize legacy JSON and accidentally
+	// restart a live Xray service just after a panel-only upgrade.
+	if existing, err := expertView(old[idx]); err == nil && expertInputUnchanged(existing, in) {
+		return existing, nil
 	}
 	next := copyAccounts(old)
 	a := &next[idx]
@@ -265,6 +271,7 @@ func (s *Accounts) UpdateExpert(id int64, in ExpertConfig) (ExpertConfig, error)
 	a.SettingsJSON = string(settingsJSON)
 	a.StreamSettingsJSON = string(streamJSON)
 	a.UpdatedAt = time.Now().UnixMilli()
+	if accountStateEqual(old[idx], *a) { return expertView(old[idx]) }
 	if err := s.applyAndPersist(old, next); err != nil {
 		return ExpertConfig{}, err
 	}
@@ -598,4 +605,24 @@ func validateExpertConfig(in ExpertConfig) error {
 		return errors.New("XHTTP scMaxBufferedPosts must not be negative")
 	}
 	return nil
+}
+
+func expertInputUnchanged(existing, submitted ExpertConfig) bool {
+	// These fields are derived/read-only, and need not be echoed by clients.
+	existing.Protocol, submitted.Protocol = "", ""
+	existing.Method, submitted.Method = "", ""
+	existing.Security, submitted.Security = "", ""
+	existing.RealityPublicKey, submitted.RealityPublicKey = "", ""
+	existing.SupportsFallbacks, submitted.SupportsFallbacks = false, false
+	existing.SupportsHTTPHeader, submitted.SupportsHTTPHeader = false, false
+	existing.SupportsReality, submitted.SupportsReality = false, false
+	existing.SupportsTLS, submitted.SupportsTLS = false, false
+	existing.SupportsXHTTP, submitted.SupportsXHTTP = false, false
+	// Blank values here already mean "keep the stored secret/setting" in
+	// UpdateExpert; they must not force a config rewrite.
+	if strings.TrimSpace(submitted.RealityTarget) == "" { submitted.RealityTarget = existing.RealityTarget }
+	if len(submitted.RealityServerNames) == 0 { submitted.RealityServerNames = existing.RealityServerNames }
+	if strings.TrimSpace(submitted.RealityPrivateKey) == "" { submitted.RealityPrivateKey = existing.RealityPrivateKey }
+	if len(submitted.RealityShortIDs) == 0 { submitted.RealityShortIDs = existing.RealityShortIDs }
+	return reflect.DeepEqual(existing, submitted)
 }

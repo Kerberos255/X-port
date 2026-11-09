@@ -25,6 +25,8 @@ func (s *Server) registerUXRoutes(mux *http.ServeMux) {
 }
 
 func (s *Server) setAccountEnabled(w http.ResponseWriter, r *http.Request) {
+	if !s.acquireMaintenance(w) { return }
+	defer s.maintenanceMu.Unlock()
 	id, err := pathID(r)
 	if err != nil {
 		writeError(w, 400, "invalid account id")
@@ -90,6 +92,8 @@ func (s *Server) getAccountAdvanced(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) updateAccountAdvanced(w http.ResponseWriter, r *http.Request) {
+	if !s.acquireMaintenance(w) { return }
+	defer s.maintenanceMu.Unlock()
 	id, err := pathID(r)
 	if err != nil {
 		writeError(w, 400, "invalid account id")
@@ -122,6 +126,8 @@ func (s *Server) getAccountExpert(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) updateAccountExpert(w http.ResponseWriter, r *http.Request) {
+	if !s.acquireMaintenance(w) { return }
+	defer s.maintenanceMu.Unlock()
 	id, err := pathID(r)
 	if err != nil {
 		writeError(w, 400, "invalid account id")
@@ -154,6 +160,8 @@ func (s *Server) getXrayGlobalConfig(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) updateXrayGlobalConfig(w http.ResponseWriter, r *http.Request) {
+	if !s.acquireMaintenance(w) { return }
+	defer s.maintenanceMu.Unlock()
 	var req struct {
 		Config json.RawMessage `json:"config"`
 	}
@@ -186,6 +194,8 @@ func (s *Server) checkXrayRollback(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) rollbackXray(w http.ResponseWriter, r *http.Request) {
+	if !s.acquireMaintenance(w) { return }
+	defer s.maintenanceMu.Unlock()
 	if s.updater == nil {
 		writeError(w, 503, "updater not configured")
 		return

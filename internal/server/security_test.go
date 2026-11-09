@@ -7,10 +7,12 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"strconv"
 	"testing"
 	"time"
 
 	"github.com/Kerberos255/X-port/internal/service"
+	"github.com/Kerberos255/X-port/internal/auth"
  "github.com/Kerberos255/X-port/internal/buildinfo"
 	"github.com/Kerberos255/X-port/internal/store"
 	"golang.org/x/crypto/bcrypt"
@@ -154,4 +156,65 @@ func TestUpdatePanelRejectsPendingWithoutStaging(t *testing.T){
  if rec.Code!=http.StatusConflict||!strings.Contains(rec.Body.String(),"firewall"){
   t.Fatalf("pending firewall must reject update before Stage: %d %s",rec.Code,rec.Body.String())
  }
+}
+
+func TestConcurrentMaintenanceAndAccountMutationsFailFast(t *testing.T) {
+	s, h := newSecurityTestServer(t)
+	cookie := loginSecurityTest(t, h)
+	s.maintenanceMu.Lock()
+	defer s.maintenanceMu.Unlock()
+	for _, path := range []string{
+		"/api/xray/update", "/api/xray/geodata", "/api/xray/rollback", "/api/xray/restart",
+		"/api/xray/config", "/api/xport/update", "/api/xport/restart",
+		"/api/accounts", "/api/settings", "/api/backups",
+	} {
+		method := http.MethodPost
+		switch path {
+		case "/api/xray/config", "/api/settings":
+			method = http.MethodPut
+		}
+		req := httptest.NewRequest(method,"http://panel"+path,strings.NewReader("{}"))
+		req.AddCookie(cookie)
+		req.Header.Set("Origin", "http://panel")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusConflict {
+			t.Errorf("%s %s: expected 409 during maintenance, got %d: %s",method,path,rec.Code,rec.Body.String())
+		}
+	}
+}
+
+func TestForwardedIPSpoofCannotBypassActualPeerLoginLimit(t *testing.T) {
+	s,h := newSecurityTestServer(t)
+	// Keep the regression quick; production uses a much higher threshold.
+	s.peerLimiter = auth.NewLoginLimiter(2, 10*time.Minute)
+	body, _ := json.Marshal(map[string]string{"username":"admin","password":"wrong-password"})
+	for i:=0;i<3;i++ {
+		req := httptest.NewRequest(http.MethodPost, "http://panel/api/login", bytes.NewReader(body))
+		req.RemoteAddr = "127.0.0.1:22222"
+		req.Header.Set("X-Forwarded-For", "198.51.100."+strconv.Itoa(i+10))
+		rec:=httptest.NewRecorder()
+		h.ServeHTTP(rec,req)
+		want:=http.StatusUnauthorized
+		if i==2 {want=http.StatusTooManyRequests}
+		if rec.Code!=want {t.Fatalf("spoofed forwarded client %d: status %d, want %d",i,rec.Code,want)}
+	}
+}
+
+func TestScheduledPanelHandoffRefusesWritesUntilRestart(t *testing.T) {
+	s,h := newSecurityTestServer(t)
+	cookie := loginSecurityTest(t,h)
+	request := func() int {
+		req:=httptest.NewRequest(http.MethodPost,"http://panel/api/accounts",strings.NewReader("{}"))
+		req.AddCookie(cookie)
+		req.Header.Set("Origin","http://panel")
+		rec:=httptest.NewRecorder()
+		h.ServeHTTP(rec,req)
+		return rec.Code
+	}
+	s.panelHandoffUntil=time.Now().Add(30*time.Second)
+	if got:=request();got!=http.StatusConflict {t.Fatalf("restart handoff accepted write: %d",got)}
+	// Failure to restart must not lock administrators out indefinitely.
+	s.panelHandoffUntil=time.Now().Add(-time.Second)
+	if got:=request();got==http.StatusConflict {t.Fatalf("expired restart gate did not recover")}
 }

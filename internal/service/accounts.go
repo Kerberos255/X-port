@@ -2,6 +2,8 @@ package service
 
 import (
 	"errors"
+	"encoding/json"
+	"reflect"
 	"fmt"
 	"sync"
 	"time"
@@ -113,6 +115,11 @@ func (s *Accounts) Update(id int64, in accountcfg.Input) (accountcfg.View, error
 		a.DisabledReason = old[idx].DisabledReason
 	}
 	initializeMonthlyCycle(&a, !old[idx].MonthlyReset)
+	// An unchanged editor submission must never activate a freshly added
+	// security policy or restart active connections after a panel-only upgrade.
+	if accountStateEqual(old[idx], a) {
+		return editorView(old[idx])
+	}
 	next := copyAccounts(old)
 	next[idx] = a
 	if err := s.applyAndPersist(old, next); err != nil {
@@ -263,4 +270,28 @@ func uniquePort(a []model.Account, port int, exceptID int64) error {
 		}
 	}
 	return nil
+}
+
+// accountStateEqual checks every persisted field except the edit timestamp.
+// Compare JSON structurally because editor round-trips may reorder object keys
+// without changing the actual Xray account or its sharing credentials.
+func accountStateEqual(left, right model.Account) bool {
+	if !sameAccountJSON(left.SettingsJSON, right.SettingsJSON) ||
+		!sameAccountJSON(left.StreamSettingsJSON, right.StreamSettingsJSON) ||
+		!sameAccountJSON(left.SniffingJSON, right.SniffingJSON) {
+		return false
+	}
+	left.UpdatedAt, right.UpdatedAt = 0, 0
+	left.SettingsJSON, right.SettingsJSON = "", ""
+	left.StreamSettingsJSON, right.StreamSettingsJSON = "", ""
+	left.SniffingJSON, right.SniffingJSON = "", ""
+	return reflect.DeepEqual(left, right)
+}
+
+func sameAccountJSON(left, right string) bool {
+	if left == right { return true }
+	var a, b any
+	if err := json.Unmarshal([]byte(left), &a); err != nil { return false }
+	if err := json.Unmarshal([]byte(right), &b); err != nil { return false }
+	return reflect.DeepEqual(a, b)
 }
