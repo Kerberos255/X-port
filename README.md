@@ -1,270 +1,78 @@
 # X-port
 
-<p align="center">
-  <strong>A small, single-node Xray control panel for personal Linux proxy servers.</strong>
-</p>
+<p align="center"><strong>面向个人 Linux VPS 的轻量级 Xray 管理面板</strong></p>
+<p align="center"><strong>简体中文</strong> · <a href="README.en.md">English</a></p>
 
 <p align="center">
-  <strong>English</strong> · <a href="README.zh-CN.md">简体中文</a>
-</p>
-
-<p align="center">
-  <a href="https://github.com/Kerberos255/X-port/releases/latest"><img src="https://img.shields.io/github/v/release/Kerberos255/X-port?label=release" alt="Release"></a>
+  <a href="https://github.com/Kerberos255/X-port/releases/latest"><img src="https://img.shields.io/github/v/release/Kerberos255/X-port?label=Release" alt="最新版本"></a>
   <a href="https://github.com/Kerberos255/X-port/actions/workflows/ci.yml"><img src="https://github.com/Kerberos255/X-port/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/Kerberos255/X-port/actions/workflows/security.yml"><img src="https://github.com/Kerberos255/X-port/actions/workflows/security.yml/badge.svg" alt="Security"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue.svg" alt="License: AGPL-3.0"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue.svg" alt="AGPL-3.0"></a>
 </p>
 
-<p align="center">
-  <img src="docs/images/overview.webp" alt="X-port server overview" width="100%">
-</p>
-<p align="center"><sub>Browser-regression preview with mock data; no production server data is shown.</sub></p>
+<p align="center"><img src="docs/images/overview.webp" alt="X-port 概览 · 深色模式" width="100%"></p>
 
-Its account model is intentionally simple:
+> **一个账号 = 一个 Xray inbound = 一个独立端口 = 一组凭据。**
+> 面板是单个 Go 二进制文件，内嵌 WebUI，服务器运行时不需要 Node.js。
 
-> **1 account = 1 inbound = 1 dedicated port = 1 credential set**
+## 主要功能
 
-The UI presents accounts directly rather than exposing Xray's inbound/client hierarchy.
+- **概览**：CPU、内存、磁盘、流量、服务健康、IPv4 / IPv6 信息。
+- **账号**：新增、编辑、克隆、启停、删除、流量配额、到期限制、月度重置、分享链接、二维码和批量导出。
+- **协议与传输**：VLESS、VMess、Trojan、Shadowsocks、SOCKS、HTTP；RAW、XHTTP、gRPC、WebSocket、HTTPUpgrade 等适用传输。支持 REALITY + Vision，提供可自定义的 Target / Server Names 模板。
+- **防火墙**：检查 firewalld / UFW、监听端口及账号关联；受保护地管理简单规则。满足安全条件的闲置外部 firewalld 放行规则允许明确授权后编辑或删除；危险修改使用 **120 秒独立恢复机制**。SSH、面板、活跃端口和复杂规则受到保护，底层 nftables 只读。
+- **Xray**：服务状态、日志、核心与 GeoData 更新，变更校验和失败回滚。
+- **系统**：面板设置、压缩备份、导入/下载、事务式恢复，以及校验和与重启看门狗保护的面板升级。
 
-## Interface preview
+## 界面预览
 
-<p align="center">
-  <img src="docs/images/accounts.webp" alt="X-port account management" width="100%">
-</p>
+所有图片由自动化浏览器使用**模拟数据**拍摄，不含生产服务器数据或真实凭据。
 
-## Disclaimer
+| 账号管理 · 深色 | REALITY 高级配置 · 深色 |
+|:---:|:---:|
+| <img src="docs/images/accounts.webp" alt="账号管理" width="100%"> | <img src="docs/images/reality.webp" alt="REALITY 高级配置" width="100%"> |
 
-X-port is intended for lawful personal use and technical learning. Users are responsible for complying with all applicable local laws and regulations.
+| 防火墙 · 浅色 | Xray 管理 · 深色 |
+|:---:|:---:|
+| <img src="docs/images/firewall.webp" alt="防火墙规则" width="100%"> | <img src="docs/images/xray.webp" alt="Xray 管理" width="100%"> |
 
-Do not use X-port for unlawful activities. Users assume all risks and consequences arising from its use.
+<p align="center"><img src="docs/images/system.webp" alt="系统设置与备份 · 浅色模式" width="100%"></p>
 
-X-port is designed for small personal deployments and is not intended for multi-tenant hosting or mission-critical infrastructure.
+支持深色/浅色主题，桌面侧栏与手机五项底部导航。
 
-This software is provided "as is", without warranty of any kind, as described in the GNU Affero General Public License v3.0.
+## 安装
 
-## Quick start
-
-X-port currently supports **systemd Linux** on **amd64** and **arm64**.
-
-Install the latest stable release:
+支持 **systemd Linux · amd64 / arm64**。从最新稳定 GitHub Release 安装：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Kerberos255/X-port/main/install.sh | sudo bash
 ```
 
-The bootstrap installer:
+安装器校验下载文件的 SHA-256，并引导设置管理员密码。全新安装默认仅监听 `127.0.0.1:8080`；如需远程管理，应先设置安全的 HTTPS 入口。
 
-1. detects the server architecture;
-2. resolves the latest stable GitHub Release;
-3. downloads the matching X-port binary and `SHA256SUMS`;
-4. verifies the binary's SHA-256 checksum before executing it;
-5. downloads the installer and migration helper from the **same release tag**;
-6. runs the normal X-port installation flow.
-
-To install a specific release, set `XPORT_VERSION`:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/Kerberos255/X-port/main/install.sh | sudo XPORT_VERSION=v0.1.2 bash
-```
-
-The installer asks for an administrator password (minimum 12 characters) without echoing it. Only its bcrypt hash is stored. The panel listens on `127.0.0.1:8080` by default; for remote access, place it behind an HTTPS reverse proxy or intentionally change the listen address.
-
-After installation, open the terminal manager with:
+安装后打开终端管理器：
 
 ```bash
 sudo xport
 ```
 
-See [X-port terminal manager](docs/terminal-manager.md) for service, update, backup, firewall and migration commands.
+参阅 [终端管理器说明](docs/terminal-manager.md) 和 [最新 Release](https://github.com/Kerberos255/X-port/releases/latest)。
 
-## Why X-port?
+## 使用前须知
 
-X-port deliberately keeps a narrower scope than large multi-user proxy platforms:
+- 新建账号**不会自动放行** VPS 防火墙或云平台安全组，需单独确认端口。
+- 修改防火墙或管理端口前，保留 SSH / 控制台等备用管理入口；不同防火墙管理器不能保证跨进程原子变更。
+- 备份包含敏感账号配置与管理员密码哈希，应妥善保存。
+- 适用于合法的个人学习和小型部署，不用于多租户或关键业务托管。软件依 [AGPL-3.0](LICENSE) **按原样**提供，不附带担保。
 
-- **Predictable account model** — one account maps to one Xray inbound, one port and one credential set.
-- **Small runtime footprint** — the panel is a single Go binary with its WebUI embedded; Node.js/npm is not required on the server.
-- **Conservative exposure by default** — a fresh installation binds the panel to localhost rather than publishing the admin UI to the Internet automatically.
-- **Guarded migration** — x-ui / 3x-ui migration uses dry-run checks, snapshots, Xray config validation and rollback instead of blindly copying a database.
-- **Transactional recovery** — backup restore creates a pre-restore snapshot and rolls back the running state when apply/restart fails.
-- **Verified updates** — Xray and X-port update flows verify release integrity and validate candidates before replacement, with rollback protection.
-- **Guarded firewall control** — inspect live firewalld/UFW rules, Xray account associations and TCP/UDP listener usage; add allowances, manage narrow firewalld DROP rules and pause/resume owned policies with explicit recovery. Native nftables/iptables remain read-only.
+## 开发
 
-## What it provides
-
-- Account create / edit / delete / clone.
-- Dedicated-port allocation with database uniqueness checks and read-only TCP/UDP port occupancy checks.
-- Protocol editors for **VLESS, VMess, Trojan, Shadowsocks, SOCKS and HTTP**.
-- New VLESS accounts default to **REALITY + Vision**.
-- Per-account share links and QR codes where the protocol has a supported URI format.
-- Bulk account export as a ZIP containing `links.txt`, QR PNG files and `warnings.txt` for accounts that cannot be represented safely.
-- Live per-account traffic accounting from Xray StatsService.
-- Traffic quota and expiry enforcement.
-- Manual current-period traffic reset.
-- Optional **per-account monthly reset**. After entering a new month, the first runtime check resets current upload/download exactly once, so it still works if the server was offline on the first day. Lifetime traffic is preserved.
-- Accounts disabled automatically because of quota are re-enabled after their monthly reset; manually disabled or expired accounts are not.
-- Xray service logs from journald and controlled service restart.
-- Local compressed backups with download/delete, import and transactional restore.
-- Panel settings for listen address, Base Path, TLS certificate/key paths, admin credentials, Xray API port, automatic account-port range and default REALITY target.
-- Stable-channel Xray core update with GitHub SHA-256 verification, config validation and rollback.
-- Separate `geoip.dat` / `geosite.dat` update with pairwise rollback.
-- X-port self-update from stable GitHub Releases with candidate version + SHA-256 verification and a systemd restart watchdog that restores the previous binary if the new service cannot stay active.
-- Responsive dark/light WebUI with a mobile bottom navigation layout.
-
-The **Firewall** page reads current firewalld or UFW state and identifies simple TCP/UDP allowances, runtime/permanent differences, observed listening sockets and matching Xray account IDs. It also displays recognized firewalld rich-rule ACCEPT/DROP/REJECT policies and flags overlapping or unsupported rules; these labels do not prove end-to-end Internet reachability. A paused rule is shown from X-port's own retained metadata, not as an active firewalld rule. The read-only native ruleset view remains available for diagnosis. SSH port 22, the configured panel management port and ambiguous or unsafe policies are guarded. Purpose labels and notes live in X-port's SQLite settings and are included in backups; account ports are not automatically opened.
-
-**Firewall mutations and recovery:** Simple firewalld/UFW allow-port additions continue to use validated, short-lived systemd helpers. For firewalld, X-port can create a narrowly defined all-sources DROP port policy and pause/resume its **own** simple allow/DROP rules. Removing an owned allowance or DROP, pausing a rule, or changing a supported external port rule uses a separate native **120-second systemd recovery timer** before the risky change; the user must verify access and confirm in time. For other-manager rules, only *idle, non-conflicting, synchronized, simple firewalld allow ports* may have their port/protocol edited, with explicit cross-manager acknowledgment and a source revision check. The edited rule remains externally owned; the other manager's private database and notes are not updated. Active listeners, complex rich rules, source-limited policies, overlapping zones, unknown filter chains and mixed managers are blocked or read-only. Updates do not rewrite existing panel/Xray service units. Separate managers cannot guarantee an atomic cross-process change, and firewalld/NAT/Docker or cloud policies can affect actual traffic independently of this page.
-
-## Runtime layout
-
-```text
-browser
-   │ HTTP / HTTPS
-   ▼
-xport (single Go binary)
-   ├── embedded WebUI
-   ├── SQLite /etc/x-port/xport.db
-   ├── account policy + traffic collector
-   ├── backup / update / migration logic
-   └── local Xray StatsService
-             │ 127.0.0.1:10085 by default
-             ▼
-          xray-core
-             │
-             └── one inbound / dedicated port per account
-```
-
-There is no Node.js/npm runtime dependency on the Linux server. The built Go binary embeds `web/dist`.
-
-Default paths installed by `scripts/install.sh`:
-
-```text
-/usr/local/bin/xport
-/usr/local/x-port/bin/xray
-/etc/x-port/xport.db
-/etc/x-port/xray/config.json
-/etc/x-port/backups/
-/etc/x-port/xport.env       # optional; not created with secrets by X-port
-/etc/systemd/system/xport.service
-/etc/systemd/system/xport-xray.service
-```
-
-## Build from source
-
-Requirements for development:
-
-- Go 1.27+
-- Node.js only for JavaScript syntax checking; the current WebUI is already committed as static files.
+需要 Go 1.27+，静态 WebUI 位于 `web/dist`。
 
 ```bash
-./scripts/build-linux.sh
-sudo ./scripts/install.sh
-```
-
-Useful checks:
-
-```bash
-node --check web/dist/app.js
-node --check web/dist/extra.js
-node --check web/dist/v3.js
-bash -n install.sh scripts/build-linux.sh scripts/install.sh scripts/migrate-*.sh
-go mod tidy
 go test ./...
 go vet ./...
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o /tmp/xport ./cmd/xport
+./scripts/build-linux.sh
 ```
 
-If an existing compatible x-ui / 3x-ui installation is detected, the installer deliberately does **not** start the new Xray service on the old ports. Use the guarded migration flow instead.
-
-## Migration from x-ui / 3x-ui
-
-The migration is designed as a guarded cutover, not a blind database copy. After installation, open the terminal manager:
-
-```bash
-sudo xport
-```
-
-Choose the x-ui / 3x-ui migration item. The guarded flow:
-
-1. Reads the old SQLite database and reports compatible/skipped inbounds before changing anything.
-2. Requires the X-port account model: supported migrated inbounds must represent one account on one port. Multi-client inbounds are skipped and block apply until reviewed.
-3. Preserves the old panel admin username and bcrypt password hash when compatible.
-4. Preserves the panel listen address/port, Web Base Path, domain and a complete TLS certificate/key pair.
-5. Validates migrated TLS certificate/key files **before** applying the cutover.
-6. Preserves safe global Xray configuration sections from the old generated config, including routing, DNS, outbounds and policy instead of silently replacing them with defaults.
-7. Records relevant legacy services and timers, then suppresses them during cutover so a watchdog cannot immediately reclaim the old proxy ports.
-8. Checks for surviving legacy x-ui/Xray processes before starting the new Xray. If a non-systemd watchdog has already respawned the old stack, migration aborts rather than racing for ports.
-9. Snapshots the existing X-port database/config as well as the legacy panel database/config.
-10. Renders the candidate Xray config and runs `xray run -test` before starting the new service.
-11. Verifies `xport-xray.service` and `xport.service` are active after cutover.
-12. On an error or interruption, restores the pre-migration X-port snapshot and the old systemd unit enable/active states.
-13. Leaves the legacy panel files on disk and writes a snapshot-specific `rollback.sh` under the X-port backup directory.
-
-The old related systemd units remain suppressed after a successful migration so their watchdogs cannot revive the old panel unexpectedly. Before cutover, inspect the server's actual watchdog, process-manager and cron setup; a custom non-systemd watchdog with a long wake-up interval should be identified explicitly.
-
-## Traffic accounting
-
-X-port enables Xray's local API/StatsService and reads traffic by inbound tag. This fits the one-account/one-inbound model and does not depend on a protocol-specific client email field.
-
-Every collection cycle:
-
-1. read and reset Xray's inbound counters;
-2. add the delta to the account's current-period and lifetime counters in SQLite;
-3. evaluate expiry and quota policy;
-4. when entering a new month, reset only accounts whose monthly-reset option is enabled and whose recorded reset month is older than the current month;
-5. apply Xray config changes through the same validate/restart/rollback path used by normal account edits.
-
-## Backups
-
-The system page can create and download compressed snapshots. A snapshot contains the account records, raw protocol/stream settings, panel/system settings and admin password hashes needed for restoration.
-
-Imported backup files are validated and added to the backup list **without immediately changing the running configuration**. Choosing Restore creates an additional pre-restore snapshot first; if applying the restored account set fails, the running state is rolled back.
-
-## Updates
-
-### Xray core
-
-X-port reads stable releases from the official `XTLS/Xray-core` repository. Drafts and prereleases are ignored by the one-click channel. The release asset must expose a SHA-256 digest. The candidate binary must execute successfully and accept the current Xray config before replacement.
-
-### GeoData
-
-`geoip.dat` and `geosite.dat` are updated separately from the core binary. Both are taken from the same stable official Xray release archive, verified by the release asset SHA-256, replaced as a pair and rolled back as a pair if Xray cannot restart.
-
-### X-port itself
-
-The self-update channel expects stable releases in `Kerberos255/X-port` with architecture assets named:
-
-```text
-xport-linux-amd64
-xport-linux-arm64
-```
-
-The GitHub release asset must provide a SHA-256 digest and the candidate binary's `xport version` output must match the release tag.
-
-For a **public repository**, no GitHub token is required to check or download stable Releases. Private copies or forks can optionally provide `XPORT_GITHUB_TOKEN` through the root-only `/etc/x-port/xport.env` file. The token is never saved to SQLite or returned by the WebUI/API.
-
-During an actual self-update, the old executable is kept as `.previous`. A transient systemd unit restarts X-port outside the panel's own cgroup, waits for the new service to remain active, and restores/restarts the previous binary if verification fails.
-
-## Security notes
-
-- Sessions use random HttpOnly, SameSite=Strict cookies; Secure is set for direct TLS or HTTPS requests received through a trusted reverse proxy.
-- State-changing authenticated API calls reject cross-origin browser requests.
-- Login failures are rate-limited by both `IP + username` and IP-wide buckets in memory.
-- Account list responses omit credentials/private keys; sensitive material is returned only by authenticated single-account edit/share operations.
-- Share JSON/QR and bulk export are authenticated and sent with no-store semantics where applicable.
-- Imported backups are size-limited and parsed before being accepted.
-- Panel TLS settings store filesystem paths, not certificate/private-key contents in the browser.
-- systemd services use `NoNewPrivileges`, `PrivateTmp` and read-only home visibility. Read-only visibility is intentional so migrated certificate paths can still be used.
-- Firewall writes require authenticated same-origin requests, validated scope, ownership/overlap checks and confirmation. Changes capable of disrupting access have an independently scheduled 120-second recovery; verify a second administration path before any change. Only narrow firewalld rules and ordinary UFW allowances are writable; native nftables/iptables and advanced external policies remain read-only.
-
-## Compatibility
-
-X-port has dedicated editors for VLESS, VMess, Trojan, Shadowsocks, SOCKS and HTTP. A migrated inbound using another protocol can remain in the stored/raw configuration model, but the WebUI treats it as read-only rather than guessing how to rewrite unknown advanced JSON.
-
-Use migration dry-run output to review every warning or skipped inbound before applying a cutover.
-
-
-## License
-
-X-port is licensed under the **GNU Affero General Public License v3.0 (AGPL-3.0-only)**. If you modify X-port and make that modified version available to users over a network, the AGPL requires those users to be offered the corresponding source code.
-
-Releases published before `v0.1.2` remain available under the license terms that applied to those releases, including the earlier MIT-licensed versions.
+以公开仓库的 `main` 分支及正式 [Releases](https://github.com/Kerberos255/X-port/releases) 为准。

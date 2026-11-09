@@ -137,7 +137,42 @@ cat > "$TMP/__preview.js" <<'JS'
       await waitFor('#app:not(.hidden)')
       const preview = new URLSearchParams(location.search).get('preview') || 'overview'
       if (preview.endsWith('-light')) applyTheme('light')
-      if (preview === 'overview-tooltip') {
+      if (preview.startsWith('nav-audit')) {
+        const order=['overview','accounts','firewall','xray','system']
+        const buttons=[...document.querySelectorAll('#nav > button')]
+        if(buttons.length!==5||buttons.some((b,i)=>b.dataset.page!==order[i]))
+          throw new Error('navigation order wrong or duplicated')
+        const nav=document.querySelector('#nav')
+        const outer=nav.getBoundingClientRect()
+        let previousRight=-1
+        for (const button of buttons) {
+          const icon=button.querySelector(':scope > svg.nav-icon')
+          if(!icon||icon.getAttribute('viewBox')!=='0 0 24 24'||
+             icon.getAttribute('stroke-width')!=='1.8')
+            throw new Error('invalid unified icon: '+button.dataset.page)
+          const iconBox=icon.getBoundingClientRect()
+          if(Math.abs(iconBox.width-20)>1||Math.abs(iconBox.height-20)>1)
+            throw new Error('icon size mismatch at '+innerWidth+': '+button.dataset.page)
+          if(innerWidth<701){
+            const rect=button.getBoundingClientRect()
+            if(rect.left<outer.left-1||rect.right>outer.right+1||
+               rect.left<previousRight-1||rect.width<35)
+              throw new Error('mobile navigation clips or overlaps '+button.dataset.page)
+            previousRight=rect.right
+            if(parseFloat(getComputedStyle(button).fontSize)<9)
+              throw new Error('mobile navigation label is too small')
+          }
+          button.click()
+          await waitFor('#page-'+button.dataset.page+'.active')
+          if(!button.classList.contains('active')||
+             document.querySelectorAll('#nav button.active').length!==1)
+            throw new Error('navigation button did not activate '+button.dataset.page)
+        }
+        buttons[0].click()
+        await waitFor('#page-overview.active')
+        if(document.documentElement.scrollWidth>innerWidth+2)
+          throw new Error('navigation causes horizontal overflow')
+      } else if (preview === 'overview-tooltip') {
         const ring = await waitFor('#page-overview .status-gauge-ring')
         ring.dispatchEvent(new PointerEvent('pointerenter',{pointerType:'mouse'}))
         const popup = await waitFor('body > .status-gauge-floating')
@@ -469,6 +504,29 @@ capture() {
 }
 capture overview overview
 capture overview-light overview-light
+# Dedicated navigation screenshots. The preview driver clicks all five
+# destinations in order, checks active states, icon size and phone overflow.
+for spec in '1440,1000:desktop' '960,900:compact' '390,844:mobile'; do
+  dimensions="\${spec%%:*}"
+  label="\${spec##*:}"
+  for theme in nav-audit nav-audit-light; do
+    filename="$theme-$label"
+    "$BROWSER" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage \
+      --window-size="$dimensions" --force-device-scale-factor=1 --virtual-time-budget=11000 \
+      --screenshot="$OUT/$filename.png" "http://127.0.0.1:$PORT/?preview=$theme" \
+      >/dev/null 2>"$TMP/$filename.log"
+    [[ -s "$OUT/$filename.png" ]] || { cat "$TMP/$filename.log" >&2; exit 1; }
+    "$BROWSER" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage \
+      --window-size="$dimensions" --force-device-scale-factor=1 --virtual-time-budget=11000 \
+      --dump-dom "http://127.0.0.1:$PORT/?preview=$theme" \
+      >"$TMP/$filename.html" 2>"$TMP/$filename-dom.log"
+    grep -Fq "data-preview-ready=\"$theme\"" "$TMP/$filename.html" || {
+      grep -o 'data-preview-error="[^"]*"' "$TMP/$filename.html" || true
+      echo "Navigation click/layout regression failed: $filename" >&2
+      exit 1
+    }
+  done
+done
 capture accounts-light accounts-light
 capture xray-update-light xray-update-light
 capture system-backups system-backups

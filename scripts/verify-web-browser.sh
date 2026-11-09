@@ -509,6 +509,31 @@ cat > "$TMP/__driver.js" <<'JS'
   window.addEventListener('load', async () => {
     try {
       await waitFor('#app:not(.hidden)')
+      // Five real navigation button clicks: order, active page, unified
+      // SVG sizing, and no missing sections. This must not be a static
+      // screenshot-only assertion.
+      const navOrder=['overview','accounts','firewall','xray','system']
+      const navBtns=[...document.querySelectorAll('#nav > button')]
+      if(navBtns.length!==navOrder.length||
+         navBtns.some((b,i)=>b.dataset.page!==navOrder[i]))
+        throw new Error('navigation buttons are not in the approved order')
+      for(const button of navBtns){
+        const svg=button.querySelector(':scope > svg.nav-icon')
+        if(!svg||svg.getAttribute('viewBox')!=='0 0 24 24'||
+           svg.getAttribute('stroke-width')!=='1.8'||
+           svg.getAttribute('aria-hidden')!=='true')
+          throw new Error('navigation icon is not standardized: '+button.dataset.page)
+        const bounds=svg.getBoundingClientRect()
+        if(Math.abs(bounds.width-20)>1||Math.abs(bounds.height-20)>1)
+          throw new Error('navigation icon has inconsistent dimensions: '+button.dataset.page)
+        button.click()
+        await waitFor('#page-'+button.dataset.page+'.active')
+        if(document.querySelectorAll('#nav button.active').length!==1||
+           !button.classList.contains('active'))
+          throw new Error('navigation click did not activate requested page: '+button.dataset.page)
+      }
+      navBtns[0].click()
+      await waitFor('#page-overview.active')
       const gauges = document.querySelectorAll('#page-overview .status-gauge-ring')
       if (gauges.length !== 4) throw new Error('expected four overview status gauges, got '+gauges.length)
       if (!document.querySelector('#status-load-value')?.textContent.includes('%')) throw new Error('load gauge did not update')
