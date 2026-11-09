@@ -1,6 +1,7 @@
 package accountcfg
 
 import (
+	"encoding/json"
 	"net/url"
 	"strings"
 	"testing"
@@ -230,4 +231,41 @@ func TestUpdateToRealityRequiresServerNameAndPreservesExplicitKeys(t *testing.T)
 	if err != nil { t.Fatal(err) }
 	v, _ := ToView(a)
 	if v.PrivateKey != kv.PrivateKey || v.ShortID != "aabbccdd" { t.Fatal("explicit REALITY key/short ID overwritten") }
+}
+
+func TestNormalEditPreservesAllRealityServerNamesAndShortIDs(t *testing.T) {
+ a, err := New(Input{Name:"Reality", Enabled:true, Port:26300, Protocol:"vless",
+  Security:"reality", Network:"xhttp", ServerName:"one.example.com", Dest:"one.example.com:443"},0)
+ if err!=nil {t.Fatal(err)}
+ var stream map[string]any
+ if err=json.Unmarshal([]byte(a.StreamSettingsJSON),&stream);err!=nil {t.Fatal(err)}
+ settings:=stream["realitySettings"].(map[string]any)
+ settings["serverNames"]=[]string{"one.example.com","two.example.com","three.example.com"}
+ settings["shortIds"]=[]string{"01020304","05060708","aabbccdd"}
+ settings["xver"]=float64(1)
+ b,err:=json.Marshal(stream)
+ if err!=nil {t.Fatal(err)}
+ a.StreamSettingsJSON=string(b)
+ for _,tc:=range []struct{head,short string}{
+  {"one.example.com","01020304"},
+  {"changed.example.com","11223344"},
+ } {
+  v,err:=ToView(a)
+  if err!=nil {t.Fatal(err)}
+  a,err=Update(a,Input{Name:"Edited",Enabled:true,Port:a.Port,Protocol:"vless",
+   Network:"xhttp",Security:"reality",Credential:v.Credential,
+   ServerName:tc.head,Dest:v.Dest,PrivateKey:v.PrivateKey,ShortID:tc.short})
+  if err!=nil {t.Fatal(err)}
+  if err=json.Unmarshal([]byte(a.StreamSettingsJSON),&stream);err!=nil {t.Fatal(err)}
+  r:=stream["realitySettings"].(map[string]any)
+  names:=r["serverNames"].([]any)
+  ids:=r["shortIds"].([]any)
+  if len(names)!=3||names[0]!=tc.head||names[1]!="two.example.com"||names[2]!="three.example.com" {
+   t.Fatalf("lost multiple REALITY server names: %#v",names)
+  }
+  if len(ids)!=3||ids[0]!=tc.short||ids[1]!="05060708"||ids[2]!="aabbccdd" {
+   t.Fatalf("lost multiple REALITY short IDs: %#v",ids)
+  }
+  if r["xver"]!=float64(1) {t.Fatalf("unknown REALITY setting cleared: %#v",r)}
+ }
 }
