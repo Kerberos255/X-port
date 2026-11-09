@@ -48,15 +48,26 @@ type Server struct {
 	manager        *xray.Manager
 	firewallMu     sync.Mutex
 	maintenanceMu  sync.Mutex
+	panelHandoffUntil time.Time
 	trustedProxies []netip.Prefix
 }
 
 // Maintenance and account mutations share a fail-fast gate. Never replace an
 // executable or restart Xray in parallel with an account/configuration write.
 func (s *Server) acquireMaintenance(w http.ResponseWriter) bool {
-	if s.maintenanceMu.TryLock() { return true }
-	writeError(w, http.StatusConflict, "another maintenance operation is in progress")
-	return false
+	if !s.maintenanceMu.TryLock() {
+		writeError(w, http.StatusConflict, "another maintenance operation is in progress")
+		return false
+	}
+	// systemd-run schedules a restart after the HTTP response. The old process
+	// must not accept another privileged mutation before the replacement takes
+	// over; the deadline avoids an indefinite lock if the restart never fires.
+	if time.Now().Before(s.panelHandoffUntil) {
+		s.maintenanceMu.Unlock()
+		writeError(w, http.StatusConflict, "panel restart is pending")
+		return false
+	}
+	return true
 }
 
 func New(st *store.Store, accounts *service.Accounts, updater *xray.Updater, static fs.FS) *Server {
