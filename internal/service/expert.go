@@ -265,6 +265,7 @@ func (s *Accounts) UpdateExpert(id int64, in ExpertConfig) (ExpertConfig, error)
 	a.SettingsJSON = string(settingsJSON)
 	a.StreamSettingsJSON = string(streamJSON)
 	a.UpdatedAt = time.Now().UnixMilli()
+	if accountStateEqual(old[idx], *a) { return expertView(old[idx]) }
 	if err := s.applyAndPersist(old, next); err != nil {
 		return ExpertConfig{}, err
 	}

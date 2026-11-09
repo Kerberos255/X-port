@@ -128,3 +128,62 @@ func TestRestoreSnapshotRollsBackDatabaseWhenXrayApplyFails(t *testing.T) {
   t.Fatalf("failed restore modified original database: %+v",actual)
  }
 }
+
+func TestUnchangedSaveAfterPanelUpgradeNeverAppliesXray(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "unchanged.sqlite"))
+	if err != nil { t.Fatal(err) }
+	defer st.Close()
+	apply := &fakeApply{}
+	s := NewAccounts(st, apply)
+	created, err := s.Create(accountcfg.Input{
+		Name:"original",Enabled:true,Port:26101,Protocol:"vless",ServerName:"www.example.com",
+	})
+	if err != nil { t.Fatal(err) }
+	before, err := s.Raw(created.ID)
+	if err != nil { t.Fatal(err) }
+	calls := apply.calls
+	_,err=s.Update(created.ID,accountcfg.Input{
+		Name:created.Name, Enabled:created.Enabled, Port:created.Port,
+		Protocol:created.Protocol, Credential:created.Credential, Flow:created.Flow,
+		Network:created.Network, Security:created.Security,
+		ServerName:created.ServerName,Dest:created.Dest,
+		PrivateKey:created.PrivateKey,ShortID:created.ShortID,
+		QuotaBytes:created.QuotaBytes,ExpiryTime:created.ExpiryTime,MonthlyReset:created.MonthlyReset,
+	})
+	if err != nil {t.Fatal(err)}
+	if apply.calls != calls {t.Fatalf("unchanged account restarted Xray: %d -> %d",calls,apply.calls)}
+	after,err:=s.Raw(created.ID)
+	if err!=nil||after!=before {t.Fatalf("unchanged save touched persistent account: %+v",err)}
+	adv,err:=s.Advanced(created.ID)
+	if err!=nil{t.Fatal(err)}
+	_,err=s.UpdateAdvanced(created.ID,adv)
+	if err!=nil{t.Fatal(err)}
+	if apply.calls != calls {t.Fatal("unchanged advanced editor restarted Xray")}
+	expert,err:=s.Expert(created.ID)
+	if err!=nil{t.Fatal(err)}
+	_,err=s.UpdateExpert(created.ID,expert)
+	if err!=nil{t.Fatal(err)}
+	if apply.calls != calls {t.Fatal("unchanged expert editor restarted Xray")}
+	modified:=accountcfg.Input{
+		Name:"renamed",Enabled:true,Port:created.Port,Protocol:created.Protocol,
+		Credential:created.Credential,Flow:created.Flow,Network:created.Network,
+		Security:created.Security,ServerName:created.ServerName,Dest:created.Dest,
+		PrivateKey:created.PrivateKey,ShortID:created.ShortID,
+	}
+	updated,err:=s.Update(created.ID,modified)
+	if err!=nil{t.Fatal(err)}
+	if apply.calls!=calls+1||updated.Name!="renamed"||updated.Credential!=created.Credential{
+		t.Fatalf("real edit was ignored or credentials rotated: calls=%d %+v",apply.calls,updated)
+	}
+}
+
+func TestAccountStateEqualityIgnoresJSONKeyOrderButNotCredentials(t *testing.T) {
+	left:=model.Account{ID:1,Port:21001,SettingsJSON:`{"a":1,"b":{"x":true}}`,
+		StreamSettingsJSON:`{"security":"reality"}`, SniffingJSON:`{}`, UpdatedAt:12}
+	right:=left
+	right.SettingsJSON=`{"b":{"x":true},"a":1}`
+	right.UpdatedAt=13
+	if !accountStateEqual(left,right){t.Fatal("equivalent serialized config should not trigger restart")}
+	right.SettingsJSON=`{"b":{"x":false},"a":1}`
+	if accountStateEqual(left,right){t.Fatal("material config changes must still apply")}
+}
