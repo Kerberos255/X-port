@@ -155,3 +155,29 @@ func TestUpdatePanelRejectsPendingWithoutStaging(t *testing.T){
   t.Fatalf("pending firewall must reject update before Stage: %d %s",rec.Code,rec.Body.String())
  }
 }
+
+func TestConcurrentMaintenanceAndAccountMutationsFailFast(t *testing.T) {
+	s, h := newSecurityTestServer(t)
+	cookie := loginSecurityTest(t, h)
+	s.maintenanceMu.Lock()
+	defer s.maintenanceMu.Unlock()
+	for _, path := range []string{
+		"/api/xray/update", "/api/xray/geodata", "/api/xray/rollback", "/api/xray/restart",
+		"/api/xray/config", "/api/xport/update", "/api/xport/restart",
+		"/api/accounts", "/api/settings", "/api/backups",
+	} {
+		method := http.MethodPost
+		switch path {
+		case "/api/xray/config", "/api/settings":
+			method = http.MethodPut
+		}
+		req := httptest.NewRequest(method,"http://panel"+path,strings.NewReader("{}"))
+		req.AddCookie(cookie)
+		req.Header.Set("Origin", "http://panel")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusConflict {
+			t.Errorf("%s %s: expected 409 during maintenance, got %d: %s",method,path,rec.Code,rec.Body.String())
+		}
+	}
+}
