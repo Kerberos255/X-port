@@ -155,7 +155,7 @@ cat > "$TMP/__mock.js" <<'JS'
       globalThis.__mockCreatedRequest=body
       if(globalThis.__mockCreateMode==='conflict-recovered'){
         globalThis.__mockCreatedAccount={id:2,name:body.name,port:body.port||23741,
-          protocol:body.protocol,enabled:Boolean(body.enabled),editable:true,upBytes:0,downBytes:0,
+          protocol:body.protocol,credential:body.credential||account.credential,enabled:Boolean(body.enabled),editable:true,upBytes:0,downBytes:0,
           quotaBytes:Number(body.quotaBytes||0),expiryTime:Number(body.expiryTime||0),
           monthlyReset:Boolean(body.monthlyReset),network:body.network,security:body.security,
           serverName:body.serverName,dest:body.dest,privateKey:body.privateKey,shortId:body.shortId}
@@ -164,7 +164,7 @@ cat > "$TMP/__mock.js" <<'JS'
       if(globalThis.__mockCreateMode==='real-conflict')
         return json({error:'port '+(body.port||23741)+' is already used by "existing"'},400)
       globalThis.__mockCreatedAccount={id:2,name:body.name,port:body.port||23741,
-        protocol:body.protocol,enabled:Boolean(body.enabled),editable:true,upBytes:0,downBytes:0,
+        protocol:body.protocol,credential:body.credential||account.credential,enabled:Boolean(body.enabled),editable:true,upBytes:0,downBytes:0,
           quotaBytes:Number(body.quotaBytes||0),expiryTime:Number(body.expiryTime||0),
           monthlyReset:Boolean(body.monthlyReset),network:body.network,security:body.security,
           serverName:body.serverName,dest:body.dest,privateKey:body.privateKey,shortId:body.shortId}
@@ -213,7 +213,8 @@ cat > "$TMP/__mock.js" <<'JS'
       const body=JSON.parse(init.body||'{}')
       if(!globalThis.__mockCreatedAccount)return json({error:'missing account'},404)
       Object.assign(globalThis.__mockCreatedAccount,{
-        name:body.name,port:body.port||globalThis.__mockCreatedAccount.port,
+        name:body.name,credential:body.credential||globalThis.__mockCreatedAccount.credential,
+        port:body.port||globalThis.__mockCreatedAccount.port,
         enabled:Boolean(body.enabled),monthlyReset:Boolean(body.monthlyReset),
         quotaBytes:Number(body.quotaBytes||0),expiryTime:Number(body.expiryTime||0),
         network:body.network,security:body.security,serverName:body.serverName,
