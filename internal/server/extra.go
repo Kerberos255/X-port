@@ -119,6 +119,7 @@ func (s *Server) restartPanel(w http.ResponseWriter, r *http.Request) {
 	defer s.maintenanceMu.Unlock()
 	if s.panelService == "" { writeError(w, 503, "panel service is not configured"); return }
 	if err := ops.ScheduleRestart(s.panelService, time.Second); err != nil { writeError(w, 502, err.Error()); return }
+	s.panelHandoffUntil = time.Now().Add(30 * time.Second)
 	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "scheduled": true})
 }
 
@@ -187,6 +188,7 @@ func (s *Server) updatePanel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	scheduleErr:=ops.ScheduleVerifiedBinaryRestart(s.panelService, binary, previous, time.Second)
+	if scheduleErr==nil { s.panelHandoffUntil = time.Now().Add(30 * time.Second) }
 	s.firewallMu.Unlock()
 	if scheduleErr!=nil{
 		_ = u.Restore(previous)
