@@ -61,5 +61,12 @@ jobs:
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o /tmp/xport ./cmd/xport
           go version -m /tmp/xport | grep -Fq 'go1.27.3'
 
+      - name: Xray management API boundary using real core (disposable runner)
+        run: |
+          /tmp/xport xray-update --binary "$RUNNER_TEMP/xport-test-xray" --config "$RUNNER_TEMP/xport-missing-test-config.json"
+          XPORT_INTEGRATION_XRAY="$RUNNER_TEMP/xport-test-xray" go test ./internal/xray -run '^TestManagementAPIBoundaryWithRealXray
+        run: sudo bash scripts/verify-firewall-runtime.sh /tmp/xport
+ -count=1 -timeout=90s -v
+
       - name: Firewall WebUI Linux systemd deployment (old unit sandbox)
         run: sudo bash scripts/verify-firewall-runtime.sh /tmp/xport
