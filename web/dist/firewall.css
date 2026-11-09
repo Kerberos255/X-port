@@ -177,7 +177,22 @@ html[data-theme="light"] #fw-detail-dialog .btn.ghost{color:#395672}
 @media(max-width:700px){
  #page-firewall .fw-table td:before{font-size:11px}
  #page-firewall #fw-add{font-size:12px}
- #fw-detail-dialog form{padding:18px}
+ #fw-detail-dialog{overflow:hidden}
+ #fw-detail-dialog form{
+   display:flex;flex-direction:column;
+   max-height:min(84dvh,820px);padding:0;min-height:0
+ }
+ #fw-detail-dialog .fw-detail-heading{padding:18px 18px 0;flex-shrink:0}
+ #fw-detail-dialog .fw-detail-summary{padding:0 18px;margin:13px 0;flex-shrink:0}
+ #fw-detail-dialog .fw-detail-body{
+   min-height:0;overflow-y:auto;overscroll-behavior:contain;
+   padding:0 18px 16px
+ }
+ #fw-detail-dialog .fw-detail-actions{
+   margin:0;padding:14px 18px 18px;
+   flex-shrink:0;background:#121c2c
+ }
+ html[data-theme="light"] #fw-detail-dialog .fw-detail-actions{background:#fff}
  #fw-detail-dialog .fw-detail-row{grid-template-columns:minmax(80px,36%) minmax(0,1fr)}
  #nav button,#nav button:not(.active){font-size:11px}
 }

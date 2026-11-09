@@ -197,10 +197,14 @@ cat > "$TMP/__preview.js" <<'JS'
           if(button.hidden||!document.querySelector('#fw-detail-body').textContent.includes('外部规则（允许删除）'))
             throw new Error('idle external rule delete entry missing')
           if(innerWidth<700){
-            button.scrollIntoView({block:'end',inline:'nearest'})
+            const dialog=document.querySelector('#fw-detail-dialog')
+            const content=dialog.querySelector('.fw-detail-body')
+            content.scrollTop=content.scrollHeight
             const rect=button.getBoundingClientRect()
-            if(rect.left<0||rect.right>innerWidth||rect.top<0||rect.bottom>innerHeight)
-              throw new Error('mobile external-rule delete control clipped')
+            const hit=document.elementFromPoint(rect.left+rect.width/2,rect.top+rect.height/2)
+            if(rect.width<60||rect.height<24||rect.left<0||rect.right>innerWidth||
+               rect.top<0||rect.bottom>innerHeight||(!button.contains(hit)&&hit!==button))
+              throw new Error('mobile external-rule delete control not visible and clickable')
           }
         }
         if (preview === 'firewall-detail-light') {
