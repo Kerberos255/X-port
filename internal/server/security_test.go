@@ -200,3 +200,21 @@ func TestForwardedIPSpoofCannotBypassActualPeerLoginLimit(t *testing.T) {
 		if rec.Code!=want {t.Fatalf("spoofed forwarded client %d: status %d, want %d",i,rec.Code,want)}
 	}
 }
+
+func TestScheduledPanelHandoffRefusesWritesUntilRestart(t *testing.T) {
+	s,h := newSecurityTestServer(t)
+	cookie := loginSecurityTest(t,h)
+	request := func() int {
+		req:=httptest.NewRequest(http.MethodPost,"http://panel/api/accounts",strings.NewReader("{}"))
+		req.AddCookie(cookie)
+		req.Header.Set("Origin","http://panel")
+		rec:=httptest.NewRecorder()
+		h.ServeHTTP(rec,req)
+		return rec.Code
+	}
+	s.panelHandoffUntil=time.Now().Add(30*time.Second)
+	if got:=request();got!=http.StatusConflict {t.Fatalf("restart handoff accepted write: %d",got)}
+	// Failure to restart must not lock administrators out indefinitely.
+	s.panelHandoffUntil=time.Now().Add(-time.Second)
+	if got:=request();got==http.StatusConflict {t.Fatalf("expired restart gate did not recover")}
+}
