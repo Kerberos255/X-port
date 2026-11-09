@@ -192,6 +192,8 @@ cat > "$TMP/__mock.js" <<'JS'
       return json(account)
     }
     if (path === '/api/accounts/1' && method === 'GET') return json(account)
+    if (path === '/api/accounts/2' && method === 'GET')
+      return json(globalThis.__mockCreatedAccount||{error:'missing newly created account'})
     if (path === '/api/accounts/1/enabled' && method === 'PATCH') {
       globalThis.__accountToggleCalls++
       const next=Boolean(JSON.parse(init.body||'{}').enabled)
@@ -1499,7 +1501,8 @@ cat > "$TMP/__driver.js" <<'JS'
         managed:false,protected:false,xray:false,usage:'unused',revision:externalRevision,
         purpose:'CI browser idle external',note:'',access:'区域：public'
       })
-      await loadFirewall()
+      document.querySelector('#fw-refresh').click()
+      await waitFor('#fw-rows button[data-fw-act="detail"][data-fw-id="'+externalDeleteID+'"]')
       const protectedDetail=await waitFor('#fw-rows button[data-fw-act="detail"][data-fw-id="firewalld:public:22022/tcp"]')
       protectedDetail.click()
       if(!document.querySelector('#fw-detail-remove').hidden)
