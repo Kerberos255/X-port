@@ -379,6 +379,17 @@ cat > "$TMP/__preview.js" <<'JS'
         document.querySelector('#nav [data-page="system"]').click()
         const filename=await waitFor('#backup-list .backup-row b')
         const backupRow=filename.closest('.backup-row')
+        const system=document.querySelector('#page-system')
+        if(!system?.classList.contains('active'))
+          throw new Error('backup preview navigated to an inactive system page')
+        // Screenshot fixture only: on phones focus the backup panel rather
+        // than scrolling past the tall settings form. Application DOM is
+        // unchanged; real full-page navigation is exercised by browser tests.
+        if(innerWidth<700){
+          const settings=system.querySelector('.two-col > .panel:first-child')
+          if(!settings)throw new Error('system settings panel missing')
+          settings.style.display='none'
+        }
         const info=backupRow?.querySelector('small')
         if(!info||!info.textContent.includes('KB'))
           throw new Error('backup metadata missing from rendered preview')
@@ -391,6 +402,13 @@ cat > "$TMP/__preview.js" <<'JS'
         if(backupRow.scrollWidth>backupRow.clientWidth+2)
           throw new Error('backup filename or actions overflow row width')
         backupRow.scrollIntoView({block:'center',inline:'nearest'})
+        await sleep(150)
+        const bounds=backupRow.getBoundingClientRect()
+        if(bounds.height<15||bounds.width<100||bounds.bottom<=0||
+           bounds.top>=innerHeight||bounds.left>=innerWidth||bounds.right<=0)
+          throw new Error('backup preview has no visible row in screenshot viewport: '+
+            JSON.stringify({top:bounds.top,bottom:bounds.bottom,width:bounds.width,
+              scrollY,docHeight:document.documentElement.scrollHeight,screen:innerHeight}))
       } else if (preview === 'xray') {
         document.querySelector('#nav [data-page="xray"]').click()
         const panel = await waitFor('#xray-global-config-panel')
@@ -524,7 +542,7 @@ capture firewall-create-light firewall-create-light
 # Exercise long backup filenames and metadata on a narrow phone viewport.
 for preview in system-backups system-backups-light; do
   "$BROWSER" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage \
-    --window-size=390,844 --force-device-scale-factor=1 --virtual-time-budget=6500 \
+    --window-size=390,844 --force-device-scale-factor=1 --virtual-time-budget=9500 \
     --screenshot="$OUT/$preview-mobile.png" "http://127.0.0.1:$PORT/?preview=$preview" \
     >/dev/null 2>"$TMP/$preview-mobile.log"
   [[ -s "$OUT/$preview-mobile.png" ]] || { cat "$TMP/$preview-mobile.log" >&2; exit 1; }
