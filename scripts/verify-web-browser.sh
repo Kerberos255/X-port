@@ -1536,7 +1536,21 @@ cat > "$TMP/__driver.js" <<'JS'
       // the inactive Confirm button before the new modal actually opens.
       await waitFor('#operation-confirm[open]')
       await waitForTextContains('#operation-confirm-title','确认删除放行规则')
-      document.querySelector('#operation-confirm-apply').click()
+      if(!XportOperation.confirming)
+        throw new Error('confirmation dialog open but handler is not active')
+      const acceptExternal=document.querySelector('#operation-confirm-apply')
+      acceptExternal.click()
+      await sleep(50)
+      if(globalThis.__fwExternalRemoveCalls!==deleteCallsBefore+1){
+        throw new Error('accepted external-rule deletion did not issue POST: '+JSON.stringify({
+          confirming:XportOperation.confirming,busy:XportOperation.busy,
+          confirmOpen:document.querySelector('#operation-confirm')?.open,
+          confirmLabel:acceptExternal.textContent,
+          toast:document.querySelector('#toast')?.textContent,
+          progressTitle:document.querySelector('#operation-progress-title')?.textContent,
+          removeCalls:globalThis.__fwExternalRemoveCalls
+        }))
+      }
       await waitForTextContains('#operation-confirm-title','请确认删除后仍可连接',6500).catch(err=>{
         throw new Error('recovery-confirm modal did not open: '+JSON.stringify({
           progress:document.querySelector('#operation-progress')?.open,
