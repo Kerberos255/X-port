@@ -1623,9 +1623,29 @@ cat > "$TMP/__driver.js" <<'JS'
       const expertBefore=globalThis.__mockNewExpertWrites
       const rejectedBeforeEdit=globalThis.__mockRejectedMaintenanceWrites
       const saveEdited=editCreated.querySelector('button[type="submit"]')
+      if(!editCreated.checkValidity())
+        throw new Error('edited-account form invalid before submit: '+
+          JSON.stringify([...editCreated.querySelectorAll(':invalid')]
+            .map(x=>({name:x.name||x.id,missing:x.validity.valueMissing,
+              over:x.validity.rangeOverflow,under:x.validity.rangeUnderflow}))))
       saveEdited.click()
       saveEdited.click()
-      await waitFor('#modal.hidden',7500)
+      await waitFor('#modal.hidden',7500).catch(err=>{
+        throw new Error('edited-account save did not complete: '+JSON.stringify({
+          submitting:editCreated.dataset.submitting,
+          disabled:saveEdited.disabled,
+          formValid:editCreated.checkValidity(),
+          modalHidden:document.querySelector('#modal')?.classList.contains('hidden'),
+          editCalls:globalThis.__mockEditCalls,
+          expertWrites:globalThis.__mockNewExpertWrites,
+          rejectedWrites:globalThis.__mockRejectedMaintenanceWrites,
+          editBusy:globalThis.__mockEditMaintenanceBusy,
+          expertBusy:globalThis.__mockExpertMaintenanceBusy,
+          savedName:globalThis.__mockCreatedAccount?.name,
+          operationBusy:XportOperation.busy,
+          toast:document.querySelector('#toast')?.textContent?.slice(0,190)
+        })+'; '+err.message)
+      })
       if(globalThis.__mockRejectedMaintenanceWrites!==rejectedBeforeEdit+2||
          globalThis.__mockEditCalls!==editBefore+1||
          globalThis.__mockNewExpertWrites!==expertBefore+1)
