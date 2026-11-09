@@ -74,6 +74,11 @@ cat > "$TMP/__mock.js" <<'JS'
   globalThis.__mockAccountDeleted = false
   globalThis.__mockCreatedAccount = null
   globalThis.__mockCreateCalls = 0
+  globalThis.__mockCreatedRequest = null
+  globalThis.__mockNewExpert = null
+  globalThis.__fwExternalRemoveCalls = 0
+  globalThis.__fwExternalConfirmCalls = 0
+  globalThis.__fwExternalLastRemove = null
   globalThis.__mockCreateMode = 'success'
   globalThis.__mockShareURI='vless://example-token@proxy.example.com:23456'
   globalThis.__mockShareFail=false
@@ -136,11 +141,13 @@ cat > "$TMP/__mock.js" <<'JS'
     if (path === '/api/accounts' && method === 'POST') {
       globalThis.__mockCreateCalls++
       const body=JSON.parse(init.body||'{}')
+      globalThis.__mockCreatedRequest=body
       if(globalThis.__mockCreateMode==='conflict-recovered'){
         globalThis.__mockCreatedAccount={id:2,name:body.name,port:body.port||23741,
           protocol:body.protocol,enabled:Boolean(body.enabled),editable:true,upBytes:0,downBytes:0,
           quotaBytes:Number(body.quotaBytes||0),expiryTime:Number(body.expiryTime||0),
-          monthlyReset:Boolean(body.monthlyReset)}
+          monthlyReset:Boolean(body.monthlyReset),network:body.network,security:body.security,
+          serverName:body.serverName,dest:body.dest,privateKey:body.privateKey,shortId:body.shortId}
         return json({error:'port '+(body.port||23741)+' is already used by "'+body.name+'"'},400)
       }
       if(globalThis.__mockCreateMode==='real-conflict')
@@ -148,7 +155,8 @@ cat > "$TMP/__mock.js" <<'JS'
       globalThis.__mockCreatedAccount={id:2,name:body.name,port:body.port||23741,
         protocol:body.protocol,enabled:Boolean(body.enabled),editable:true,upBytes:0,downBytes:0,
           quotaBytes:Number(body.quotaBytes||0),expiryTime:Number(body.expiryTime||0),
-          monthlyReset:Boolean(body.monthlyReset)}
+          monthlyReset:Boolean(body.monthlyReset),network:body.network,security:body.security,
+          serverName:body.serverName,dest:body.dest,privateKey:body.privateKey,shortId:body.shortId}
       return json(globalThis.__mockCreatedAccount,201)
     }
     if (path === '/api/accounts/1/clone' && method === 'POST') {
@@ -184,6 +192,8 @@ cat > "$TMP/__mock.js" <<'JS'
       return json(account)
     }
     if (path === '/api/accounts/1' && method === 'GET') return json(account)
+    if (path === '/api/accounts/2' && method === 'GET')
+      return json(globalThis.__mockCreatedAccount||{error:'missing newly created account'})
     if (path === '/api/accounts/1/enabled' && method === 'PATCH') {
       globalThis.__accountToggleCalls++
       const next=Boolean(JSON.parse(init.body||'{}').enabled)
@@ -195,6 +205,16 @@ cat > "$TMP/__mock.js" <<'JS'
     if (path === '/api/accounts/1/share' && method === 'GET')
       return globalThis.__mockShareFail?json({error:'share endpoint unavailable'},503):
         json({uri:globalThis.__mockShareURI})
+    if (path === '/api/accounts/2/expert' && method === 'PUT') {
+      const body=JSON.parse(init.body||'{}')
+      globalThis.__mockNewExpert={
+        ...body,supportsReality:body.security==='reality',supportsTls:body.security==='tls',
+        supportsXhttp:body.method==='xhttp',supportsFallbacks:false,supportsHttpHeader:false
+      }
+      return json(globalThis.__mockNewExpert)
+    }
+    if (path === '/api/accounts/2/expert' && method === 'GET')
+      return json(globalThis.__mockNewExpert||{})
     if (path === '/api/accounts/1/expert' && method === 'GET') {
       if(globalThis.__mockFailNextExpertRead){
         globalThis.__mockFailNextExpertRead=false
@@ -279,7 +299,28 @@ cat > "$TMP/__mock.js" <<'JS'
       }
       return json({ok:true,pending:false,id:req.id})
     }
+    if(path==='/api/firewall/external/remove'&&method==='POST'){
+      const body=JSON.parse(init.body||'{}')
+      globalThis.__fwExternalRemoveCalls++
+      globalThis.__fwExternalLastRemove=body
+      const found=globalThis.__fwExtraRules.find(r=>r.id===body.id)
+      if(!found||body.revision!==found.revision||body.externalAcknowledged!==true)
+        return json({error:'missing revision or explicit acknowledgment'},409)
+      globalThis.__fwExtraRules=globalThis.__fwExtraRules.filter(r=>r.id!==body.id)
+      globalThis.__mockFwPending={
+        id:body.id,token:'ci-restore-token'.padEnd(32,'0'),
+        deadline:Date.now()+120000,kind:'remove-allow'
+      }
+      return json({ok:true,pending:true,...globalThis.__mockFwPending})
+    }
     if(path==='/api/firewall/rules/confirm'&&method==='POST'){
+      const body=JSON.parse(init.body||'{}')
+      if(globalThis.__mockFwPending?.kind==='remove-allow'){
+        if(body.id!==globalThis.__mockFwPending.id||
+           body.token!==globalThis.__mockFwPending.token)
+          return json({error:'bad native restore token'},403)
+        globalThis.__fwExternalConfirmCalls++
+      }
       globalThis.__mockFwPending=null
       return json({ok:true})
     }
@@ -361,6 +402,9 @@ cat > "$TMP/__mock.js" <<'JS'
   confirmDialog.showModal=()=>{
     nativeShow()
     globalThis.__fwConfirmCalls++
+    // Click-through coverage exercises explicit Confirm/Cancel buttons.
+    // The older regression suite keeps its automatic confirmation helper.
+    if(globalThis.__manualConfirmationTest)return
     const text=confirmDialog.querySelector('#operation-confirm-detail').textContent
     // An initial risk confirmation may also mention 120 seconds.
     // Only the POST-write recovery prompt is intentionally declined.
@@ -823,11 +867,32 @@ cat > "$TMP/__driver.js" <<'JS'
         throw new Error('expert save must not write to persisted TLS while base mode is unsaved')
       const targetInput=document.querySelector('#expert-reality-target')
       const namesInput=document.querySelector('#expert-reality-names')
-      const shortInput=document.querySelector('#expert-reality-shortids')
-      targetInput.value='www.microsoft.com:443'
-      targetInput.dispatchEvent(new Event('input',{bubbles:true}))
-      namesInput.value='www.microsoft.com'
+      const realityPreset=document.querySelector('#expert-reality-template')
+      if(!realityPreset||realityPreset.value!=='')
+        throw new Error('REALITY template must default to Custom for empty or unmatched targets')
+      realityPreset.value='microsoft'
+      realityPreset.dispatchEvent(new Event('change',{bubbles:true}))
+      if(targetInput.value!=='www.microsoft.com:443'||namesInput.value!=='www.microsoft.com')
+        throw new Error('REALITY template did not update Target and Server Names together')
+      namesInput.value='custom.example.net'
       namesInput.dispatchEvent(new Event('input',{bubbles:true}))
+      if(realityPreset.value!=='')
+        throw new Error('REALITY custom SNI still displays a mismatched preset')
+      selectedSecurity.value='none'
+      selectedSecurity.dispatchEvent(new Event('change',{bubbles:true}))
+      await waitFor('#expert-content .expert-body')
+      selectedSecurity.value='reality'
+      selectedSecurity.dispatchEvent(new Event('change',{bubbles:true}))
+      await waitFor('#expert-reality-target')
+      const returnedPreset=await waitFor('#expert-reality-template')
+      if(document.querySelector('#expert-reality-names').value!=='custom.example.net'||
+         returnedPreset.value!=='')
+        throw new Error('custom SNI and Custom selector were not restored together')
+      returnedPreset.value='microsoft'
+      returnedPreset.dispatchEvent(new Event('change',{bubbles:true}))
+      if(document.querySelector('#expert-reality-names').value!=='www.microsoft.com')
+        throw new Error('template did not restore the selected SNI after manual input')
+      const shortInput=document.querySelector('#expert-reality-shortids')
       shortInput.value='01020304'
       shortInput.dispatchEvent(new Event('input',{bubbles:true}))
       selectedSecurity.value='none'
@@ -839,6 +904,8 @@ cat > "$TMP/__driver.js" <<'JS'
       if(document.querySelector('#expert-reality-target').value!=='www.microsoft.com:443' ||
          document.querySelector('#expert-reality-names').value!=='www.microsoft.com')
         throw new Error('advanced draft values were lost when switching back to REALITY')
+      if(document.querySelector('#expert-reality-template')?.value!=='microsoft')
+        throw new Error('REALITY template selector lost selection after switching security modes')
       const realityBefore=globalThis.__mockExpertWrites
       await realityForm.onsubmit({preventDefault(){},currentTarget:realityForm})
       if(globalThis.__mockLastAccountEdit?.security!=='reality' ||
@@ -896,6 +963,50 @@ cat > "$TMP/__driver.js" <<'JS'
       await waitFor('#expert-reality-target')
       if(!document.querySelector('#expert-xhttp-mode'))
         throw new Error('reopened XHTTP+REALITY account lost XHTTP section')
+      document.querySelector('#modal-close').click()
+      // Presets must preserve existing REALITY key pairs and multiple Short IDs.
+      const stableKeys={
+        privateKey:'ci-only-retained-private-key',
+        publicKey:'ci-only-retained-public-key',
+        shortIds:['a1b2c3d4','e5f6a7b8']
+      }
+      Object.assign(globalThis.__mockExpert,{
+        realityPrivateKey:stableKeys.privateKey,realityPublicKey:stableKeys.publicKey,
+        realityShortIds:stableKeys.shortIds
+      })
+      Object.assign(globalThis.__mockAccount,{
+        privateKey:stableKeys.privateKey,shortId:stableKeys.shortIds[0]
+      })
+      await openAccountModalV3(state.accounts.find(a=>a.id===1))
+      const retainedForm=await waitFor('#account-form')
+      retainedForm.querySelector('#account-advanced').open=true
+      await waitFor('#expert-reality-template')
+      const retainedPreset=document.querySelector('#expert-reality-template')
+      if(retainedPreset.value!=='')
+        throw new Error('custom REALITY target matched an unrelated preset')
+      retainedPreset.value='apple'
+      retainedPreset.dispatchEvent(new Event('change',{bubbles:true}))
+      if(document.querySelector('#expert-reality-private').value!==stableKeys.privateKey||
+         document.querySelector('#expert-reality-public').value!==stableKeys.publicKey||
+         document.querySelector('#expert-reality-shortids').value!==stableKeys.shortIds.join(', '))
+        throw new Error('applying Target/SNI preset unexpectedly changed credentials')
+      const retainedWrites=globalThis.__mockExpertWrites
+      await retainedForm.onsubmit({preventDefault(){},currentTarget:retainedForm})
+      if(globalThis.__mockLastAccountEdit?.privateKey!==stableKeys.privateKey||
+         globalThis.__mockLastAccountEdit?.shortId!==stableKeys.shortIds[0]||
+         globalThis.__mockExpertWrites!==retainedWrites+1||
+         globalThis.__mockExpert.realityPrivateKey!==stableKeys.privateKey||
+         globalThis.__mockExpert.realityPublicKey!==stableKeys.publicKey||
+         JSON.stringify(globalThis.__mockExpert.realityShortIds)!==JSON.stringify(stableKeys.shortIds))
+        throw new Error('REALITY preset save rotated keys or discarded additional Short IDs')
+      await openAccountModalV3(state.accounts.find(a=>a.id===1))
+      document.querySelector('#account-advanced').open=true
+      await waitFor('#expert-reality-template')
+      if(document.querySelector('#expert-reality-template').value!=='apple'||
+         document.querySelector('#expert-reality-target').value!=='www.apple.com:443'||
+         document.querySelector('#expert-reality-names').value!=='www.apple.com'||
+         document.querySelector('#expert-reality-private').value!==stableKeys.privateKey)
+        throw new Error('saved REALITY preset or original Private Key was not restored')
       document.querySelector('#modal-close').click()
       // Comprehensive protocol/editor matrix: each protocol change replaces
       // advanced settings immediately, without stacking stale toggle handlers.
@@ -1335,7 +1446,144 @@ cat > "$TMP/__driver.js" <<'JS'
       if(!failure?.progressAcknowledged||progress.open||XportOperation.busy)
         throw new Error('panel update error was not explicitly acknowledged and released')
       globalThis.__fwConfirmResult=false
-      mark('pass', `clonePort=${portInput.value};legacyHits=0;fallbackDest=${dest};layout=contained;globalXray=ok;firewallEdits=guarded`)
+      // Submit a NEW REALITY account via its actual button.
+      globalThis.__mockCreatedAccount=null
+      globalThis.__mockCreatedRequest=null
+      globalThis.__mockNewExpert=null
+      globalThis.__mockCreateMode='success'
+      document.querySelector('#nav [data-page="accounts"]').click()
+      document.querySelector('#add-account').click()
+      const newRealityForm=await waitFor('#account-form')
+      newRealityForm.querySelector('input[name="name"]').value='reality-preset-browser'
+      const newNet=newRealityForm.querySelector('#network-select')
+      newNet.value='xhttp'
+      newNet.dispatchEvent(new Event('change',{bubbles:true}))
+      const newSec=newRealityForm.querySelector('#security-select')
+      newSec.value='none'
+      newSec.dispatchEvent(new Event('change',{bubbles:true}))
+      newSec.value='reality'
+      newSec.dispatchEvent(new Event('change',{bubbles:true}))
+      newRealityForm.querySelector('#account-advanced').open=true
+      const newPreset=await waitFor('#expert-reality-template')
+      newPreset.value='mozilla'
+      newPreset.dispatchEvent(new Event('change',{bubbles:true}))
+      if(newRealityForm.querySelector('#expert-reality-target').value!=='www.mozilla.org:443'||
+         newRealityForm.querySelector('#expert-reality-names').value!=='www.mozilla.org')
+        throw new Error('new REALITY template failed to populate Target/SNI')
+      const callsBeforeNew=globalThis.__mockCreateCalls
+      newRealityForm.querySelector('button[type="submit"]').click()
+      await waitFor('#modal.hidden',6500)
+      if(globalThis.__mockCreateCalls!==callsBeforeNew+1||
+         globalThis.__mockCreatedRequest?.protocol!=='vless'||
+         globalThis.__mockCreatedRequest?.network!=='xhttp'||
+         globalThis.__mockCreatedRequest?.security!=='reality'||
+         globalThis.__mockCreatedRequest?.serverName!=='www.mozilla.org'||
+         globalThis.__mockCreatedRequest?.dest!=='www.mozilla.org:443'||
+         globalThis.__mockNewExpert?.realityTarget!=='www.mozilla.org:443'||
+         globalThis.__mockNewExpert?.realityServerNames?.[0]!=='www.mozilla.org')
+        throw new Error('NEW REALITY account save missed base or expert template payload')
+      const justCreated=state.accounts.find(a=>a.name==='reality-preset-browser')
+      if(!justCreated)throw new Error('new REALITY account missing after create')
+      await openAccountModalV3(justCreated)
+      const savedNewAdvanced=await waitFor('#account-advanced')
+      savedNewAdvanced.open=true
+      await waitFor('#expert-reality-template')
+      if(document.querySelector('#expert-reality-template').value!=='mozilla'||
+         document.querySelector('#expert-reality-names').value!=='www.mozilla.org')
+        throw new Error('new REALITY account edit/reopen lost the preset')
+      document.querySelector('#cancel-form').click()
+
+      // Click the external deletion control, cancel once, then accept both
+      // the destructive operation and the recovery-timer confirmation.
+      // Disable the fixture's automatic confirmation driver for this segment.
+      globalThis.__manualConfirmationTest=true
+      document.querySelector('#nav [data-page="firewall"]').click()
+      const externalDeleteID='firewalld:public:19553/tcp'
+      const externalRevision='0123456789abcdef01234567'
+      globalThis.__fwExtraRules.push({
+        id:externalDeleteID,port:19553,protocol:'tcp',zone:'public',backend:'firewalld',
+        family:'both',kind:'port',action:'allow',runtime:true,permanent:true,
+        managed:false,protected:false,xray:false,usage:'unused',revision:externalRevision,
+        purpose:'CI browser idle external',note:'',access:'区域：public'
+      })
+      // Navigation can have an in-flight GET with an earlier snapshot.
+      // Wait until it releases Refresh, then reload after adding the rule.
+      await waitFor('#fw-refresh:not(:disabled)')
+      document.querySelector('#page-firewall [data-fw-tab="rules"]').click()
+      document.querySelector('#page-firewall [data-fw-filter="all"]').click()
+      const externalSearch=document.querySelector('#fw-search')
+      externalSearch.value=''
+      externalSearch.dispatchEvent(new Event('input',{bubbles:true}))
+      document.querySelector('#fw-refresh').click()
+      await waitFor('#fw-rows button[data-fw-act="detail"][data-fw-id="'+externalDeleteID+'"]',6500)
+      const protectedDetail=await waitFor('#fw-rows button[data-fw-act="detail"][data-fw-id="firewalld:public:22022/tcp"]')
+      protectedDetail.click()
+      if(!document.querySelector('#fw-detail-remove').hidden)
+        throw new Error('protected SSH rule unexpectedly deletable')
+      document.querySelector('#fw-detail-dialog').close()
+      const findIdle=()=>document.querySelector('#fw-rows button[data-fw-act="detail"][data-fw-id="'+externalDeleteID+'"]')
+      if(!findIdle())throw new Error('idle external rule missing from table')
+      findIdle().click()
+      const removeControl=await waitFor('#fw-detail-dialog[open] #fw-detail-remove')
+      if(removeControl.hidden)throw new Error('idle external remove button hidden')
+      const deleteCallsBefore=globalThis.__fwExternalRemoveCalls
+      removeControl.click()
+      await waitFor('#operation-confirm[open]')
+      await waitForTextContains('#operation-confirm-title','确认删除放行规则')
+      document.querySelector('#operation-confirm-cancel').click()
+      await sleep(40)
+      if(globalThis.__fwExternalRemoveCalls!==deleteCallsBefore)
+        throw new Error('cancel external delete invoked API')
+      findIdle().click()
+      await waitFor('#fw-detail-dialog[open]')
+      document.querySelector('#fw-detail-remove').click()
+      // Title text remains after Cancel, so waiting for text alone can click
+      // the inactive Confirm button before the new modal actually opens.
+      await waitFor('#operation-confirm[open]')
+      await waitForTextContains('#operation-confirm-title','确认删除放行规则')
+      if(!XportOperation.confirming)
+        throw new Error('confirmation dialog open but handler is not active')
+      const acceptExternal=document.querySelector('#operation-confirm-apply')
+      acceptExternal.click()
+      await sleep(50)
+      if(globalThis.__fwExternalRemoveCalls!==deleteCallsBefore+1){
+        throw new Error('accepted external-rule deletion did not issue POST: '+JSON.stringify({
+          confirming:XportOperation.confirming,busy:XportOperation.busy,
+          confirmOpen:document.querySelector('#operation-confirm')?.open,
+          confirmLabel:acceptExternal.textContent,
+          toast:document.querySelector('#toast')?.textContent,
+          progressTitle:document.querySelector('#operation-progress-title')?.textContent,
+          removeCalls:globalThis.__fwExternalRemoveCalls
+        }))
+      }
+      await waitForTextContains('#operation-confirm-title','请确认删除后仍可连接',6500).catch(err=>{
+        throw new Error('recovery-confirm modal did not open: '+JSON.stringify({
+          progress:document.querySelector('#operation-progress')?.open,
+          modal:document.querySelector('#operation-confirm')?.open,
+          title:document.querySelector('#operation-confirm-title')?.textContent,
+          toast:document.querySelector('#toast')?.textContent,
+          removeCalls:globalThis.__fwExternalRemoveCalls,
+          pending:globalThis.__mockFwPending?.kind
+        })+'; '+err.message)
+      })
+      if(document.querySelector('#operation-progress').open)
+        throw new Error('recovery confirmation shown behind progress modal')
+      if(globalThis.__fwExternalRemoveCalls!==deleteCallsBefore+1||
+         globalThis.__fwExternalLastRemove?.id!==externalDeleteID||
+         globalThis.__fwExternalLastRemove?.revision!==externalRevision||
+         globalThis.__fwExternalLastRemove?.externalAcknowledged!==true||
+         globalThis.__mockFwPending?.kind!=='remove-allow')
+        throw new Error('external removal API missed revision, consent or recovery timer')
+      document.querySelector('#operation-confirm-apply').click()
+      await waitForTextContains('#toast','删除已确认',6500)
+      if(globalThis.__fwExternalConfirmCalls!==1||globalThis.__mockFwPending||
+         globalThis.__fwExtraRules.some(r=>r.id===externalDeleteID)||
+         document.querySelector('#fw-rows button[data-fw-id="'+externalDeleteID+'"]'))
+        throw new Error('confirmed external deletion failed to update native state and UI')
+      if(document.querySelector('#operation-progress').open||XportOperation.busy)
+        throw new Error('external delete left busy modal')
+      globalThis.__manualConfirmationTest=false
+      mark('pass','new REALITY create/edit + external delete cancel/confirm + existing regressions')
     } catch (err) {
       mark('fail', String(err?.stack || err).slice(0,900))
     }

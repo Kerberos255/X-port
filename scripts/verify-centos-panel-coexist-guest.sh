@@ -163,6 +163,55 @@ code="$(curl -sS -b /run/xport-ci.cookie -H "Origin: $BASE" \
 test "$code" = 409
 firewall-cmd --zone="$ZONE" --query-port=19090/tcp | grep -Fxq yes
 echo "[panel-coexist] Revision checks and management listener protection passed"
+# The same protections apply to the separate external-delete API.
+python3 - <<'PY'
+import json
+d=json.load(open("/run/panel-edit-protected.json"))
+r=next(x for x in d["rules"] if x["port"]==19090 and x["protocol"]=="tcp")
+json.dump({"id":r["id"],"revision":r["revision"],"externalAcknowledged":True},
+ open("/run/external-delete-protected-request.json","w"))
+PY
+code="$(curl -sS -b /run/xport-ci.cookie -H "Origin: $BASE" \
+ -H 'Content-Type: application/json' -o /run/external-delete-protected-response.json -w '%{http_code}' \
+ -d @/run/external-delete-protected-request.json "$BASE/api/firewall/external/remove")"
+test "$code" = 409
+firewall-cmd --zone="$ZONE" --query-port=19090/tcp | grep -Fxq yes
+
+# The native backend must accept a dormant external allowance, then keep it
+# deleted after an authenticated Web confirmation cancels its recovery timer.
+STAGE=external-delete-confirm
+firewall-cmd --zone="$ZONE" --add-port=19180/tcp
+firewall-cmd --permanent --zone="$ZONE" --add-port=19180/tcp
+curl -fsS -b /run/xport-ci.cookie "$BASE/api/firewall" >/run/external-delete-before.json
+python3 - <<'PY'
+import json
+d=json.load(open("/run/external-delete-before.json"))
+r=next(x for x in d["rules"] if x["port"]==19180 and x["protocol"]=="tcp")
+assert r["managed"] is False and r["runtime"] and r["permanent"],r
+json.dump({"id":r["id"],"revision":r["revision"],"externalAcknowledged":True},
+ open("/run/external-delete-request.json","w"))
+PY
+code="$(curl -sS -b /run/xport-ci.cookie -H "Origin: $BASE" \
+ -H 'Content-Type: application/json' -o /run/external-delete-start.json -w '%{http_code}' \
+ -d @/run/external-delete-request.json "$BASE/api/firewall/external/remove")"
+if [[ "$code" != 202 ]]; then cat /run/external-delete-start.json; exit 1; fi
+test "$(firewall-cmd --zone="$ZONE" --query-port=19180/tcp || true)" = no
+test "$(firewall-cmd --permanent --zone="$ZONE" --query-port=19180/tcp || true)" = no
+python3 - <<'PY'
+import json
+p=json.load(open("/run/external-delete-start.json"))
+assert p["pending"] and p["kind"]=="remove-allow" and len(p["token"])==32,p
+json.dump({"id":p["id"],"token":p["token"]},open("/run/external-delete-confirm.json","w"))
+PY
+code="$(curl -sS -b /run/xport-ci.cookie -H "Origin: $BASE" \
+ -H 'Content-Type: application/json' -o /run/external-delete-confirmed.json -w '%{http_code}' \
+ -d @/run/external-delete-confirm.json "$BASE/api/firewall/rules/confirm")"
+if [[ "$code" != 200 ]]; then cat /run/external-delete-confirmed.json; exit 1; fi
+firewall-cmd --reload
+test "$(firewall-cmd --zone="$ZONE" --query-port=19180/tcp || true)" = no
+test "$(firewall-cmd --permanent --zone="$ZONE" --query-port=19180/tcp || true)" = no
+echo "[panel-coexist] Native external-rule deletion confirmed; no restart or ownership change"
+
 
 # Unconfirmed external edits must restore the old port and remove the new
 # rule without depending on X-port being available 120 seconds later.
@@ -185,6 +234,26 @@ code="$(curl -sS -b /run/xport-ci.cookie -H "Origin: $BASE" \
 if [[ "$code" != 202 ]]; then cat /run/external-watchdog-start.json; exit 1; fi
 test "$(firewall-cmd --zone="$ZONE" --query-port=19181/tcp || true)" = no
 firewall-cmd --zone="$ZONE" --query-port=19182/tcp | grep -Fxq yes
+# A separate unconfirmed deletion also restores without the X-port binary.
+# Arm it alongside the edit timer to share the same native 120-second window.
+STAGE=external-delete-watchdog
+firewall-cmd --zone="$ZONE" --add-port=19183/tcp
+firewall-cmd --permanent --zone="$ZONE" --add-port=19183/tcp
+curl -fsS -b /run/xport-ci.cookie "$BASE/api/firewall" >/run/external-delete-watchdog-before.json
+python3 - <<'PY'
+import json
+d=json.load(open("/run/external-delete-watchdog-before.json"))
+r=next(x for x in d["rules"] if x["port"]==19183 and x["protocol"]=="tcp")
+assert r["managed"] is False
+json.dump({"id":r["id"],"revision":r["revision"],"externalAcknowledged":True},
+ open("/run/external-delete-watchdog-request.json","w"))
+PY
+code="$(curl -sS -b /run/xport-ci.cookie -H "Origin: $BASE" \
+ -H 'Content-Type: application/json' -o /run/external-delete-watchdog-start.json -w '%{http_code}' \
+ -d @/run/external-delete-watchdog-request.json "$BASE/api/firewall/external/remove")"
+if [[ "$code" != 202 ]]; then cat /run/external-delete-watchdog-start.json; exit 1; fi
+test "$(firewall-cmd --zone="$ZONE" --query-port=19183/tcp || true)" = no
+test "$(firewall-cmd --permanent --zone="$ZONE" --query-port=19183/tcp || true)" = no
 # Keep the installed panel service running; the watchdog's native worker
 # still must not depend on the X-port executable.
 mv /usr/local/bin/xport /usr/local/bin/xport.external-watchdog
@@ -196,7 +265,10 @@ for i in $(seq 1 185); do
  old_pm="$(firewall-cmd --permanent --zone="$ZONE" --query-port=19181/tcp || true)"
  new_rt="$(firewall-cmd --zone="$ZONE" --query-port=19182/tcp || true)"
  new_pm="$(firewall-cmd --permanent --zone="$ZONE" --query-port=19182/tcp || true)"
- if [[ "$old_rt" = yes && "$old_pm" = yes && "$new_rt" = no && "$new_pm" = no ]]; then
+ deletion_rt="$(firewall-cmd --zone="$ZONE" --query-port=19183/tcp || true)"
+ deletion_pm="$(firewall-cmd --permanent --zone="$ZONE" --query-port=19183/tcp || true)"
+ if [[ "$old_rt" = yes && "$old_pm" = yes && "$new_rt" = no && "$new_pm" = no &&
+       "$deletion_rt" = yes && "$deletion_pm" = yes ]]; then
   restored=1; break
  fi
  sleep 1
@@ -206,7 +278,7 @@ if [[ "$restored" != 1 ]]; then
  echo "[panel-coexist] Unconfirmed external edit watchdog did not restore old rule"
  exit 1
 fi
-echo "[panel-coexist] Real 120-second external edit recovered old rule and removed target while binary missing"
+echo "[panel-coexist] Real 120-second external edit and deletion recovered while binary missing"
 
 systemctl is-active --quiet 1panel-core
 systemctl is-active --quiet xport.service

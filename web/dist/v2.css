@@ -287,3 +287,8 @@ html[data-theme="light"] .editor-policy input:checked+.editor-policy-track{backg
  .editor-policies{display:grid;grid-template-columns:1fr;gap:10px}
  .editor-actions .btn{min-width:82px}.editor-actions .btn.primary{min-width:112px}
 }
+
+/* Keep REALITY presets aligned with the expert editor field grid. */
+.reality-template-field{grid-column:1/-1;min-width:0}
+.reality-template-field select{width:100%;min-width:0}
+html[data-theme="light"] .reality-template-field select{background:#fff;color:#1b293a;border-color:rgba(71,96,128,.18)}

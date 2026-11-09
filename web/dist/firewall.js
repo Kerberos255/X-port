@@ -196,6 +196,13 @@
       toast('保存成功')
     } catch(err) {toast(err.message,true)}
   }
+  function canDeleteExternal(r){
+    return Boolean(r&&!r.managed&&!r.protected&&!r.xray&&!r.rangeStart&&
+      r.kind==='port'&&r.action==='allow'&&r.runtime&&r.permanent&&
+      !r.conflict&&!r.paused&&r.backend==='firewalld'&&
+      !state.data?.opaqueRichZones?.[r.zone]&&
+      typeof r.revision==='string'&&r.revision.length===24&&editable())
+  }
   function openDetail(id) {
     const r=rules().find(x=>x.id===id)
     if(!r)return
@@ -208,19 +215,19 @@
       ? '这是端口范围规则，仅展示配置和监听情况。范围规则不能通过当前页面删除或修改。'
       : r.managed
       ? '由 X-port 创建的端口规则；修改前仍需检查服务和网络连通性。'
-      : '由系统或其他管理器维护。可修改用途和备注，删除操作保留在原管理器中。'
+      : canDeleteExternal(r)?'外部普通放行规则；确认后可删除，120 秒内未确认将自动恢复。':r.xray?'该规则关联已配置的 Xray 账号，请从账号管理中处理。':'由系统或其他管理器维护，当前规则类型或状态不满足安全删除条件。'
     const groups=[
       ['基本信息',[['用途',label(r)],['来源 IP',addressText(r)],['关联账号',r.accountAmbiguous?'多个候选，无法唯一定位':(r.accountName||'无关联')],['监听状态',r.usage==='used'?'检测到相关监听或发布端口':r.usage==='unused'?'未检测到同协议监听':'无法确认'],['备注',r.note||'未填写'],['规则来源',source(r)],['访问来源',r.access||'未确认']]],
       ['规则状态',[['策略',policy(r)==='deny'?'拒绝 · DROP':policy(r)==='reject'?'拒绝 · REJECT':policy(r)==='conflict'?'存在重叠策略':policy(r)==='allow'?'允许':'需检查'],['运行时',r.runtime?'已配置':'不存在'],['永久配置',r.permanent?'已配置':'不存在'],['地址族',r.family==='both'?'IPv4 + IPv6':r.family==='ipv4'?'IPv4':r.family==='ipv6'?'IPv6':r.backend==='ufw'?(r.ipv4?'IPv4 ':'')+(r.ipv6?'IPv6':''):'由 firewalld Zone 决定']]],
       ['关联进程与容器',[['已识别',(r.usageDetails||[]).map(usageDescription).join('；')||'暂无'],['其他关联',r.usageOverflow ? '另外 '+r.usageOverflow+' 条' : '无'],['端口范围',r.rangeStart ? portText(r)+'/'+r.protocol : '单端口']]],
-      ['安全保护',[['规则归属',r.managed?'X-port 管理':'外部或未知（不可删除）'],['端口保护',r.protected?'已启用':'未检测到本机监听']]]
+      ['安全保护',[['规则归属',r.managed?'X-port 管理':canDeleteExternal(r)?'外部规则（允许删除）':'外部或未知（受保护）'],['端口保护',r.protected?'已启用':'未检测到本机监听']]]
     ]
     el('fw-detail-body').innerHTML=groups.map(([heading,fields])=>
       '<section class="fw-detail-section"><h3>'+html(heading)+'</h3><dl>'+
       fields.map(([name,value])=>'<div class="fw-detail-row"><dt>'+html(name)+'</dt><dd>'+html(value)+'</dd></div>').join('')+
       '</dl></section>'
     ).join('')
-    el('fw-detail-remove').hidden = !editable() || r.protected || !r.managed || Boolean(r.rangeStart)
+    el('fw-detail-remove').hidden = !editable() || r.protected || Boolean(r.rangeStart) || (!r.managed&&!canDeleteExternal(r))
     el('fw-detail-dialog').returnValue = ''
     el('fw-detail-dialog').showModal()
   }
@@ -472,17 +479,19 @@
     const action=ev.submitter?.value||''
     el('fw-detail-dialog').close()
     if(action!=='remove'||!r)return
-    if(!r.managed||r.protected||!editable())return toast('规则受保护或不属于 X-port，不能删除',true)
+    if(r.protected||!editable()||(!r.managed&&!canDeleteExternal(r)))return toast('规则受保护或不符合安全删除条件',true)
     if(r.kind==='rich'&&r.action==='deny'){
       void runPolicyControl('remove-drop',r)
       return
     }
     if(!await XportOperation.ask({title:'确认删除放行规则',
-      detail:'将删除 '+portText(r)+'/'+r.protocol.toUpperCase()+' 放行规则。\n请先确认该端口没有需要保留的服务。',
+      detail:(r.managed?'将删除 X-port 创建的':'将删除外部管理器创建的')+' '+portText(r)+'/'+r.protocol.toUpperCase()+' 放行规则。\n未确认则约 120 秒后自动恢复。',
       confirmText:'确认删除',danger:true}))return
     try{
       const result=await applyRule('正在删除防火墙规则',portText(r)+' / '+r.protocol.toUpperCase(),
-        ()=>request('/api/firewall/rules','POST',{action:'remove',port:r.port,protocol:r.protocol,zone:r.zone||''}),
+        ()=>r.managed
+          ?request('/api/firewall/rules','POST',{action:'remove',port:r.port,protocol:r.protocol,zone:r.zone||''})
+          :request('/api/firewall/external/remove','POST',{id:r.id,revision:r.revision,externalAcknowledged:true}),
         (data,result)=>result?.pending
           ?data.pending?.some(p=>p.id===result.id)
           :!data.rules?.some(x=>x.id===r.id&&x.runtime&&x.permanent))
