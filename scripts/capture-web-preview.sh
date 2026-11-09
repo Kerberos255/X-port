@@ -196,6 +196,8 @@ cat > "$TMP/__preview.js" <<'JS'
           const button=document.querySelector('#fw-detail-remove')
           if(button.hidden||!document.querySelector('#fw-detail-body').textContent.includes('外部规则（允许删除）'))
             throw new Error('idle external rule delete entry missing')
+          if(getComputedStyle(button).color!=='rgb(166, 46, 70)')
+            throw new Error('external deletion button lacks high-contrast danger text in light mode')
           if(innerWidth<700){
             const dialog=document.querySelector('#fw-detail-dialog')
             const content=dialog.querySelector('.fw-detail-body')

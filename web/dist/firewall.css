@@ -173,6 +173,9 @@ html[data-theme="light"] #fw-detail-dialog dd{color:#243953}
 html[data-theme="light"] #fw-detail-dialog .fw-detail-badge{color:#176842;background:#e6f6ee}
 html[data-theme="light"] #fw-detail-dialog .fw-detail-badge.warn{color:#85540b;background:#fff1d7}
 html[data-theme="light"] #fw-detail-dialog .btn.ghost{color:#395672}
+html[data-theme="light"] #fw-detail-dialog .fw-detail-actions .btn.danger{
+ color:#a62e46;background:#fff0f2;border-color:#e5b4bf;font-weight:700
+}
 
 @media(max-width:700px){
  #page-firewall .fw-table td:before{font-size:11px}
