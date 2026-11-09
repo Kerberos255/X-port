@@ -1,6 +1,7 @@
 package accountcfg
 
 import (
+	"encoding/json"
 	"net/url"
 	"strings"
 	"testing"
@@ -36,8 +37,17 @@ func TestNewCloneShareReality(t *testing.T) {
 		t.Fatal(err)
 	}
 	cv, _ := ToView(clone)
-	if cv.Credential == v.Credential || clone.Port != 21002 || clone.ID != 0 {
+	if cv.Credential == v.Credential || clone.Port != 21002 || clone.ID != 0 ||
+	 cv.PrivateKey==v.PrivateKey || cv.ShortID==v.ShortID {
 		t.Fatalf("clone not isolated: %+v", cv)
+	}
+	clonedURI,err:=ShareURI(clone,"proxy.example.net")
+	if err!=nil{t.Fatal(err)}
+	clonedURL,err:=url.Parse(clonedURI)
+	if err!=nil{t.Fatal(err)}
+	if clonedURL.Query().Get("pbk")==u.Query().Get("pbk") ||
+	 clonedURL.Query().Get("sid")==u.Query().Get("sid") {
+	 t.Fatal("REALITY clone reused public key or short ID")
 	}
 }
 
@@ -176,4 +186,95 @@ func TestVLESSEncryptionImportIsReadOnly(t *testing.T) {
 	if v.Editable {
 		t.Fatal("VLESS Encryption import must remain read-only until a dedicated editor exists")
 	}
+}
+
+func TestUpdateFromNonRealityGeneratesUniqueRealitySecrets(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		security string
+		network string
+		initialSNI string
+		newSNI string
+	}{
+		{name: "none", security: "none", newSNI: "www.example.com"},
+		{name: "tls-preserve-sni", security: "tls", initialSNI: "www.example.com"},
+		{name: "xhttp-none", security: "none", network: "xhttp", newSNI: "www.example.com"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a, err := New(Input{Name: "Alpha", Port: 25150, Protocol: "vless", Network: tc.network, Security: tc.security, ServerName: tc.initialSNI}, 0)
+			if err != nil { t.Fatal(err) }
+			a, err = Update(a, Input{Name: "Alpha", Port: a.Port, Protocol: "vless", Network: tc.network, Security: "reality", ServerName: tc.newSNI})
+			if err != nil { t.Fatal(err) }
+			v, err := ToView(a)
+			if err != nil { t.Fatal(err) }
+			if v.Security != "reality" || v.ServerName != "www.example.com" || v.Dest != "www.example.com:443" || v.PrivateKey == "" || v.ShortID == "" {
+				t.Fatalf("incomplete REALITY transition: %+v", v)
+			}
+			uri, err := ShareURI(a, "proxy.example.com")
+			if err != nil { t.Fatal(err) }
+			u, err := url.Parse(uri)
+			if err != nil { t.Fatal(err) }
+			if u.Query().Get("pbk") == "" || u.Query().Get("sni") != v.ServerName {
+				t.Fatalf("share URI missing derived key or SNI: %s", uri)
+			}
+			again, err := New(Input{Name: "Another", Port: 25151, Protocol: "vless", Security: "none"}, 0)
+			if err != nil { t.Fatal(err) }
+			again, err = Update(again, Input{Name: "Another", Port: again.Port, Protocol: "vless", Security: "reality", ServerName: "www.example.com"})
+			if err != nil { t.Fatal(err) }
+			av, _ := ToView(again)
+			if av.PrivateKey == v.PrivateKey || av.ShortID == v.ShortID { t.Fatal("REALITY transition reused credentials") }
+		})
+	}
+}
+
+func TestUpdateToRealityRequiresServerNameAndPreservesExplicitKeys(t *testing.T) {
+	a, err := New(Input{Name: "Alpha", Port: 25160, Protocol: "vless", Security: "none"}, 0)
+	if err != nil { t.Fatal(err) }
+	if _, err := Update(a, Input{Name: "Alpha", Port: a.Port, Protocol: "vless", Security: "reality"}); err == nil || !strings.Contains(err.Error(), "Server Name") {
+		t.Fatalf("missing REALITY SNI should be actionable: %v", err)
+	}
+	withKey, err := New(Input{Name: "KeyOwner", Port: 25161, Protocol: "vless", Security: "reality", ServerName: "www.example.com"}, 0)
+	if err != nil { t.Fatal(err) }
+	kv, _ := ToView(withKey)
+	a, err = Update(a, Input{Name: "Alpha", Port: a.Port, Protocol: "vless", Security: "reality", ServerName: "www.example.com", PrivateKey: kv.PrivateKey, ShortID: "aabbccdd"})
+	if err != nil { t.Fatal(err) }
+	v, _ := ToView(a)
+	if v.PrivateKey != kv.PrivateKey || v.ShortID != "aabbccdd" { t.Fatal("explicit REALITY key/short ID overwritten") }
+}
+
+func TestNormalEditPreservesAllRealityServerNamesAndShortIDs(t *testing.T) {
+ a, err := New(Input{Name:"Reality", Enabled:true, Port:26300, Protocol:"vless",
+  Security:"reality", Network:"xhttp", ServerName:"one.example.com", Dest:"one.example.com:443"},0)
+ if err!=nil {t.Fatal(err)}
+ var stream map[string]any
+ if err=json.Unmarshal([]byte(a.StreamSettingsJSON),&stream);err!=nil {t.Fatal(err)}
+ settings:=stream["realitySettings"].(map[string]any)
+ settings["serverNames"]=[]string{"one.example.com","two.example.com","three.example.com"}
+ settings["shortIds"]=[]string{"01020304","05060708","aabbccdd"}
+ settings["xver"]=float64(1)
+ b,err:=json.Marshal(stream)
+ if err!=nil {t.Fatal(err)}
+ a.StreamSettingsJSON=string(b)
+ for _,tc:=range []struct{head,short string}{
+  {"one.example.com","01020304"},
+  {"changed.example.com","11223344"},
+ } {
+  v,err:=ToView(a)
+  if err!=nil {t.Fatal(err)}
+  a,err=Update(a,Input{Name:"Edited",Enabled:true,Port:a.Port,Protocol:"vless",
+   Network:"xhttp",Security:"reality",Credential:v.Credential,
+   ServerName:tc.head,Dest:v.Dest,PrivateKey:v.PrivateKey,ShortID:tc.short})
+  if err!=nil {t.Fatal(err)}
+  if err=json.Unmarshal([]byte(a.StreamSettingsJSON),&stream);err!=nil {t.Fatal(err)}
+  r:=stream["realitySettings"].(map[string]any)
+  names:=r["serverNames"].([]any)
+  ids:=r["shortIds"].([]any)
+  if len(names)!=3||names[0]!=tc.head||names[1]!="two.example.com"||names[2]!="three.example.com" {
+   t.Fatalf("lost multiple REALITY server names: %#v",names)
+  }
+  if len(ids)!=3||ids[0]!=tc.short||ids[1]!="05060708"||ids[2]!="aabbccdd" {
+   t.Fatalf("lost multiple REALITY short IDs: %#v",ids)
+  }
+  if r["xver"]!=float64(1) {t.Fatalf("unknown REALITY setting cleared: %#v",r)}
+ }
 }

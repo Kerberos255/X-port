@@ -55,20 +55,40 @@ function setTransportFieldVisibleV9(box,selector,visible){
 }
 function resetExistingAdvancedAfterTransportChangeV9(details,full){
  if(!full.id||!details)return
- details.open=false
+ const c=$('#expert-content')
+ // Only explicitly edited controls belong in the draft; copying the
+ // entire old form also copies hidden/inactive defaults into the next mode.
+ // Input/change events retain edited values (including structured Fallbacks).
+ details._expertEpoch=(details._expertEpoch||0)+1
  delete details.dataset.loaded
  details._expertData=null
- const c=$('#expert-content')
  if(c){c.className='advanced-loading muted tiny';c.textContent=''}
+ // Keep an already expanded editor open and replace its mode-specific fields,
+ // rather than waiting for it to be manually collapsed and reopened.
+ if(details.open){
+  details.dataset.loaded='1'
+  void loadExpertV3(full.id,details)
+ }
+}
+function renderNewAccountAdvancedV9(details){
+ if(!details||!details.open)return
+ const p=String($('#protocol-select')?.value||'vless').toLowerCase()
+ const n=editorNetworkV9($('#network-select')?.value||'tcp')
+ const security=String($('#security-select')?.value||'none').toLowerCase()
+ details.dataset.loaded='1'
+ details._expertData=syntheticExpertV6(p,n,security)
+ const c=$('#expert-content')
+ if(c)c.innerHTML=renderExpertV3(details._expertData)
 }
 function bindDirectProtocolAdvancedV9(p,details,full){
  if(full.id||!details)return
- details.addEventListener('toggle',()=>{
-  if(!details.open)return
-  details.dataset.loaded='1'
-  details._expertData=syntheticExpertV6(p,'','none')
-  const c=$('#expert-content');if(c)c.innerHTML=renderExpertV3(details._expertData)
- })
+ if(!details._newAccountAdvancedBound){
+  details._newAccountAdvancedBound=true
+  details.addEventListener('toggle',()=>renderNewAccountAdvancedV9(details))
+ }
+ // Protocol changes must also update an already expanded advanced section,
+ // including when the new protocol has no transport/security selectors.
+ renderNewAccountAdvancedV9(details)
 }
 refreshProtocolFieldsV3=function(full){
  const p=$('#protocol-select')?.value||full.protocol||'vless',box=$('#proto-fields');if(!box)return
@@ -109,13 +129,7 @@ refreshProtocolFieldsV3=function(full){
  net.addEventListener('change',()=>tune(true))
  sec.addEventListener('change',()=>{preferredSecurity=String(sec.value||'none').toLowerCase();tune(true)})
  tune(false)
- if(!full.id&&details)details.addEventListener('toggle',()=>{
-  if(details.open){
-   const n=editorNetworkV9(net.value),security=String(sec.value||'none').toLowerCase()
-   details.dataset.loaded='1';details._expertData=syntheticExpertV6(p,n,security)
-   const c=$('#expert-content');if(c)c.innerHTML=renderExpertV3(details._expertData)
-  }
- })
+ if(!full.id&&details)bindDirectProtocolAdvancedV9(p,details,full)
 }
 /* X-port v0.1.9: account editor and overview layout polish. */
 function randomUUIDV10(){
@@ -204,13 +218,7 @@ function refreshProtocolFieldsV10(full){
  net.addEventListener('change',()=>tune(true))
  sec.addEventListener('change',()=>{preferredSecurity=String(sec.value||'none').toLowerCase();tune(true)})
  tune(false)
- if(!full.id&&details)details.addEventListener('toggle',()=>{
-  if(details.open){
-   const n=editorNetworkV9(net.value),security=String(sec.value||'none').toLowerCase()
-   details.dataset.loaded='1';details._expertData=syntheticExpertV6(p,n,security)
-   const c=$('#expert-content');if(c)c.innerHTML=renderExpertV3(details._expertData)
-  }
- })
+ if(!full.id&&details)bindDirectProtocolAdvancedV9(p,details,full)
 }
 function accountFormHTMLV10(a={}){
  const p=String(a.protocol||'vless').toLowerCase(),editing=Boolean(a.id)

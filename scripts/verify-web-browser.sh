@@ -54,6 +54,12 @@ cat > "$TMP/__mock.js" <<'JS'
     tlsAlpn:['http/1.1'], tlsMinVersion:'', tlsMaxVersion:'', tlsCipherSuites:'',
     tlsRejectUnknownSni:false, tlsCertificatesJson:'[]'
   }
+  globalThis.__mockExpert = expert
+  globalThis.__mockExpertWrites = 0
+  globalThis.__mockLastAccountEdit = null
+  globalThis.__mockHoldNextExpertRead = false
+  globalThis.__mockFailNextExpertRead = false
+  globalThis.__releaseHeldExpertRead = null
   globalThis.__legacyCloneHits = 0
   globalThis.__fwConfirmCalls = 0
   globalThis.__fwConfirmResult = false
@@ -166,9 +172,15 @@ cat > "$TMP/__mock.js" <<'JS'
     }
     if (path === '/api/accounts/1' && method === 'PUT') {
       const body=JSON.parse(init.body||'{}')
+      globalThis.__mockLastAccountEdit=body
       Object.assign(account,{name:body.name,port:body.port,enabled:Boolean(body.enabled),
         monthlyReset:Boolean(body.monthlyReset),quotaBytes:Number(body.quotaBytes||0),
-        expiryTime:Number(body.expiryTime||0)})
+        expiryTime:Number(body.expiryTime||0),security:body.security,network:body.network,
+        serverName:body.serverName,dest:body.dest,privateKey:body.privateKey,shortId:body.shortId})
+      Object.assign(expert,{security:body.security,method:body.network==='tcp'?'raw':body.network,
+        supportsReality:body.security==='reality',supportsTls:body.security==='tls',
+        supportsFallbacks:body.security==='tls'&&body.network==='tcp',
+        supportsHttpHeader:body.network==='tcp',supportsXhttp:body.network==='xhttp'})
       return json(account)
     }
     if (path === '/api/accounts/1' && method === 'GET') return json(account)
@@ -183,7 +195,23 @@ cat > "$TMP/__mock.js" <<'JS'
     if (path === '/api/accounts/1/share' && method === 'GET')
       return globalThis.__mockShareFail?json({error:'share endpoint unavailable'},503):
         json({uri:globalThis.__mockShareURI})
-    if (path === '/api/accounts/1/expert' && method === 'GET') return json(expert)
+    if (path === '/api/accounts/1/expert' && method === 'GET') {
+      if(globalThis.__mockFailNextExpertRead){
+        globalThis.__mockFailNextExpertRead=false
+        return json({error:'temporary advanced read failure'},503)
+      }
+      if(globalThis.__mockHoldNextExpertRead){
+        globalThis.__mockHoldNextExpertRead=false
+        const snapshot=JSON.parse(JSON.stringify(expert))
+        return new Promise(resolve=>{globalThis.__releaseHeldExpertRead=()=>resolve(json(snapshot))})
+      }
+      return json(expert)
+    }
+    if (path === '/api/accounts/1/expert' && method === 'PUT') {
+      globalThis.__mockExpertWrites++
+      Object.assign(expert,JSON.parse(init.body||'{}'))
+      return json(expert)
+    }
     if (path === '/api/accounts/online') return json({connections:{}})
     if (path === '/api/accounts/port-suggestion') return json({port:23741,min:20000,max:60000})
     if (path === '/api/firewall' && method === 'GET') return json({
@@ -351,7 +379,7 @@ cat > "$TMP/__driver.js" <<'JS'
     document.documentElement.dataset.browserRegressionDetail = detail
   }
   mark('running','driver initialized')
-  window.addEventListener('error',e=>mark('error',String(e.message||'script error')))
+  window.addEventListener('error',e=>{globalThis.__lastBrowserError=String(e.message||'script error');mark('error',globalThis.__lastBrowserError)})
   window.addEventListener('unhandledrejection',e=>mark('rejection',String(e.reason||'unhandled rejection')))
   const sleep = ms => new Promise(r => setTimeout(r, ms))
   async function waitFor(selector, timeout=3000) {
@@ -758,6 +786,249 @@ cat > "$TMP/__driver.js" <<'JS'
       if(Math.abs((accountRect.top+accountRect.bottom)/2-innerHeight/2)>Math.max(32,innerHeight*.08)||
          accountRect.width<600||accountRect.right>innerWidth)
         throw new Error('desktop account editor must be centered and spacious')
+      document.querySelector('#modal-close').click()
+      // Regression: editing a saved TLS account to REALITY must repaint the
+      // already-open expert editor and submit advanced SNI/target with the
+      // first account write, not silently reuse old TLS-only fields.
+      await openAccountModalV3(state.accounts.find(a=>a.id===1))
+      const realityForm=await waitFor('#account-form')
+      const realityAdvanced=realityForm.querySelector('#account-advanced')
+      realityAdvanced.open=true
+      await waitFor('#expert-tls-alpn')
+      const selectedSecurity=realityForm.querySelector('#security-select')
+      selectedSecurity.value='reality'
+      selectedSecurity.dispatchEvent(new Event('change',{bubbles:true}))
+      if(!realityAdvanced.open)throw new Error('security switch unexpectedly collapsed advanced editor')
+      await waitFor('#expert-reality-target').catch(err=>{
+        const content=document.querySelector('#expert-content')
+        throw new Error('REALITY repaint: '+JSON.stringify({
+          selected:document.querySelector('#security-select')?.value,
+          network:document.querySelector('#network-select')?.value,
+          detailsOpen:realityAdvanced.open,
+          loaded:realityAdvanced.dataset.loaded,
+          epoch:realityAdvanced._expertEpoch,
+          tune:realityAdvanced.dataset.tuneDebug,
+          resetStep:realityAdvanced.dataset.resetStep,
+          lastError:globalThis.__lastBrowserError,
+          preview:content?.textContent.slice(0,440),
+          html:content?.innerHTML.slice(0,700)
+        })+'; '+err.message)
+      })
+      if(!document.querySelector('#expert-reality-private')||
+         !document.querySelector('#expert-reality-public')||
+         document.querySelector('#expert-tls-alpn'))
+        throw new Error('REALITY controls did not replace stale TLS controls')
+      const expertSaveButton=document.querySelector('#save-expert')
+      if(expertSaveButton&&!expertSaveButton.disabled)
+        throw new Error('expert save must not write to persisted TLS while base mode is unsaved')
+      const targetInput=document.querySelector('#expert-reality-target')
+      const namesInput=document.querySelector('#expert-reality-names')
+      const shortInput=document.querySelector('#expert-reality-shortids')
+      targetInput.value='www.microsoft.com:443'
+      targetInput.dispatchEvent(new Event('input',{bubbles:true}))
+      namesInput.value='www.microsoft.com'
+      namesInput.dispatchEvent(new Event('input',{bubbles:true}))
+      shortInput.value='01020304'
+      shortInput.dispatchEvent(new Event('input',{bubbles:true}))
+      selectedSecurity.value='none'
+      selectedSecurity.dispatchEvent(new Event('change',{bubbles:true}))
+      await waitFor('#expert-content .expert-body')
+      selectedSecurity.value='reality'
+      selectedSecurity.dispatchEvent(new Event('change',{bubbles:true}))
+      await waitFor('#expert-reality-target')
+      if(document.querySelector('#expert-reality-target').value!=='www.microsoft.com:443' ||
+         document.querySelector('#expert-reality-names').value!=='www.microsoft.com')
+        throw new Error('advanced draft values were lost when switching back to REALITY')
+      const realityBefore=globalThis.__mockExpertWrites
+      await realityForm.onsubmit({preventDefault(){},currentTarget:realityForm})
+      if(globalThis.__mockLastAccountEdit?.security!=='reality' ||
+         globalThis.__mockLastAccountEdit?.serverName!=='www.microsoft.com' ||
+         globalThis.__mockLastAccountEdit?.dest!=='www.microsoft.com:443' ||
+         globalThis.__mockLastAccountEdit?.shortId!=='01020304' ||
+         globalThis.__mockExpertWrites!==realityBefore+1)
+        throw new Error('REALITY edit failed to apply active expert fields with base account save')
+      await openAccountModalV3(state.accounts.find(a=>a.id===1))
+      const savedAdvanced=document.querySelector('#account-advanced')
+      savedAdvanced.open=true
+      await waitFor('#expert-reality-target')
+      if(document.querySelector('#expert-reality-target').value!=='www.microsoft.com:443')
+        throw new Error('reopened account lost saved REALITY advanced fields')
+      document.querySelector('#modal-close').click()
+      // Exact reported case: a persisted XHTTP + NONE account switches back
+      // to REALITY while the advanced editor remains expanded.
+      Object.assign(globalThis.__mockAccount,{network:'xhttp',security:'none',serverName:'',
+        privateKey:'',shortId:'',dest:''})
+      Object.assign(globalThis.__mockExpert,{method:'xhttp',security:'none',
+        supportsReality:false,supportsTls:false,supportsXhttp:true,
+        supportsFallbacks:false,supportsHttpHeader:false})
+      await openAccountModalV3(state.accounts.find(a=>a.id===1))
+      const xhttpForm=await waitFor('#account-form')
+      const xhttpAdvanced=xhttpForm.querySelector('#account-advanced')
+      xhttpAdvanced.open=true
+      await waitFor('#expert-xhttp-mode')
+      if(document.querySelector('#expert-reality-target'))
+        throw new Error('inactive REALITY was shown for persisted XHTTP + NONE')
+      const xhttpSecurity=xhttpForm.querySelector('#security-select')
+      xhttpSecurity.value='reality'
+      xhttpSecurity.dispatchEvent(new Event('change',{bubbles:true}))
+      await waitFor('#expert-reality-target')
+      if(!document.querySelector('#expert-xhttp-mode')||
+         !document.querySelector('#expert-reality-private')||
+         document.querySelector('#expert-tls-alpn'))
+        throw new Error('XHTTP + REALITY must show transport and security advanced sections together')
+      const xhttpTarget=document.querySelector('#expert-reality-target')
+      const xhttpNames=document.querySelector('#expert-reality-names')
+      xhttpTarget.value='www.example.com:443'
+      xhttpTarget.dispatchEvent(new Event('input',{bubbles:true}))
+      xhttpNames.value='www.example.com'
+      xhttpNames.dispatchEvent(new Event('input',{bubbles:true}))
+      const xhttpWrites=globalThis.__mockExpertWrites
+      await xhttpForm.onsubmit({preventDefault(){},currentTarget:xhttpForm})
+      if(globalThis.__mockLastAccountEdit?.network!=='xhttp' ||
+         globalThis.__mockLastAccountEdit?.security!=='reality' ||
+         globalThis.__mockLastAccountEdit?.serverName!=='www.example.com' ||
+         globalThis.__mockLastAccountEdit?.dest!=='www.example.com:443' ||
+         globalThis.__mockExpertWrites!==xhttpWrites+1)
+        throw new Error('persisted XHTTP to REALITY edit did not save both modes')
+      await openAccountModalV3(state.accounts.find(a=>a.id===1))
+      const checkXhttpAdvanced=document.querySelector('#account-advanced')
+      checkXhttpAdvanced.open=true
+      await waitFor('#expert-reality-target')
+      if(!document.querySelector('#expert-xhttp-mode'))
+        throw new Error('reopened XHTTP+REALITY account lost XHTTP section')
+      document.querySelector('#modal-close').click()
+      // Comprehensive protocol/editor matrix: each protocol change replaces
+      // advanced settings immediately, without stacking stale toggle handlers.
+      await openAccountModalV3(null)
+      const matrixForm=await waitFor('#account-form')
+      const matrixProtocol=matrixForm.querySelector('#protocol-select')
+      const matrixAdvanced=matrixForm.querySelector('#account-advanced')
+      matrixAdvanced.open=true
+      await waitFor('#expert-reality-target')
+      for(const matrixName of ['trojan','vmess','shadowsocks','socks','http','vless']){
+        matrixProtocol.value=matrixName
+        matrixProtocol.dispatchEvent(new Event('change',{bubbles:true}))
+        if(matrixAdvanced._expertData?.protocol!==matrixName)
+          throw new Error('advanced editor retained stale protocol on switch to '+matrixName)
+        if(matrixName==='vless'&&!document.querySelector('#expert-reality-target'))
+          throw new Error('switching back to VLESS did not restore REALITY fields')
+        if(matrixName==='vmess'&&document.querySelector('#expert-reality-target'))
+          throw new Error('VMess was presented with REALITY settings')
+      }
+      const matrixNetwork=matrixForm.querySelector('#network-select')
+      const matrixSecurity=matrixForm.querySelector('#security-select')
+      if(matrixNetwork.value!=='tcp'||matrixSecurity.value!=='reality')
+        throw new Error('protocol switch to VLESS did not reset network/security correctly')
+      matrixNetwork.value='ws'
+      matrixNetwork.dispatchEvent(new Event('change',{bubbles:true}))
+      if(matrixSecurity.value!=='tls'||document.querySelector('#expert-reality-target')||
+         !document.querySelector('#expert-tls-alpn')||
+         matrixForm.querySelector('select[name="flow"]:not(:disabled)'))
+        throw new Error('RAW REALITY to WebSocket failed to enforce TLS and disable Vision')
+      matrixNetwork.value='xhttp'
+      matrixNetwork.dispatchEvent(new Event('change',{bubbles:true}))
+      if(matrixSecurity.value!=='reality'||!document.querySelector('#expert-xhttp-mode')||
+         !document.querySelector('#expert-reality-target'))
+        throw new Error('WebSocket to XHTTP did not restore supported REALITY settings')
+      matrixNetwork.value='grpc'
+      matrixNetwork.dispatchEvent(new Event('change',{bubbles:true}))
+      if(document.querySelector('#expert-xhttp-mode')||!document.querySelector('#expert-reality-target'))
+        throw new Error('gRPC REALITY retains stale XHTTP advanced fields')
+      matrixNetwork.value='httpupgrade'
+      matrixNetwork.dispatchEvent(new Event('change',{bubbles:true}))
+      if(matrixSecurity.value!=='tls'||document.querySelector('#expert-reality-target'))
+        throw new Error('HTTPUpgrade incorrectly permits REALITY')
+      document.querySelector('#modal-close').click()
+
+      // Structured Fallbacks are editable without directly editing the JSON
+      // textarea. Their add/edit/remove actions must reach bottom Save.
+      Object.assign(globalThis.__mockAccount,{network:'tcp',security:'tls',
+        serverName:'www.example.com',dest:'',privateKey:'',shortId:''})
+      Object.assign(globalThis.__mockExpert,{method:'raw',security:'tls',
+        supportsFallbacks:true,supportsHttpHeader:true,supportsReality:false,
+        supportsTls:true,supportsXhttp:false,fallbacksJson:'[]'})
+      await openAccountModalV3(state.accounts.find(a=>a.id===1))
+      const fallbackForm=await waitFor('#account-form')
+      const fallbackAdvanced=fallbackForm.querySelector('#account-advanced')
+      fallbackAdvanced.open=true
+      const addFallback=await waitFor('.fallback-add')
+      if(fallbackAdvanced._expertData!==null)
+        throw new Error('opening advanced without edits incorrectly schedules expert PUT')
+      addFallback.click()
+      const fallbackDest=await waitFor('.fallback-rule [data-fallback-key="dest"]')
+      if(fallbackForm.checkValidity())
+        throw new Error('incomplete added fallback must fail required-field validation')
+      fallbackDest.value='8080'
+      fallbackDest.dispatchEvent(new Event('input',{bubbles:true}))
+      if(!fallbackAdvanced._expertData)
+        throw new Error('structured fallback changes did not mark expert config dirty')
+      const fallbackBefore=globalThis.__mockExpertWrites
+      await fallbackForm.onsubmit({preventDefault(){},currentTarget:fallbackForm})
+      if(globalThis.__mockExpertWrites!==fallbackBefore+1||
+         JSON.parse(globalThis.__mockExpert.fallbacksJson)[0]?.dest!==8080)
+        throw new Error('structured fallback was not saved with account')
+      await openAccountModalV3(state.accounts.find(a=>a.id===1))
+      const fallbackRemoveForm=await waitFor('#account-form')
+      const fallbackRemoveAdvanced=fallbackRemoveForm.querySelector('#account-advanced')
+      fallbackRemoveAdvanced.open=true
+      const removeFallback=await waitFor('.fallback-remove')
+      removeFallback.click()
+      if(!fallbackRemoveAdvanced._expertData)
+        throw new Error('fallback delete did not mark expert config dirty')
+      const removeBefore=globalThis.__mockExpertWrites
+      await fallbackRemoveForm.onsubmit({preventDefault(){},currentTarget:fallbackRemoveForm})
+      if(globalThis.__mockExpertWrites!==removeBefore+1||
+         JSON.parse(globalThis.__mockExpert.fallbacksJson).length!==0)
+        throw new Error('structured fallback deletion was not saved')
+
+      // A failed advanced GET should be retryable; an older in-flight GET
+      // must never repaint after a security-mode change.
+      globalThis.__mockFailNextExpertRead=true
+      await openAccountModalV3(state.accounts.find(a=>a.id===1))
+      const retryAdvanced=document.querySelector('#account-advanced')
+      retryAdvanced.open=true
+      await waitFor('#expert-content .error')
+      if(retryAdvanced.dataset.loaded==='1')
+        throw new Error('failed advanced read remained permanently cached')
+      retryAdvanced.open=false
+      retryAdvanced.open=true
+      await waitFor('#expert-tls-alpn')
+      document.querySelector('#modal-close').click()
+      globalThis.__mockHoldNextExpertRead=true
+      await openAccountModalV3(state.accounts.find(a=>a.id===1))
+      const raceForm=await waitFor('#account-form')
+      const raceAdvanced=raceForm.querySelector('#account-advanced')
+      raceAdvanced.open=true
+      for(let i=0;i<60&&!globalThis.__releaseHeldExpertRead;i++)await sleep(15)
+      if(!globalThis.__releaseHeldExpertRead)
+        throw new Error('browser did not hold the first expert read')
+      const raceSecurity=raceForm.querySelector('#security-select')
+      raceSecurity.value='reality'
+      raceSecurity.dispatchEvent(new Event('change',{bubbles:true}))
+      await waitFor('#expert-reality-target')
+      globalThis.__releaseHeldExpertRead()
+      globalThis.__releaseHeldExpertRead=null
+      await sleep(75)
+      if(!document.querySelector('#expert-reality-target')||
+         document.querySelector('#expert-tls-alpn'))
+        throw new Error('stale expert response overwrote current REALITY selection')
+      document.querySelector('#modal-close').click()
+
+      globalThis.__mockHoldNextExpertRead=true
+      await openAccountModalV3(state.accounts.find(a=>a.id===1))
+      const abandonedAdvanced=document.querySelector('#account-advanced')
+      abandonedAdvanced.open=true
+      for(let i=0;i<60&&!globalThis.__releaseHeldExpertRead;i++)await sleep(15)
+      if(!globalThis.__releaseHeldExpertRead)
+        throw new Error('abandoned-load test could not hold request')
+      abandonedAdvanced.open=false
+      globalThis.__releaseHeldExpertRead()
+      globalThis.__releaseHeldExpertRead=null
+      await sleep(75)
+      if(abandonedAdvanced.dataset.loaded==='1')
+        throw new Error('closed advanced panel still cached an unrendered GET')
+      abandonedAdvanced.open=true
+      await waitFor('#expert-tls-alpn')
       document.querySelector('#modal-close').click()
       // Exercise the actual firewall add flow with a held write response.
       document.querySelector('#nav [data-page="firewall"]').click()

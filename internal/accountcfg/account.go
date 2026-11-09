@@ -136,6 +136,27 @@ func Update(a model.Account, in Input) (model.Account, error) {
 	oldPort := a.Port
 	oldView, _ := ToView(a)
 	mergeMissing(&in, oldView)
+	// Existing non-REALITY accounts do not have a REALITY keypair to reuse.
+	// Generate it on first transition, just as the create path does, rather
+	// than saving an invalid stream or sharing a fixed preset secret.
+	if in.Security == "reality" && oldView.Security != "reality" {
+		if strings.TrimSpace(in.ServerName) == "" {
+			return model.Account{}, errors.New("REALITY requires Server Name / SNI; select a target and matching Server Name")
+		}
+		if strings.TrimSpace(in.Dest) == "" {
+			in.Dest = net.JoinHostPort(strings.TrimSpace(in.ServerName), "443")
+		}
+		if in.PrivateKey == "" {
+			private, _, err := newX25519Keypair()
+			if err != nil {
+				return model.Account{}, fmt.Errorf("generate REALITY keypair: %w", err)
+			}
+			in.PrivateKey = private
+		}
+		if in.ShortID == "" {
+			in.ShortID = newShortID()
+		}
+	}
 	normalizeEditableInput(&in)
 	if err := validateEditableInput(in); err != nil {
 		return model.Account{}, err
@@ -481,9 +502,12 @@ func buildStream(in Input, existing []byte) (string, error) {
 		r := object(stream, "realitySettings")
 		r["target"] = in.Dest
 		delete(r, "dest")
-		r["serverNames"] = []string{in.ServerName}
+		// The basic editor edits the primary SNI/Short ID only. Preserve any
+		// additional values configured in Advanced instead of silently
+		// collapsing multi-value REALITY settings on an ordinary account edit.
+		r["serverNames"] = preserveRealityList(r["serverNames"], in.ServerName)
 		r["privateKey"] = in.PrivateKey
-		r["shortIds"] = []string{in.ShortID}
+		r["shortIds"] = preserveRealityList(r["shortIds"], in.ShortID)
 		stream["realitySettings"] = r
 	} else {
 		delete(stream, "realitySettings")
@@ -499,6 +523,27 @@ func buildStream(in Input, existing []byte) (string, error) {
 		return "", err
 	}
 	return string(b), nil
+}
+
+// preserveRealityList keeps the extra values written by the advanced editor
+// when the base account editor updates the first SNI or Short ID.
+func preserveRealityList(raw any, primary string) []string {
+ values := []string{primary}
+ var existing []string
+ switch list := raw.(type) {
+ case []any:
+  for _, value := range list {
+   if str, ok := value.(string); ok { existing = append(existing, str) }
+  }
+ case []string:
+  existing = list
+ }
+ if len(existing)>1 {
+  for _, value := range existing[1:] {
+   if value!="" && value!=primary { values=append(values,value) }
+  }
+ }
+ return values
 }
 
 func applyTransport(stream map[string]any, in Input) {
@@ -671,6 +716,29 @@ func rotateCredential(a *model.Account, name string, port int) error {
 	}
 	b, _ := json.Marshal(settings)
 	a.SettingsJSON = string(b)
+	// A clone must not share the source inbound's REALITY private key or
+	// Short IDs. These are server-side authentication material, just like the
+	// client UUID/password above.
+	if strings.ToLower(a.Protocol)=="vless" || strings.ToLower(a.Protocol)=="trojan" {
+		stream := map[string]any{}
+		if err := json.Unmarshal([]byte(defaultJSON(a.StreamSettingsJSON)),&stream);err!=nil{return err}
+		if strings.ToLower(stringValue(stream["security"]))=="reality" {
+			r,ok:=stream["realitySettings"].(map[string]any)
+			if !ok {return errors.New("cannot clone REALITY account without realitySettings")}
+			private,_,err:=newX25519Keypair()
+			if err!=nil {return fmt.Errorf("generate clone REALITY keypair: %w",err)}
+			r["privateKey"]=private
+			count:=1
+			if ids,ok:=r["shortIds"].([]any);ok&&len(ids)>0 {count=len(ids)}
+			fresh:=make([]string,count)
+			for i:=range fresh {fresh[i]=newShortID()}
+			r["shortIds"]=fresh
+			stream["realitySettings"]=r
+			raw,err:=json.Marshal(stream)
+			if err!=nil{return err}
+			a.StreamSettingsJSON=string(raw)
+		}
+	}
 	return nil
 }
 
