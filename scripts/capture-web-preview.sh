@@ -188,6 +188,12 @@ cat > "$TMP/__preview.js" <<'JS'
           const button=document.querySelector('#fw-detail-remove')
           if(button.hidden||!document.querySelector('#fw-detail-body').textContent.includes('外部规则（允许删除）'))
             throw new Error('idle external rule delete entry missing')
+          if(innerWidth<700){
+            button.scrollIntoView({block:'end',inline:'nearest'})
+            const rect=button.getBoundingClientRect()
+            if(rect.left<0||rect.right>innerWidth||rect.top<0||rect.bottom>innerHeight)
+              throw new Error('mobile external-rule delete control clipped')
+          }
         }
         if (preview === 'firewall-detail-light') {
           document.querySelector('#fw-rows button[data-fw-act="detail"][data-fw-id="firewalld:public:2053/tcp"]').click()
@@ -227,13 +233,13 @@ cat > "$TMP/__preview.js" <<'JS'
         clone.click()
         await waitFor('#clone-form')
         await waitForValue('#clone-port', 23741)
-      } else if (preview === 'account' || preview === 'account-reality') {
+      } else if (preview === 'account' || preview === 'account-reality' || preview === 'account-reality-light') {
         document.querySelector('#nav [data-page="accounts"]').click()
         const edit = await waitFor('.account-row button[data-act="edit"]')
         edit.click()
         await waitFor('#account-form')
         const advanced = await waitFor('#account-advanced')
-        if(preview === 'account-reality'){
+        if(preview === 'account-reality' || preview === 'account-reality-light'){
           const network=await waitFor('#network-select')
           network.value='xhttp'
           network.dispatchEvent(new Event('change',{bubbles:true}))
@@ -253,7 +259,8 @@ cat > "$TMP/__preview.js" <<'JS'
           if(target.value!=='www.apple.com:443'||names.value!=='www.apple.com')
             throw new Error('REALITY preset did not populate Target and Server Names')
           const section=target.closest('.expert-section')
-          section?.scrollIntoView({block:'center',inline:'nearest'})
+          if(innerWidth<700)preset.scrollIntoView({block:'start',inline:'nearest'})
+          else section?.scrollIntoView({block:'center',inline:'nearest'})
           for(const el of [target,names,document.querySelector('#expert-reality-private')]){
             const rect=el?.getBoundingClientRect()
             if(!rect||rect.width<90||rect.left<0||rect.right>innerWidth+1)
@@ -401,6 +408,7 @@ capture accounts accounts
 capture clone-account clone
 capture account-advanced account
 capture account-reality account-reality
+capture account-reality-light account-reality-light
 capture account-centered account-centered
 capture account-centered-light account-centered-light
 capture clone-centered clone-centered
@@ -415,7 +423,7 @@ capture notice-error-light notice-error-light
 capture confirm-account confirm-account
 capture confirm-account-light confirm-account-light
 capture confirm-firewall confirm-firewall
-for preview in account-reality firewall-external-delete-light account-centered account-centered-light clone-centered operation-account operation-account-light operation-firewall confirm-account confirm-account-light confirm-firewall notice-success notice-error-light; do
+for preview in account-reality account-reality-light firewall-external-delete-light account-centered account-centered-light clone-centered operation-account operation-account-light operation-firewall confirm-account confirm-account-light confirm-firewall notice-success notice-error-light; do
   "$BROWSER" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage \
     --window-size=1440,1000 --force-device-scale-factor=1 --virtual-time-budget=6500 \
     --dump-dom "http://127.0.0.1:$PORT/?preview=$preview" \
@@ -482,7 +490,7 @@ if ! grep -Fq 'data-preview-ready="firewall-long-ipv6"' "$TMP/firewall-long-ipv6
   exit 1
 fi
 # Check real mobile dialogs, centered with no viewport clipping.
-for preview in account-reality firewall-external-delete-light account-centered operation-account operation-firewall operation-update operation-update-error operation-update-error-light confirm-account confirm-firewall notice-success notice-error-light; do
+for preview in account-reality account-reality-light firewall-external-delete-light account-centered operation-account operation-firewall operation-update operation-update-error operation-update-error-light confirm-account confirm-firewall notice-success notice-error-light; do
   "$BROWSER" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage \
     --window-size=390,844 --force-device-scale-factor=1 --virtual-time-budget=6500 \
     --screenshot="$OUT/$preview-mobile.png" "http://127.0.0.1:$PORT/?preview=$preview" \

@@ -299,10 +299,13 @@ async function loadExpertV3(id,details){
    else node.value=String(saved)
    restored=true
   }
+  // Restored draft values do not emit input events; the selector must
+  // always match the actual Target and Server Names.
+  if(typeof syncRealityPresetSelectionV1==='function')syncRealityPresetSelectionV1()
   if(restored)details._expertData=d
   const markDraft=e=>{
    const el=e.target
-   if(!el?.id||el.readOnly||!el.matches('input,select,textarea'))return
+   if(!el?.id||el.id==='expert-reality-template'||el.readOnly||!el.matches('input,select,textarea'))return
    if(!details._expertDraft)details._expertDraft={}
    details._expertDraft[el.id]=el.type==='checkbox'?el.checked:el.value
    details._expertData=d

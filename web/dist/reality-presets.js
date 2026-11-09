@@ -4,6 +4,16 @@ const realityPresetsV1=[
   {id:'apple',label:'Apple · www.apple.com',name:'www.apple.com'},
   {id:'mozilla',label:'Mozilla · www.mozilla.org',name:'www.mozilla.org'}
 ]
+function syncRealityPresetSelectionV1(){
+  const select=document.getElementById('expert-reality-template')
+  const target=document.getElementById('expert-reality-target')
+  const names=document.getElementById('expert-reality-names')
+  if(!select||!target||!names)return
+  const currentTarget=String(target.value||'').trim()
+  const currentNames=String(names.value||'').trim()
+  select.value=realityPresetsV1.find(p=>
+    currentTarget===p.name+':443'&&currentNames===p.name)?.id||''
+}
 const renderExpertBeforeRealityPresets=renderExpertV3
 renderExpertV3=(...args)=>{
   const markup=renderExpertBeforeRealityPresets(...args)
@@ -12,7 +22,7 @@ renderExpertV3=(...args)=>{
   const target=template.content.querySelector('#expert-reality-target')
   const names=template.content.querySelector('#expert-reality-names')
   if(!target||!names)return markup
-  const field=template.content.createElement?.('label')||document.createElement('label')
+  const field=document.createElement('label')
   field.className='reality-template-field full'
   field.textContent='伪装目标模板'
   const select=document.createElement('select')
@@ -45,7 +55,5 @@ document.addEventListener('input',e=>{
   if(e.target?.id!=='expert-reality-target'&&e.target?.id!=='expert-reality-names')return
   const template=document.getElementById('expert-reality-template')
   if(!template||template.dataset.applying)return
-  const target=String(document.getElementById('expert-reality-target')?.value||'').trim()
-  const names=String(document.getElementById('expert-reality-names')?.value||'').trim()
-  template.value=realityPresetsV1.find(p=>target===p.name+':443'&&names===p.name)?.id||''
+  syncRealityPresetSelectionV1()
 })

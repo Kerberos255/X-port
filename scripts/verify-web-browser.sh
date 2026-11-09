@@ -823,11 +823,32 @@ cat > "$TMP/__driver.js" <<'JS'
         throw new Error('expert save must not write to persisted TLS while base mode is unsaved')
       const targetInput=document.querySelector('#expert-reality-target')
       const namesInput=document.querySelector('#expert-reality-names')
-      const shortInput=document.querySelector('#expert-reality-shortids')
-      targetInput.value='www.microsoft.com:443'
-      targetInput.dispatchEvent(new Event('input',{bubbles:true}))
-      namesInput.value='www.microsoft.com'
+      const realityPreset=document.querySelector('#expert-reality-template')
+      if(!realityPreset||realityPreset.value!=='')
+        throw new Error('REALITY template must default to Custom for empty or unmatched targets')
+      realityPreset.value='microsoft'
+      realityPreset.dispatchEvent(new Event('change',{bubbles:true}))
+      if(targetInput.value!=='www.microsoft.com:443'||namesInput.value!=='www.microsoft.com')
+        throw new Error('REALITY template did not update Target and Server Names together')
+      namesInput.value='custom.example.net'
       namesInput.dispatchEvent(new Event('input',{bubbles:true}))
+      if(realityPreset.value!=='')
+        throw new Error('REALITY custom SNI still displays a mismatched preset')
+      selectedSecurity.value='none'
+      selectedSecurity.dispatchEvent(new Event('change',{bubbles:true}))
+      await waitFor('#expert-content .expert-body')
+      selectedSecurity.value='reality'
+      selectedSecurity.dispatchEvent(new Event('change',{bubbles:true}))
+      await waitFor('#expert-reality-target')
+      const returnedPreset=await waitFor('#expert-reality-template')
+      if(document.querySelector('#expert-reality-names').value!=='custom.example.net'||
+         returnedPreset.value!=='')
+        throw new Error('custom SNI and Custom selector were not restored together')
+      returnedPreset.value='microsoft'
+      returnedPreset.dispatchEvent(new Event('change',{bubbles:true}))
+      if(document.querySelector('#expert-reality-names').value!=='www.microsoft.com')
+        throw new Error('template did not restore the selected SNI after manual input')
+      const shortInput=document.querySelector('#expert-reality-shortids')
       shortInput.value='01020304'
       shortInput.dispatchEvent(new Event('input',{bubbles:true}))
       selectedSecurity.value='none'
@@ -839,6 +860,8 @@ cat > "$TMP/__driver.js" <<'JS'
       if(document.querySelector('#expert-reality-target').value!=='www.microsoft.com:443' ||
          document.querySelector('#expert-reality-names').value!=='www.microsoft.com')
         throw new Error('advanced draft values were lost when switching back to REALITY')
+      if(document.querySelector('#expert-reality-template')?.value!=='microsoft')
+        throw new Error('REALITY template selector lost selection after switching security modes')
       const realityBefore=globalThis.__mockExpertWrites
       await realityForm.onsubmit({preventDefault(){},currentTarget:realityForm})
       if(globalThis.__mockLastAccountEdit?.security!=='reality' ||
@@ -896,6 +919,50 @@ cat > "$TMP/__driver.js" <<'JS'
       await waitFor('#expert-reality-target')
       if(!document.querySelector('#expert-xhttp-mode'))
         throw new Error('reopened XHTTP+REALITY account lost XHTTP section')
+      document.querySelector('#modal-close').click()
+      // Presets must preserve existing REALITY key pairs and multiple Short IDs.
+      const stableKeys={
+        privateKey:'ci-only-retained-private-key',
+        publicKey:'ci-only-retained-public-key',
+        shortIds:['a1b2c3d4','e5f6a7b8']
+      }
+      Object.assign(globalThis.__mockExpert,{
+        realityPrivateKey:stableKeys.privateKey,realityPublicKey:stableKeys.publicKey,
+        realityShortIds:stableKeys.shortIds
+      })
+      Object.assign(globalThis.__mockAccount,{
+        privateKey:stableKeys.privateKey,shortId:stableKeys.shortIds[0]
+      })
+      await openAccountModalV3(state.accounts.find(a=>a.id===1))
+      const retainedForm=await waitFor('#account-form')
+      retainedForm.querySelector('#account-advanced').open=true
+      await waitFor('#expert-reality-template')
+      const retainedPreset=document.querySelector('#expert-reality-template')
+      if(retainedPreset.value!=='')
+        throw new Error('custom REALITY target matched an unrelated preset')
+      retainedPreset.value='apple'
+      retainedPreset.dispatchEvent(new Event('change',{bubbles:true}))
+      if(document.querySelector('#expert-reality-private').value!==stableKeys.privateKey||
+         document.querySelector('#expert-reality-public').value!==stableKeys.publicKey||
+         document.querySelector('#expert-reality-shortids').value!==stableKeys.shortIds.join(', '))
+        throw new Error('applying Target/SNI preset unexpectedly changed credentials')
+      const retainedWrites=globalThis.__mockExpertWrites
+      await retainedForm.onsubmit({preventDefault(){},currentTarget:retainedForm})
+      if(globalThis.__mockLastAccountEdit?.privateKey!==stableKeys.privateKey||
+         globalThis.__mockLastAccountEdit?.shortId!==stableKeys.shortIds[0]||
+         globalThis.__mockExpertWrites!==retainedWrites+1||
+         globalThis.__mockExpert.realityPrivateKey!==stableKeys.privateKey||
+         globalThis.__mockExpert.realityPublicKey!==stableKeys.publicKey||
+         JSON.stringify(globalThis.__mockExpert.realityShortIds)!==JSON.stringify(stableKeys.shortIds))
+        throw new Error('REALITY preset save rotated keys or discarded additional Short IDs')
+      await openAccountModalV3(state.accounts.find(a=>a.id===1))
+      document.querySelector('#account-advanced').open=true
+      await waitFor('#expert-reality-template')
+      if(document.querySelector('#expert-reality-template').value!=='apple'||
+         document.querySelector('#expert-reality-target').value!=='www.apple.com:443'||
+         document.querySelector('#expert-reality-names').value!=='www.apple.com'||
+         document.querySelector('#expert-reality-private').value!==stableKeys.privateKey)
+        throw new Error('saved REALITY preset or original Private Key was not restored')
       document.querySelector('#modal-close').click()
       // Comprehensive protocol/editor matrix: each protocol change replaces
       // advanced settings immediately, without stacking stale toggle handlers.
