@@ -106,8 +106,16 @@ function collectFallbacksV11(section){
 function syncFallbackSourceV11(section,showError=false){
  const source=section?.querySelector('#expert-fallbacks')
  if(!source)return true
- try{source.value=JSON.stringify(collectFallbacksV11(section),null,2);return true}
- catch(err){if(showError)toast(err.message,true);return false}
+ try{
+  const next=JSON.stringify(collectFallbacksV11(section),null,2)
+  if(source.value!==next){
+   source.value=next
+   // The account editor saves only explicitly modified expert controls.
+   // Structured add/remove/input actions must notify that editor too.
+   source.dispatchEvent(new Event('change',{bubbles:true}))
+  }
+  return true
+ }catch(err){if(showError)toast(err.message,true);return false}
 }
 
 document.addEventListener('click',e=>{
