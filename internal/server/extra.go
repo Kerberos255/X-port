@@ -88,6 +88,8 @@ func (s *Server) checkGeodata(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, info)
 }
 func (s *Server) updateGeodata(w http.ResponseWriter, r *http.Request) {
+	if !s.acquireMaintenance(w) { return }
+	defer s.maintenanceMu.Unlock()
 	if s.updater == nil { writeError(w, 503, "updater not configured"); return }
 	ctx, cancel := contextWithTimeout(r, 2*time.Minute); defer cancel()
 	info, err := s.updater.UpdateGeodata(ctx); if err != nil { writeError(w, 502, err.Error()); return }
@@ -113,6 +115,8 @@ func (s *Server) importBackup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) restartPanel(w http.ResponseWriter, r *http.Request) {
+	if !s.acquireMaintenance(w) { return }
+	defer s.maintenanceMu.Unlock()
 	if s.panelService == "" { writeError(w, 503, "panel service is not configured"); return }
 	if err := ops.ScheduleRestart(s.panelService, time.Second); err != nil { writeError(w, 502, err.Error()); return }
 	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "scheduled": true})
@@ -159,6 +163,8 @@ func (s *Server) checkPanelUpdate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, info)
 }
 func (s *Server) updatePanel(w http.ResponseWriter, r *http.Request) {
+	if !s.acquireMaintenance(w) { return }
+	defer s.maintenanceMu.Unlock()
 	if s.panelService == "" { writeError(w, 503, "panel service is not configured"); return }
 	pending,err:=s.hasPendingFirewallChanges()
 	if err!=nil{writeError(w,500,"cannot verify pending firewall changes");return}
