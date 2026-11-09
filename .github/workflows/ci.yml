@@ -63,16 +63,27 @@ jobs:
 
       - name: Xray management API boundary using real core (disposable runner)
         run: |
-          for attempt in 1 2 3 4; do
+          verified=0
+          for attempt in 1 2 3; do
             if /tmp/xport xray-update --binary "$RUNNER_TEMP/xport-test-xray" --config "$RUNNER_TEMP/xport-missing-test-config.json"; then
+              verified=1
               break
             fi
-            if [ "$attempt" -eq 4 ]; then
-              echo "Official Xray download failed after four verified attempts" >&2
-              exit 1
-            fi
-            sleep "$((attempt * 10))"
+            sleep "$((attempt * 5))"
           done
+          if [ "$verified" -ne 1 ]; then
+            # Release assets on the newest Xray tag sometimes return HTTP 504.
+            # Fall back to an independent, pinned official stable release with
+            # its GitHub-published SHA-256. This is CI-only; no user update logic
+            # or production Xray binaries are changed by this fallback.
+            archive="$RUNNER_TEMP/xray-ci-pinned.zip"
+            curl -fLsS --retry 4 --retry-all-errors --retry-delay 4               "https://github.com/XTLS/Xray-core/releases/download/v26.10.31/Xray-linux-64.zip" -o "$archive"
+            printf '%s  %s\n'               'e4bd9119f50ae7c41658b1abd0679ae06f98bd864a2907ff33f2f2cf7081b214' "$archive" | sha256sum -c -
+            unzip -j -oq "$archive" xray geoip.dat geosite.dat -d "$RUNNER_TEMP"
+            mv "$RUNNER_TEMP/xray" "$RUNNER_TEMP/xport-test-xray"
+            chmod 0755 "$RUNNER_TEMP/xport-test-xray"
+            "$RUNNER_TEMP/xport-test-xray" version
+          fi
           echo '127.0.0.1 xport-loopback-ci.test' | sudo tee -a /etc/hosts >/dev/null
           XPORT_INTEGRATION_XRAY="$RUNNER_TEMP/xport-test-xray" go test ./internal/xray -run '^TestManagementAPIBoundaryWithRealXray$' -count=1 -timeout=90s -v
 
