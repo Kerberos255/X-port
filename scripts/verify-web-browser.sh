@@ -1523,6 +1523,7 @@ cat > "$TMP/__driver.js" <<'JS'
       if(removeControl.hidden)throw new Error('idle external remove button hidden')
       const deleteCallsBefore=globalThis.__fwExternalRemoveCalls
       removeControl.click()
+      await waitFor('#operation-confirm[open]')
       await waitForTextContains('#operation-confirm-title','确认删除放行规则')
       document.querySelector('#operation-confirm-cancel').click()
       await sleep(40)
@@ -1531,9 +1532,21 @@ cat > "$TMP/__driver.js" <<'JS'
       findIdle().click()
       await waitFor('#fw-detail-dialog[open]')
       document.querySelector('#fw-detail-remove').click()
+      // Title text remains after Cancel, so waiting for text alone can click
+      // the inactive Confirm button before the new modal actually opens.
+      await waitFor('#operation-confirm[open]')
       await waitForTextContains('#operation-confirm-title','确认删除放行规则')
       document.querySelector('#operation-confirm-apply').click()
-      await waitForTextContains('#operation-confirm-title','请确认删除后仍可连接',6500)
+      await waitForTextContains('#operation-confirm-title','请确认删除后仍可连接',6500).catch(err=>{
+        throw new Error('recovery-confirm modal did not open: '+JSON.stringify({
+          progress:document.querySelector('#operation-progress')?.open,
+          modal:document.querySelector('#operation-confirm')?.open,
+          title:document.querySelector('#operation-confirm-title')?.textContent,
+          toast:document.querySelector('#toast')?.textContent,
+          removeCalls:globalThis.__fwExternalRemoveCalls,
+          pending:globalThis.__mockFwPending?.kind
+        })+'; '+err.message)
+      })
       if(document.querySelector('#operation-progress').open)
         throw new Error('recovery confirmation shown behind progress modal')
       if(globalThis.__fwExternalRemoveCalls!==deleteCallsBefore+1||
