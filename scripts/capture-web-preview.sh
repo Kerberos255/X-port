@@ -96,7 +96,14 @@ cat > "$TMP/__mock.js" <<'JS'
     if (path === '/api/xray/update' && method === 'GET') return json({current:'25.9.11',latest:'25.9.11',available:false})
     if (path === '/api/xray/geodata' && method === 'GET') return json({current:'2026-09-14',latest:'2026-09-14',available:false})
     if (path === '/api/settings') return json({panelListen:'127.0.0.1:8080',panelBasePath:'/',panelCertFile:'',panelKeyFile:'',panelDomain:'panel.example.com',panelTLS:false,xrayApiPort:10085,portMin:20000,portMax:60000,defaultRealitySni:'www.microsoft.com',defaultRealityDest:'www.microsoft.com:443',adminUsername:'admin'})
-    if (path === '/api/backups') return json({backups:[]})
+    if (path === '/api/backups') {
+      const preview=new URLSearchParams(location.search).get('preview')||''
+      const sample=preview.startsWith('system-backups')
+      return json({backups:sample?[
+        {name:'xport-backup-2026-11-10-191500.json.gz',createdAt:1794316500000,size:384121},
+        {name:'xport-imported-backup-long-filename-2026-11-10.json.gz',createdAt:1794308000000,size:4194304}
+      ]:[]})
+    }
     if (path === '/api/logs') return json({logs:'Sep 14 17:20:00 github-runner xport[1000]: preview service healthy'})
     if (path === '/api/xray/config') return json({config:{routing:{rules:[]},dns:{servers:['1.1.1.1']},outbounds:[{protocol:'freedom',tag:'direct'}],policy:{}}})
     return json({ok:true})
@@ -368,6 +375,22 @@ cat > "$TMP/__preview.js" <<'JS'
            Math.abs((bounds.left+bounds.right)/2-innerWidth/2)>Math.max(28,innerWidth*.08))
           throw new Error('progress modal not centered in viewport')
         if(innerWidth<700 && bounds.width>innerWidth-18)throw new Error('mobile progress modal clips viewport')
+      } else if (preview.startsWith('system-backups')) {
+        document.querySelector('#nav [data-page="system"]').click()
+        const filename=await waitFor('#backup-list .backup-row b')
+        const backupRow=filename.closest('.backup-row')
+        const info=backupRow?.querySelector('small')
+        if(!info||!info.textContent.includes('KB'))
+          throw new Error('backup metadata missing from rendered preview')
+        if(preview.endsWith('-light')){
+          const nameColor=getComputedStyle(filename).color
+          const metaColor=getComputedStyle(info).color
+          if(nameColor!=='rgb(35, 59, 85)'||metaColor!=='rgb(80, 105, 130)')
+            throw new Error('backup light-theme colors did not override dark-theme defaults')
+        }
+        if(backupRow.scrollWidth>backupRow.clientWidth+2)
+          throw new Error('backup filename or actions overflow row width')
+        backupRow.scrollIntoView({block:'center',inline:'nearest'})
       } else if (preview === 'xray') {
         document.querySelector('#nav [data-page="xray"]').click()
         const panel = await waitFor('#xray-global-config-panel')
@@ -430,6 +453,18 @@ capture overview overview
 capture overview-light overview-light
 capture accounts-light accounts-light
 capture xray-update-light xray-update-light
+capture system-backups system-backups
+capture system-backups-light system-backups-light
+for preview in system-backups system-backups-light; do
+  "$BROWSER" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage \
+    --window-size=1440,1000 --virtual-time-budget=6500 \
+    --dump-dom "http://127.0.0.1:$PORT/?preview=$preview" >"$TMP/$preview-dom.html" 2>"$TMP/$preview-dom.log"
+  grep -Fq "data-preview-ready=\"$preview\"" "$TMP/$preview-dom.html" || {
+    grep -o 'data-preview-error="[^"]*"' "$TMP/$preview-dom.html" || true
+    echo "Backup list desktop preview failed: $preview" >&2
+    exit 1
+  }
+done
 capture overview-ipv6 overview-ipv6
 capture overview-tooltip overview-tooltip
 capture accounts accounts
@@ -486,6 +521,23 @@ capture firewall-external-delete-light firewall-external-delete-light
 capture firewall-detail-light firewall-detail-light
 capture firewall-editor-light firewall-editor-light
 capture firewall-create-light firewall-create-light
+# Exercise long backup filenames and metadata on a narrow phone viewport.
+for preview in system-backups system-backups-light; do
+  "$BROWSER" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage \
+    --window-size=390,844 --force-device-scale-factor=1 --virtual-time-budget=6500 \
+    --screenshot="$OUT/$preview-mobile.png" "http://127.0.0.1:$PORT/?preview=$preview" \
+    >/dev/null 2>"$TMP/$preview-mobile.log"
+  [[ -s "$OUT/$preview-mobile.png" ]] || { cat "$TMP/$preview-mobile.log" >&2; exit 1; }
+  "$BROWSER" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage \
+    --window-size=390,844 --force-device-scale-factor=1 --virtual-time-budget=6500 \
+    --dump-dom "http://127.0.0.1:$PORT/?preview=$preview" \
+    >"$TMP/$preview-mobile-dom.html" 2>"$TMP/$preview-mobile-dom.log"
+  grep -Fq "data-preview-ready=\"$preview\"" "$TMP/$preview-mobile-dom.html" || {
+    grep -o 'data-preview-error="[^"]*"' "$TMP/$preview-mobile-dom.html" || true
+    echo "Backup list mobile preview failed: $preview" >&2
+    exit 1
+  }
+done
 # The integrated firewall screen also needs narrow-viewport validation.
 "$BROWSER" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage \
   --window-size=390,844 --force-device-scale-factor=1 --virtual-time-budget=6500 \

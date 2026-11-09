@@ -243,3 +243,42 @@ html[data-theme="light"] .xhttp-default-hint::placeholder{color:#7b8da3}
 html[data-theme="light"] .login-card label{color:#405770}
 html[data-theme="light"] .login-title p{color:#536a84}
 html[data-theme="light"] .login-card .secure-note{color:#526b84}
+
+/* System backups: filename and metadata must remain legible in both themes.
+   Base backup row colors target the dark theme; do not carry them into light. */
+#page-system .backup-row b,
+#page-system .backup-item b {
+  font-size:12px;
+  line-height:1.5;
+}
+#page-system .backup-row small,
+#page-system .backup-item small {
+  font-size:11.5px;
+  line-height:1.5;
+}
+html[data-theme="light"] #page-system .backup-row,
+html[data-theme="light"] #page-system .backup-item {
+  background:#f8fafc;
+  border-color:#dbe5ef;
+}
+html[data-theme="light"] #page-system .backup-row b,
+html[data-theme="light"] #page-system .backup-item b {
+  color:#233b55;
+}
+html[data-theme="light"] #page-system .backup-row small,
+html[data-theme="light"] #page-system .backup-item small {
+  color:#506982;
+}
+/* The same hardcoded dark-theme label also affected the empty backup list. */
+html[data-theme="light"] .empty,
+html[data-theme="light"] .empty b {
+  color:#405b78;
+}
+/* Related shared dark-theme-only secondary colors: overview text and
+   section kickers were similarly too pale against the light panels. */
+html[data-theme="light"] .eyebrow,
+html[data-theme="light"] .kicker {color:#1b687a}
+html[data-theme="light"] #page-overview .traffic-split b,
+html[data-theme="light"] #page-overview .service-row code {color:#4d647d}
+html[data-theme="light"] .status.ok {color:#266a54}
+html[data-theme="light"] .status.bad {color:#9c3647}

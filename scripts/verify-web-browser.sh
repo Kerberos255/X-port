@@ -1414,6 +1414,33 @@ cat > "$TMP/__driver.js" <<'JS'
       if(globalThis.__mockBackupCalls!==backupBefore+1||
          !document.querySelector('#backup-list .backup-row'))
         throw new Error('backup creation did not persist and render its identity')
+      // Real rendered backup rows previously kept dark-theme filename colors
+      // after switching to light mode. Check readable metadata and contrast.
+      const savedBackupTheme=document.documentElement.dataset.theme
+      const backupFilename=await waitFor('#backup-list .backup-row b')
+      const backupMetadata=await waitFor('#backup-list .backup-row small')
+      const bg=document.querySelector('#backup-list .backup-row')
+      const contrast=(fg,bg)=>{
+        const rgb=x=>(x.match(/\\d+(?:\\.\\d+)?/g)||[]).slice(0,3).map(Number)
+        const l=x=>{
+          const channels=rgb(x).map(c=>{
+            c=c/255
+            return c<=0.04045?c/12.92:((c+0.055)/1.055)**2.4
+          })
+          return channels[0]*0.2126+channels[1]*0.7152+channels[2]*0.0722
+        }
+        const a=l(fg),b=l(bg)
+        return (Math.max(a,b)+0.05)/(Math.min(a,b)+0.05)
+      }
+      document.documentElement.dataset.theme='light'
+      for(const [label,node] of [['filename',backupFilename],['timestamp and size',backupMetadata]]){
+        const style=getComputedStyle(node)
+        const ratio=contrast(style.color,getComputedStyle(bg).backgroundColor)
+        if(ratio<4.5||parseFloat(style.fontSize)<11)
+          throw new Error('light backup '+label+' readability regression: contrast='+
+            ratio.toFixed(2)+', font='+style.fontSize+', color='+style.color)
+      }
+      document.documentElement.dataset.theme=savedBackupTheme||'dark'
       await importBackupFile(new File(['gzip-fixture'],'browser.gz',{type:'application/gzip'}))
       if(globalThis.__mockBackups.length!==2)
         throw new Error('backup import did not confirm second persisted identity')
