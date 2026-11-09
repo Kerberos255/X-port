@@ -64,6 +64,7 @@ jobs:
       - name: Xray management API boundary using real core (disposable runner)
         run: |
           /tmp/xport xray-update --binary "$RUNNER_TEMP/xport-test-xray" --config "$RUNNER_TEMP/xport-missing-test-config.json"
+          echo '127.0.0.1 xport-loopback-ci.test' | sudo tee -a /etc/hosts >/dev/null
           XPORT_INTEGRATION_XRAY="$RUNNER_TEMP/xport-test-xray" go test ./internal/xray -run '^TestManagementAPIBoundaryWithRealXray$' -count=1 -timeout=90s -v
 
       - name: Firewall WebUI Linux systemd deployment (old unit sandbox)
