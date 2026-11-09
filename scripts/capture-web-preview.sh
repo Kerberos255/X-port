@@ -82,6 +82,7 @@ cat > "$TMP/__mock.js" <<'JS'
         {id:'firewalld:public:rich:443/udp:deny:ipv4',port:443,protocol:'udp',family:'ipv4',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'未识别',protected:true,xray:false,usage:'unused',action:'deny',kind:'rich'},
         {id:'firewalld:public:rich:443/udp:deny:ipv6',port:443,protocol:'udp',family:'ipv6',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'未识别',protected:true,xray:false,usage:'unused',action:'deny',kind:'rich'},
         {id:'firewalld:public:18555/tcp',port:18555,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'闲置外部端口',purposeSource:'unknown',note:'预览样例',protected:false,managed:false,kind:'port',action:'allow',usage:'unused',revision:'1234567890abcdef12345678'},
+        {id:'firewalld:public:18556/tcp',port:18556,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'停用账号端口',protected:false,managed:false,xray:true,accountId:3,accountName:'Dormant VLESS',accountEnabled:false,kind:'port',action:'allow',usage:'unused',revision:'abcdef1234567890abcdef12'},
         {id:'firewalld:public:51820/udp',port:51820,protocol:'udp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'WireGuard',purposeSource:'manual',note:'站点互联',protected:false,xray:false,usage:'used',action:'allow'},
         {id:'firewalld:public:39000-40000/tcp',port:0,rangeStart:39000,rangeEnd:40000,protocol:'tcp',zone:'public',backend:'firewalld',runtime:true,permanent:true,access:'区域：public',purpose:'FTP 被动模式（配置匹配）',purposeSource:'ftp-config',note:'',protected:true,xray:false,usage:'unused',action:'allow',kind:'port'}
       ]})
@@ -180,6 +181,13 @@ cat > "$TMP/__preview.js" <<'JS'
           await waitFor('#fw-detail-dialog[open]')
           if(!document.querySelector('#fw-detail-remove').hidden)
             throw new Error('protected external port unexpectedly deletable')
+          document.querySelector('#fw-detail-dialog').close()
+          const dormant=document.querySelector('#fw-rows button[data-fw-act="detail"][data-fw-id="firewalld:public:18556/tcp"]')
+          if(!dormant)throw new Error('dormant Xray sample missing')
+          dormant.click()
+          await waitFor('#fw-detail-dialog[open]')
+          if(!document.querySelector('#fw-detail-remove').hidden)
+            throw new Error('configured but dormant Xray firewall rule incorrectly deletable')
           document.querySelector('#fw-detail-dialog').close()
           const safe=document.querySelector('#fw-rows button[data-fw-act="detail"][data-fw-id="firewalld:public:18555/tcp"]')
           if(!safe)throw new Error('external sample missing')

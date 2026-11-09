@@ -11,6 +11,7 @@ import (
  "testing"
 
  "github.com/Kerberos255/X-port/internal/firewall"
+ "github.com/Kerberos255/X-port/internal/model"
  "github.com/Kerberos255/X-port/internal/service"
  "github.com/Kerberos255/X-port/internal/store"
  "golang.org/x/crypto/bcrypt"
@@ -128,6 +129,9 @@ func TestExternalFirewallDeleteRefusesLiveAndComplexRules(t *testing.T){
   {"rich",func()firewall.Rule{r:=base;r.Kind="rich";return r}(),"{}",`{"sshPorts":[22],"docker":[]}`,409},
   {"not-persistent",func()firewall.Rule{r:=base;r.Permanent=false;return r}(),"{}",`{"sshPorts":[22],"docker":[]}`,409},
   {"conflict",func()firewall.Rule{r:=base;r.Conflict=true;return r}(),"{}",`{"sshPorts":[22],"docker":[]}`,409},
+  {"foreign-family",func()firewall.Rule{r:=base;r.Family="ipv6";return r}(),"{}",`{"sshPorts":[22],"docker":[]}`,409},
+  {"foreign-backend",func()firewall.Rule{r:=base;r.Backend="ufw";return r}(),"{}",`{"sshPorts":[22],"docker":[]}`,409},
+  {"identity",func()firewall.Rule{r:=base;r.ID="firewalld:public:53115/tcp";return r}(),"{}",`{"sshPorts":[22],"docker":[]}`,409},
  }{
   t.Run(tc.name,func(t *testing.T){
    h,st,cookie:=externalRemoveFixture(t,tc.rule,tc.listeners,tc.discovery);defer st.Close()
@@ -139,5 +143,30 @@ func TestExternalFirewallDeleteRefusesLiveAndComplexRules(t *testing.T){
     t.Fatalf("dangerous rule mutated: %v",err)
    }
   })
+ }
+}
+
+
+// A configured but inactive Xray listener may be absent from ss. Removing its
+// externally-created allow rule would break it when the account is enabled.
+func TestExternalFirewallDeleteProtectsDormantXrayAccount(t *testing.T){
+ source:=firewall.Rule{ID:"firewalld:public:53114/tcp",Port:53114,
+  Protocol:"tcp",Zone:"public",Backend:"firewalld",
+  Runtime:true,Permanent:true,Kind:"port",Action:"allow",Family:"both"}
+ h,st,cookie:=externalRemoveFixture(t,source,"{}",`{"sshPorts":[22],"docker":[]}`)
+ defer st.Close()
+ err:=st.ReplaceAccounts([]model.Account{{
+  ID:1,Name:"Dormant VLESS",Tag:"ci-dormant-inbound",Protocol:"vless",
+  Port:53114,Enabled:false,
+ }})
+ if err!=nil{t.Fatal(err)}
+ res:=externalRemoveRequest(t,h,cookie,map[string]any{
+  "id":source.ID,"revision":firewallRuleRevision(source),"externalAcknowledged":true,
+ })
+ if res.Code!=http.StatusConflict{
+  t.Fatalf("dormant Xray inbound must remain protected: %d %s",res.Code,res.Body.String())
+ }
+ if _,err:=os.Stat(os.Getenv("XPORT_TEST_REMOVED"));!os.IsNotExist(err){
+  t.Fatalf("configured Xray port was deleted: %v",err)
  }
 }

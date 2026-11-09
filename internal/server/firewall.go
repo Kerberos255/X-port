@@ -703,6 +703,7 @@ func (s *Server) firewallExternalRemove(w http.ResponseWriter,r *http.Request) {
   writeError(w,409,"source rule changed since page load; refresh before deleting");return
  }
  if source.IsRange()||source.Kind!="port"||source.Action!="allow"||
+    source.Backend!="firewalld"||source.Family!="both"||
     !source.Runtime||!source.Permanent||source.Conflict||
     !firewall.ValidRule(source.Port,source.Protocol)||
     !firewall.ValidZone(source.Zone)||snap.OpaqueRichZones[source.Zone] {
@@ -711,6 +712,9 @@ func (s *Server) firewallExternalRemove(w http.ResponseWriter,r *http.Request) {
  zoneFound:=false
  for _,zone:=range snap.Zones{if zone==source.Zone{zoneFound=true;break}}
  if !zoneFound{writeError(w,409,"source zone no longer exists");return}
+ if source.ID!=firewall.RuleID("firewalld",source.Zone,source.Port,source.Protocol){
+  writeError(w,409,"source rule identity is ambiguous");return
+ }
  // The legacy owned-rule endpoint remains unchanged and strict.
  owned,_,err:=s.store.Setting("firewall_owned:"+source.ID)
  if err!=nil{writeError(w,500,"cannot inspect rule ownership");return}
@@ -719,6 +723,14 @@ func (s *Server) firewallExternalRemove(w http.ResponseWriter,r *http.Request) {
   writeError(w,403,"SSH and panel ports are protected");return
  }
  if err:=s.firewallCriticalPorts(ctx,source.Port);err!=nil{writeError(w,409,err.Error());return}
+ // An Xray account can be configured but currently stopped or disabled.
+ // Its firewall allowance must survive so that future re-enablement works.
+ accounts,err:=s.store.Accounts()
+ if err!=nil{writeError(w,500,"cannot verify configured Xray account ports");return}
+ accountKey:=fmt.Sprintf("%s/%d",source.Protocol,source.Port)
+ if len(accountFirewallMatches(accounts)[accountKey])>0{
+  writeError(w,409,"port belongs to a configured Xray account; use account management");return
+ }
  if err:=s.ensureNoPending(source.ID);err!=nil{writeError(w,409,err.Error());return}
  for _,rr:=range snap.Rules{
   if rr.ID==source.ID{continue}
