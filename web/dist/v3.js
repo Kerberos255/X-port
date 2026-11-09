@@ -274,7 +274,12 @@ async function loadExpertV3(id,details){
  try{
   const stored=await api(`/api/accounts/${id}/expert`)
   // An earlier request must not repaint a newly selected security mode.
-  if((details._expertEpoch||0)!==epoch||!details.open||$('#account-advanced')!==details)return
+  if($('#account-advanced')!==details||(details._expertEpoch||0)!==epoch)return
+  if(!details.open){
+   // Closing Advanced during a fetch must not cache an unrendered response.
+   delete details.dataset.loaded
+   return
+  }
   const network=editorNetworkV9($('#network-select')?.value||'tcp')
   const security=String($('#security-select')?.value||'none').toLowerCase()
   const preview=syntheticExpertV6(stored.protocol,network==='ws'?'websocket':network,security)
