@@ -1678,7 +1678,18 @@ cat > "$TMP/__driver.js" <<'JS'
       extraShortIds.dispatchEvent(new Event('input',{bubbles:true}))
       const standaloneSave=reopenedEdited.querySelector('#save-expert')
       if(!standaloneSave||standaloneSave.disabled)
-        throw new Error('stand-alone Advanced Save unavailable for unchanged security mode')
+        throw new Error('stand-alone Advanced Save unavailable: '+JSON.stringify({
+          found:Boolean(standaloneSave),
+          disabled:standaloneSave?.disabled,
+          label:standaloneSave?.textContent,
+          storedProtocol:globalThis.__mockNewExpert?.protocol,
+          storedMethod:globalThis.__mockNewExpert?.method,
+          storedSecurity:globalThis.__mockNewExpert?.security,
+          uiProtocol:reopenedEdited.querySelector('#protocol-select')?.value,
+          uiNetwork:reopenedEdited.querySelector('#network-select')?.value,
+          uiSecurity:reopenedEdited.querySelector('#security-select')?.value,
+          loaded:reopenedEdited.querySelector('#account-advanced')?.dataset.loaded
+        }))
       const standaloneExpertBefore=globalThis.__mockNewExpertWrites
       const standaloneRejectBefore=globalThis.__mockRejectedMaintenanceWrites
       globalThis.__mockExpertMaintenanceBusy=1
