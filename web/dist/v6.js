@@ -113,7 +113,7 @@ openAccountModalV3=async function(a=null){
     detail:(body.name||'账号')+' · '+(body.port||'自动端口')+' / '+String(p).toUpperCase(),
     perform:async()=>{
      const result=full.id
-      ?await mutationWithRecoveryV3(()=>api(`/api/accounts/${full.id}`,{method:'PUT',body:JSON.stringify(body)}),async()=>{const cur=await api(`/api/accounts/${full.id}`);return cur.name===body.name&&Number(cur.port)===(body.port||Number(cur.port))})
+      ?await mutationWithRecoveryV3(()=>accountWriteAfterMaintenanceV3(()=>api(`/api/accounts/${full.id}`,{method:'PUT',body:JSON.stringify(body)})),async()=>{const cur=await api(`/api/accounts/${full.id}`);return cur.name===body.name&&Number(cur.port)===(body.port||Number(cur.port))})
       :await createAccountWithRecoveryV3(body,before)
      savedID=Number(full.id||result.value?.id||0)
      if(!full.id&&!savedID){
@@ -129,7 +129,7 @@ openAccountModalV3=async function(a=null){
      if(expertData&&savedID){
       if(result.xrayReady===false)expertDeferred=true
       else await applyConfirmedMutationV3(
-       ()=>api(`/api/accounts/${savedID}/expert`,{method:'PUT',body:JSON.stringify(expertData)}),
+       ()=>accountWriteAfterMaintenanceV3(()=>api(`/api/accounts/${savedID}/expert`,{method:'PUT',body:JSON.stringify(expertData)})),
        async()=>expertConfigMatchesV3(expertData,await api(`/api/accounts/${savedID}/expert`)))
      }
      return result

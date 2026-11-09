@@ -24,6 +24,31 @@ async function waitForXrayV3(timeoutMs=6500){
  }
  return false
 }
+// A 409 with this exact server message is returned before any mutation,
+// when the privileged maintenance mutex is held. It is safe to retry this
+// specific rejection, but NEVER replay timeouts, lost responses or arbitrary
+// 409s (which can mean a write was already applied).
+function definiteMaintenanceBusyV3(err){
+ return Number(err?.status)===409&&err?.serverError===true&&
+  String(err?.message||'').trim()==='another maintenance operation is in progress'
+}
+async function accountWriteAfterMaintenanceV3(write,{attempts=8,delayMs=800}={}){
+ for(let attempt=0;attempt<attempts;attempt++){
+  try{return await write()}
+  catch(err){
+   if(!definiteMaintenanceBusyV3(err))throw err
+   if(attempt===attempts-1){
+    const blocked=new Error('另一项维护操作仍在进行，本次账号写入未执行；请稍后再保存')
+    blocked.status=409
+    blocked.serverError=true
+    throw blocked
+   }
+   if(typeof XportOperation!=='undefined'&&XportOperation.busy)
+    XportOperation.setStage?.('检测到其他维护操作，正在等待释放…')
+   await sleepV3(delayMs)
+  }
+ }
+}
 async function mutationWithRecoveryV3(run,verify,requireXray=true){
  try{return {value:await run(),recovered:false}}
  catch(err){
@@ -146,7 +171,7 @@ async function createAccountWithRecoveryV3(body,before,submit){
  let result,confirmedCreated=null
  try{
   result=await mutationWithRecoveryV3(
-   ()=>submit?submit():api('/api/accounts',{method:'POST',body:JSON.stringify(body)}),
+   ()=>accountWriteAfterMaintenanceV3(()=>submit?submit():api('/api/accounts',{method:'POST',body:JSON.stringify(body)})),
    async()=>{
     confirmedCreated=await readCreatedAccountV3(before,body)
     return Boolean(confirmedCreated)
@@ -252,7 +277,7 @@ function renderExpertV3(d){
  if(d.supportsHttpHeader)common+=`<label class="full">HTTP 伪装 Header JSON<textarea id="expert-http-header" spellcheck="false" placeholder='{"type":"http","request":{},"response":{}}'>${esc(d.httpHeaderJson||'')}</textarea></label>`
  html+=expertSectionV3('通用','Xray 低频项',common)
  if(d.supportsReality){
-  html+=expertSectionV3('REALITY','当前 Xray 服务端字段',`<label>Target<input id="expert-reality-target" value="${esc(d.realityTarget||'')}"></label><label>Server Names<input id="expert-reality-names" value="${esc(commaListV3(d.realityServerNames))}" placeholder="example.com"></label><label class="full">Private Key<input id="expert-reality-private" value="${esc(d.realityPrivateKey||'')}"></label><label class="full">Public Key（只读）<input id="expert-reality-public" value="${esc(d.realityPublicKey||'')}" readonly></label><label>Short IDs<input id="expert-reality-shortids" value="${esc(commaListV3(d.realityShortIds))}"></label><label>xver<input id="expert-reality-xver" type="number" min="0" max="2" value="${Number(d.realityXver||0)}"></label><label>Min Client Ver<input id="expert-reality-minver" value="${esc(d.realityMinClientVer||'')}"></label><label>Max Client Ver<input id="expert-reality-maxver" value="${esc(d.realityMaxClientVer||'')}"></label><label>Max Time Diff / ms<input id="expert-reality-timediff" type="number" min="0" value="${Number(d.realityMaxTimeDiff||0)}"></label><label>ML-DSA-65 Seed<input id="expert-reality-mldsa" value="${esc(d.realityMldsa65Seed||'')}"></label><label class="expert-check full"><input id="expert-reality-show" type="checkbox" ${d.realityShow?'checked':''}>Show debug</label>`)
+  html+=expertSectionV3('REALITY','当前 Xray 服务端字段',`<label>Target<input id="expert-reality-target" value="${esc(d.realityTarget||'')}"></label><label>Server Names<input id="expert-reality-names" value="${esc(commaListV3(d.realityServerNames))}" placeholder="example.com"></label><label class="full">Private Key<input id="expert-reality-private" value="${esc(d.realityPrivateKey||'')}" placeholder="留空自动生成"></label><label class="full">Public Key（只读）<input id="expert-reality-public" value="${esc(d.realityPublicKey||'')}" placeholder="创建后自动派生（只读）" readonly></label><label>Short IDs<input id="expert-reality-shortids" value="${esc(commaListV3(d.realityShortIds))}" placeholder="留空自动生成"></label><label>xver<input id="expert-reality-xver" type="number" min="0" max="2" value="${Number(d.realityXver||0)}"></label><label>Min Client Ver<input id="expert-reality-minver" value="${esc(d.realityMinClientVer||'')}"></label><label>Max Client Ver<input id="expert-reality-maxver" value="${esc(d.realityMaxClientVer||'')}"></label><label>Max Time Diff / ms<input id="expert-reality-timediff" type="number" min="0" value="${Number(d.realityMaxTimeDiff||0)}"></label><label>ML-DSA-65 Seed<input id="expert-reality-mldsa" value="${esc(d.realityMldsa65Seed||'')}"></label><label class="expert-check full"><input id="expert-reality-show" type="checkbox" ${d.realityShow?'checked':''}>Show debug</label>`)
  }
  if(d.supportsTls){
   html+=expertSectionV3('TLS','服务端安全参数',`<label>ALPN<input id="expert-tls-alpn" value="${esc(commaListV3(d.tlsAlpn))}" placeholder="h2, http/1.1"></label><label>Min Version<input id="expert-tls-min" value="${esc(d.tlsMinVersion||'')}"></label><label>Max Version<input id="expert-tls-max" value="${esc(d.tlsMaxVersion||'')}"></label><label>Cipher Suites<input id="expert-tls-ciphers" value="${esc(d.tlsCipherSuites||'')}"></label><label class="expert-check full"><input id="expert-tls-reject" type="checkbox" ${d.tlsRejectUnknownSni?'checked':''}>Reject Unknown SNI</label><label class="full">Certificates JSON<textarea id="expert-tls-certs" spellcheck="false">${esc(d.tlsCertificatesJson||'[]')}</textarea></label>`)

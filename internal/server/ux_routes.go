@@ -127,7 +127,12 @@ func (s *Server) getAccountExpert(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) updateAccountExpert(w http.ResponseWriter, r *http.Request) {
 	if !s.acquireMaintenance(w) { return }
-	defer s.maintenanceMu.Unlock()
+	locked := true
+	defer func() {
+		if locked {
+			s.maintenanceMu.Unlock()
+		}
+	}()
 	id, err := pathID(r)
 	if err != nil {
 		writeError(w, 400, "invalid account id")
@@ -142,6 +147,8 @@ func (s *Server) updateAccountExpert(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, err.Error())
 		return
 	}
+	s.maintenanceMu.Unlock()
+	locked = false
 	writeJSON(w, 200, view)
 }
 

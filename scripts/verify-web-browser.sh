@@ -74,6 +74,9 @@ cat > "$TMP/__mock.js" <<'JS'
   globalThis.__mockAccountDeleted = false
   globalThis.__mockCreatedAccount = null
   globalThis.__mockCreateCalls = 0
+  globalThis.__mockCreateMaintenanceBusy=0
+  globalThis.__mockExpertMaintenanceBusy=0
+  globalThis.__mockRejectedMaintenanceWrites=0
   globalThis.__mockCreatedRequest = null
   globalThis.__mockNewExpert = null
   globalThis.__fwExternalRemoveCalls = 0
@@ -139,6 +142,11 @@ cat > "$TMP/__mock.js" <<'JS'
       ...(globalThis.__mockCreatedAccount?[globalThis.__mockCreatedAccount]:[])
     ]})
     if (path === '/api/accounts' && method === 'POST') {
+      if(globalThis.__mockCreateMaintenanceBusy>0){
+        globalThis.__mockCreateMaintenanceBusy--
+        globalThis.__mockRejectedMaintenanceWrites++
+        return json({error:'another maintenance operation is in progress'},409)
+      }
       globalThis.__mockCreateCalls++
       const body=JSON.parse(init.body||'{}')
       globalThis.__mockCreatedRequest=body
@@ -206,6 +214,11 @@ cat > "$TMP/__mock.js" <<'JS'
       return globalThis.__mockShareFail?json({error:'share endpoint unavailable'},503):
         json({uri:globalThis.__mockShareURI})
     if (path === '/api/accounts/2/expert' && method === 'PUT') {
+      if(globalThis.__mockExpertMaintenanceBusy>0){
+        globalThis.__mockExpertMaintenanceBusy--
+        globalThis.__mockRejectedMaintenanceWrites++
+        return json({error:'another maintenance operation is in progress'},409)
+      }
       const body=JSON.parse(init.body||'{}')
       globalThis.__mockNewExpert={
         ...body,supportsReality:body.security==='reality',supportsTls:body.security==='tls',
@@ -1465,14 +1478,30 @@ cat > "$TMP/__driver.js" <<'JS'
       newSec.dispatchEvent(new Event('change',{bubbles:true}))
       newRealityForm.querySelector('#account-advanced').open=true
       const newPreset=await waitFor('#expert-reality-template')
+      const privateHint=newRealityForm.querySelector('#expert-reality-private')
+      const publicHint=newRealityForm.querySelector('#expert-reality-public')
+      const shortIdsHint=newRealityForm.querySelector('#expert-reality-shortids')
+      if(privateHint?.placeholder!=='留空自动生成'||
+         publicHint?.placeholder!=='创建后自动派生（只读）'||
+         !publicHint.readOnly||
+         shortIdsHint?.placeholder!=='留空自动生成')
+        throw new Error('new REALITY inputs lost correct auto-generation placeholders')
       newPreset.value='mozilla'
       newPreset.dispatchEvent(new Event('change',{bubbles:true}))
       if(newRealityForm.querySelector('#expert-reality-target').value!=='www.mozilla.org:443'||
          newRealityForm.querySelector('#expert-reality-names').value!=='www.mozilla.org')
         throw new Error('new REALITY template failed to populate Target/SNI')
       const callsBeforeNew=globalThis.__mockCreateCalls
+      const rejectedBeforeNew=globalThis.__mockRejectedMaintenanceWrites
+      // Two server-side, proven pre-mutation maintenance rejections on the
+      // base POST and one on the subsequent expert PUT must not duplicate
+      // the account or cause a false failure toast.
+      globalThis.__mockCreateMaintenanceBusy=2
+      globalThis.__mockExpertMaintenanceBusy=1
       newRealityForm.querySelector('button[type="submit"]').click()
-      await waitFor('#modal.hidden',6500)
+      await waitFor('#modal.hidden',8500)
+      if(globalThis.__mockRejectedMaintenanceWrites!==rejectedBeforeNew+3)
+        throw new Error('new REALITY account did not recover all maintenance 409s')
       if(globalThis.__mockCreateCalls!==callsBeforeNew+1||
          globalThis.__mockCreatedRequest?.protocol!=='vless'||
          globalThis.__mockCreatedRequest?.network!=='xhttp'||
@@ -1482,8 +1511,10 @@ cat > "$TMP/__driver.js" <<'JS'
          globalThis.__mockNewExpert?.realityTarget!=='www.mozilla.org:443'||
          globalThis.__mockNewExpert?.realityServerNames?.[0]!=='www.mozilla.org')
         throw new Error('NEW REALITY account save missed base or expert template payload')
-      const justCreated=state.accounts.find(a=>a.name==='reality-preset-browser')
-      if(!justCreated)throw new Error('new REALITY account missing after create')
+      const createdMatches=state.accounts.filter(a=>a.name==='reality-preset-browser')
+      if(createdMatches.length!==1||globalThis.__mockCreateCalls!==callsBeforeNew+1)
+        throw new Error('maintenance retry created duplicate or missing accounts')
+      const justCreated=createdMatches[0]
       await openAccountModalV3(justCreated)
       const savedNewAdvanced=await waitFor('#account-advanced')
       savedNewAdvanced.open=true
@@ -1493,6 +1524,46 @@ cat > "$TMP/__driver.js" <<'JS'
         throw new Error('new REALITY account edit/reopen lost the preset')
       document.querySelector('#cancel-form').click()
 
+      // Only the exact, known pre-write 409 may be retried. Another 409,
+      // or any lost network response, must not replay the mutation.
+      let unrelatedWrites=0
+      try{
+        await accountWriteAfterMaintenanceV3(()=>{
+          unrelatedWrites++
+          throw Object.assign(new Error('port already in use'),{
+            status:409,serverError:true
+          })
+        },{attempts:3,delayMs:1})
+        throw new Error('unrelated conflict unexpectedly accepted')
+      }catch(err){
+        if(err.message!=='port already in use'||unrelatedWrites!==1)
+          throw new Error('unrelated 409 was replayed')
+      }
+      let networkAttempts=0
+      try{
+        await accountWriteAfterMaintenanceV3(()=>{
+          networkAttempts++
+          throw new TypeError('Failed to fetch')
+        },{attempts:3,delayMs:1})
+        throw new Error('lost response unexpectedly accepted')
+      }catch(err){
+        if(err.message!=='Failed to fetch'||networkAttempts!==1)
+          throw new Error('network timeout blindly replayed a non-idempotent write')
+      }
+      let exhaustedWrites=0
+      try{
+        await accountWriteAfterMaintenanceV3(()=>{
+          exhaustedWrites++
+          throw Object.assign(new Error('another maintenance operation is in progress'),{
+            status:409,serverError:true
+          })
+        },{attempts:2,delayMs:1})
+        throw new Error('persistent maintenance incorrectly accepted')
+      }catch(err){
+        if(err.status!==409||exhaustedWrites!==2||
+           !String(err.message).includes('本次账号写入未执行'))
+          throw new Error('exhausted maintenance must fail without inventing success')
+      }
       // Click the external deletion control, cancel once, then accept both
       // the destructive operation and the recovery-timer confirmation.
       // Disable the fixture's automatic confirmation driver for this segment.

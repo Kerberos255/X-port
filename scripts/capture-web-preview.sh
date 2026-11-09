@@ -247,13 +247,13 @@ cat > "$TMP/__preview.js" <<'JS'
         clone.click()
         await waitFor('#clone-form')
         await waitForValue('#clone-port', 23741)
-      } else if (preview === 'account' || preview === 'account-reality' || preview === 'account-reality-light') {
+      } else if (preview === 'account' || preview === 'account-reality' || preview === 'account-reality-light' || preview === 'account-reality-hints') {
         document.querySelector('#nav [data-page="accounts"]').click()
         const edit = await waitFor('.account-row button[data-act="edit"]')
         edit.click()
         await waitFor('#account-form')
         const advanced = await waitFor('#account-advanced')
-        if(preview === 'account-reality' || preview === 'account-reality-light'){
+        if(preview === 'account-reality' || preview === 'account-reality-light' || preview === 'account-reality-hints'){
           const network=await waitFor('#network-select')
           network.value='xhttp'
           network.dispatchEvent(new Event('change',{bubbles:true}))
@@ -273,7 +273,21 @@ cat > "$TMP/__preview.js" <<'JS'
           if(target.value!=='www.apple.com:443'||names.value!=='www.apple.com')
             throw new Error('REALITY preset did not populate Target and Server Names')
           const section=target.closest('.expert-section')
-          if(innerWidth<700)preset.scrollIntoView({block:'start',inline:'nearest'})
+          if(preview==='account-reality-hints'){
+            for(const [id,hint] of [
+              ['expert-reality-private','留空自动生成'],
+              ['expert-reality-public','创建后自动派生（只读）'],
+              ['expert-reality-shortids','留空自动生成']
+            ]){
+              const input=document.getElementById(id)
+              if(!input||input.placeholder!==hint||
+                 (id==='expert-reality-public'&&!input.readOnly))
+                throw new Error('REALITY hint or readonly mode missing: '+id)
+              input.value='' // Screenshot fixture only; never save.
+            }
+            document.getElementById('expert-reality-private')
+              .scrollIntoView({block:'center',inline:'nearest'})
+          }else if(innerWidth<700)preset.scrollIntoView({block:'start',inline:'nearest'})
           else section?.scrollIntoView({block:'center',inline:'nearest'})
           for(const el of [target,names,document.querySelector('#expert-reality-private')]){
             const rect=el?.getBoundingClientRect()
@@ -423,6 +437,7 @@ capture clone-account clone
 capture account-advanced account
 capture account-reality account-reality
 capture account-reality-light account-reality-light
+capture account-reality-hints account-reality-hints
 capture account-centered account-centered
 capture account-centered-light account-centered-light
 capture clone-centered clone-centered
@@ -437,7 +452,7 @@ capture notice-error-light notice-error-light
 capture confirm-account confirm-account
 capture confirm-account-light confirm-account-light
 capture confirm-firewall confirm-firewall
-for preview in account-reality account-reality-light firewall-external-delete-light account-centered account-centered-light clone-centered operation-account operation-account-light operation-firewall confirm-account confirm-account-light confirm-firewall notice-success notice-error-light; do
+for preview in account-reality account-reality-light account-reality-hints firewall-external-delete-light account-centered account-centered-light clone-centered operation-account operation-account-light operation-firewall confirm-account confirm-account-light confirm-firewall notice-success notice-error-light; do
   "$BROWSER" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage \
     --window-size=1440,1000 --force-device-scale-factor=1 --virtual-time-budget=6500 \
     --dump-dom "http://127.0.0.1:$PORT/?preview=$preview" \
@@ -504,7 +519,7 @@ if ! grep -Fq 'data-preview-ready="firewall-long-ipv6"' "$TMP/firewall-long-ipv6
   exit 1
 fi
 # Check real mobile dialogs, centered with no viewport clipping.
-for preview in account-reality account-reality-light firewall-external-delete-light account-centered operation-account operation-firewall operation-update operation-update-error operation-update-error-light confirm-account confirm-firewall notice-success notice-error-light; do
+for preview in account-reality account-reality-light account-reality-hints firewall-external-delete-light account-centered operation-account operation-firewall operation-update operation-update-error operation-update-error-light confirm-account confirm-firewall notice-success notice-error-light; do
   "$BROWSER" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage \
     --window-size=390,844 --force-device-scale-factor=1 --virtual-time-budget=6500 \
     --screenshot="$OUT/$preview-mobile.png" "http://127.0.0.1:$PORT/?preview=$preview" \
