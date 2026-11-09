@@ -46,7 +46,16 @@ type Server struct {
 	instanceID     string
 	manager        *xray.Manager
 	firewallMu     sync.Mutex
+	maintenanceMu  sync.Mutex
 	trustedProxies []netip.Prefix
+}
+
+// Maintenance and account mutations share a fail-fast gate. Never replace an
+// executable or restart Xray in parallel with an account/configuration write.
+func (s *Server) acquireMaintenance(w http.ResponseWriter) bool {
+	if s.maintenanceMu.TryLock() { return true }
+	writeError(w, http.StatusConflict, "another maintenance operation is in progress")
+	return false
 }
 
 func New(st *store.Store, accounts *service.Accounts, updater *xray.Updater, static fs.FS) *Server {
@@ -270,6 +279,8 @@ func (s *Server) getAccount(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, v)
 }
 func (s *Server) createAccount(w http.ResponseWriter, r *http.Request) {
+	if !s.acquireMaintenance(w) { return }
+	defer s.maintenanceMu.Unlock()
 	var in accountcfg.Input
 	if decodeJSON(w, r, &in) != nil {
 		return
@@ -282,6 +293,8 @@ func (s *Server) createAccount(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 201, v)
 }
 func (s *Server) updateAccount(w http.ResponseWriter, r *http.Request) {
+	if !s.acquireMaintenance(w) { return }
+	defer s.maintenanceMu.Unlock()
 	id, e := pathID(r)
 	if e != nil {
 		writeError(w, 400, "invalid account id")
@@ -299,6 +312,8 @@ func (s *Server) updateAccount(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, v)
 }
 func (s *Server) deleteAccount(w http.ResponseWriter, r *http.Request) {
+	if !s.acquireMaintenance(w) { return }
+	defer s.maintenanceMu.Unlock()
 	id, e := pathID(r)
 	if e != nil {
 		writeError(w, 400, "invalid account id")
@@ -311,6 +326,8 @@ func (s *Server) deleteAccount(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"ok": true})
 }
 func (s *Server) cloneAccount(w http.ResponseWriter, r *http.Request) {
+	if !s.acquireMaintenance(w) { return }
+	defer s.maintenanceMu.Unlock()
 	id, e := pathID(r)
 	if e != nil {
 		writeError(w, 400, "invalid account id")
@@ -390,6 +407,8 @@ func (s *Server) checkXrayUpdate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, info)
 }
 func (s *Server) updateXray(w http.ResponseWriter, r *http.Request) {
+	if !s.acquireMaintenance(w) { return }
+	defer s.maintenanceMu.Unlock()
 	if s.updater == nil {
 		writeError(w, 503, "updater not configured")
 		return
