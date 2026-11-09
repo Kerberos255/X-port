@@ -36,6 +36,8 @@ func (s *Server) WithRuntime(opts RuntimeOptions) *Server {
 }
 
 func (s *Server) resetTraffic(w http.ResponseWriter, r *http.Request) {
+	if !s.acquireMaintenance(w) { return }
+	defer s.maintenanceMu.Unlock()
 	id, err := pathID(r)
 	if err != nil {
 		writeError(w, 400, "invalid account id")
@@ -80,6 +82,8 @@ func (s *Server) logs(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) restartXray(w http.ResponseWriter, r *http.Request) {
+	if !s.acquireMaintenance(w) { return }
+	defer s.maintenanceMu.Unlock()
 	if s.xrayService == "" {
 		writeError(w, 503, "Xray service is not configured")
 		return
@@ -145,6 +149,8 @@ func (s *Server) downloadBackup(w http.ResponseWriter, r *http.Request) {
 	http.ServeContent(w, r, info.Name, time.UnixMilli(info.CreatedAt), f)
 }
 func (s *Server) restoreBackup(w http.ResponseWriter, r *http.Request) {
+	if !s.acquireMaintenance(w) { return }
+	defer s.maintenanceMu.Unlock()
 	dir := s.backupDir()
 	if dir == "" {
 		writeError(w, 503, "backup directory is not configured")
@@ -232,6 +238,8 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) {
+	if !s.acquireMaintenance(w) { return }
+	defer s.maintenanceMu.Unlock()
 	var in settingsInput
 	if decodeJSON(w, r, &in) != nil {
 		return
