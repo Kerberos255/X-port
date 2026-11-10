@@ -90,6 +90,12 @@ html[data-theme="light"] .uuid-regen{background:#fff;color:#60748c;border-color:
 html[data-theme="light"] .server-fact{border-bottom-color:rgba(67,95,128,.11)}
 html[data-theme="light"] .server-fact b{color:#334a62}
 
+/* Give the overview its own column on compact desktops; otherwise the
+   uptime caption collapses into vertically wrapped single characters. */
+@media (min-width:901px) and (max-width:1250px){
+ .overview-grid{grid-template-columns:minmax(0,1fr)}
+ .server-panel,.health-panel,.traffic-panel,.services{grid-column:1;grid-row:auto}
+}
 @media(max-width:900px){
  .overview-grid{grid-template-columns:1fr}
  .server-panel,.health-panel,.traffic-panel,.services{grid-column:1;grid-row:auto}

@@ -1,0 +1,24 @@
+/* A single, consistent Lucide-style icon system for all five navigation
+   destinations. No external fonts, images or scripts are needed. */
+#nav button{min-width:0}
+#nav button .nav-icon{
+  display:block;width:20px;height:20px;min-width:20px;min-height:20px;
+  flex:0 0 20px;stroke:currentColor;stroke-width:1.8;fill:none;
+  color:#8ba3b8;vertical-align:middle
+}
+#nav button:hover .nav-icon{color:#bfe6e8}
+#nav button.active .nav-icon{color:#5de0db}
+html[data-theme="light"] #nav button .nav-icon{color:#56758b}
+html[data-theme="light"] #nav button:hover .nav-icon{color:#247d8a}
+html[data-theme="light"] #nav button.active .nav-icon{color:#177f86}
+@media (min-width:701px) and (max-width:1050px){
+  #nav button{justify-content:center}
+}
+@media (max-width:700px){
+  #nav{grid-template-columns:repeat(5,minmax(0,1fr));gap:3px}
+  #nav button,#nav button:not(.active){
+    min-width:0;padding:8px 3px;display:grid;justify-items:center;
+    gap:3px;text-align:center;font-size:10px;line-height:1.35
+  }
+  #nav button .nav-icon{width:20px;height:20px;margin:0 auto}
+}
