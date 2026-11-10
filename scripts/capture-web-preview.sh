@@ -137,7 +137,22 @@ cat > "$TMP/__preview.js" <<'JS'
       await waitFor('#app:not(.hidden)')
       const preview = new URLSearchParams(location.search).get('preview') || 'overview'
       if (preview.endsWith('-light')) applyTheme('light')
-      if (preview.startsWith('nav-audit')) {
+      if (preview.startsWith('page-')) {
+        const page=preview.slice(5).replace(/-light$/,'')
+        if(!['overview','accounts','firewall','xray','system'].includes(page))
+          throw new Error('unknown page screenshot: '+page)
+        const button=document.querySelector('#nav > button[data-page="'+page+'"]')
+        if(!button)throw new Error('missing navigation button for '+page)
+        button.click()
+        await waitFor('#page-'+page+'.active')
+        if(!button.classList.contains('active'))throw new Error('page does not match active navigation')
+        if(page==='accounts')await waitFor('#accounts-list .account-row')
+        if(page==='firewall')await waitFor('#fw-rows button[data-fw-act]')
+        if(page==='xray')await waitFor('#xray-page-status')
+        if(page==='system')await waitFor('#backup-list')
+        if(document.documentElement.scrollWidth>innerWidth+2)
+          throw new Error('page '+page+' overflows '+innerWidth+'px viewport')
+      } else if (preview.startsWith('nav-audit')) {
         const order=['overview','accounts','firewall','xray','system']
         const buttons=[...document.querySelectorAll('#nav > button')]
         if(buttons.length!==5||buttons.some((b,i)=>b.dataset.page!==order[i]))
@@ -178,6 +193,13 @@ cat > "$TMP/__preview.js" <<'JS'
         await waitFor('#page-overview.active')
         if(document.documentElement.scrollWidth>innerWidth+2)
           throw new Error('navigation causes horizontal overflow')
+        if(innerWidth>700&&innerWidth<=1050){
+          const uptime=document.querySelector('#uptime-text')
+          const info=uptime?.parentElement
+          if(!uptime||!info||info.getBoundingClientRect().width<145||
+             uptime.getBoundingClientRect().height>50)
+            throw new Error('compact overview uptime text is squeezed into vertical lines')
+        }
       } else if (preview === 'overview-tooltip') {
         const ring = await waitFor('#page-overview .status-gauge-ring')
         ring.dispatchEvent(new PointerEvent('pointerenter',{pointerType:'mouse'}))
@@ -534,6 +556,32 @@ for spec in '1440,1000:desktop' '960,900:compact' '390,844:mobile'; do
   done
 done
 capture accounts-light accounts-light
+# Capture every main destination, in both themes, at desktop, compact and mobile widths.
+for spec in '1440,1000:desktop' '960,900:compact' '390,844:mobile'; do
+  dimensions="${spec%%:*}"
+  label="${spec##*:}"
+  for page in overview accounts firewall xray system; do
+    for suffix in '' '-light'; do
+      query="page-$page$suffix"
+      name="page-$page$suffix-$label"
+      "$BROWSER" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage \
+        --window-size="$dimensions" --force-device-scale-factor=1 --virtual-time-budget=7000 \
+        --screenshot="$OUT/$name.png" "http://127.0.0.1:$PORT/?preview=$query" \
+        >/dev/null 2>"$TMP/$name.log"
+      [[ -s "$OUT/$name.png" ]] || { cat "$TMP/$name.log" >&2; exit 1; }
+      "$BROWSER" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage \
+        --window-size="$dimensions" --force-device-scale-factor=1 --virtual-time-budget=7000 \
+        --dump-dom "http://127.0.0.1:$PORT/?preview=$query" \
+        >"$TMP/$name.html" 2>"$TMP/$name-dom.log"
+      grep -Fq "data-preview-ready=\"$query\"" "$TMP/$name.html" || {
+        grep -o 'data-preview-error="[^"]*"' "$TMP/$name.html" || true
+        echo "Page click/viewport regression failed: $name" >&2
+        exit 1
+      }
+    done
+  done
+done
+
 capture xray-update-light xray-update-light
 capture system-backups system-backups
 capture system-backups-light system-backups-light
