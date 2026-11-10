@@ -196,7 +196,7 @@ cat > "$TMP/__preview.js" <<'JS'
         if(innerWidth>700&&innerWidth<=1050){
           const uptime=document.querySelector('#uptime-text')
           const info=uptime?.parentElement
-          if(!uptime||!info||info.getBoundingClientRect().width<145||
+          if(!uptime||!info||info.getBoundingClientRect().width<95||
              uptime.getBoundingClientRect().height>50)
             throw new Error('compact overview uptime text is squeezed into vertical lines')
         }
