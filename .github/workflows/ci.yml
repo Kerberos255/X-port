@@ -10,6 +10,7 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -28,9 +29,42 @@ jobs:
       - name: Frontend browser regression
         run: bash scripts/verify-web-browser.sh
       - name: Install CJK font for screenshots
+        timeout-minutes: 8
+        shell: bash
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends fonts-noto-cjk
+          set -Eeuo pipefail
+          has_cjk_font() {
+            [[ -n "$(fc-list :lang=zh-cn | sed -n '1p')" ]]
+          }
+          if has_cjk_font; then
+            echo "CJK fonts already installed; skipping apt."
+          else
+            # Ubuntu runners usually have usable package lists already. An
+            # unconditional apt-get update once hung until the 6h runner limit.
+            echo "Installing CJK font using cached package lists."
+            install_font() {
+              timeout --signal=TERM --kill-after=10s 150s \
+                sudo env DEBIAN_FRONTEND=noninteractive apt-get \
+                  -o DPkg::Lock::Timeout=25 \
+                  -o Acquire::Retries=1 \
+                  -o Acquire::http::Timeout=20 \
+                  -o Acquire::https::Timeout=20 \
+                  install -y --no-install-recommends fonts-noto-cjk
+            }
+            if ! install_font; then
+              echo "Initial font installation failed; refreshing package lists with a deadline."
+              timeout --signal=TERM --kill-after=10s 90s \
+                sudo env DEBIAN_FRONTEND=noninteractive apt-get \
+                  -o DPkg::Lock::Timeout=25 \
+                  -o Acquire::Retries=1 \
+                  -o Acquire::http::Timeout=20 \
+                  -o Acquire::https::Timeout=20 update -qq
+              install_font
+            fi
+            fc-cache -f
+          fi
+          has_cjk_font || { echo "::error::No CJK font is available for screenshot validation" >&2; exit 1; }
+          echo "CJK font ready: $(fc-match -f '%{family}' 'sans:lang=zh-cn')"
       - name: Frontend UI screenshots
         run: bash scripts/capture-web-preview.sh "$RUNNER_TEMP/xport-ui-preview"
       - name: Upload UI screenshots
