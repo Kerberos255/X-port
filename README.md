@@ -32,7 +32,7 @@
 |:---:|:---:|
 | <img src="docs/images/accounts.webp" alt="账号管理" width="100%"> | <img src="docs/images/reality.webp" alt="REALITY 高级配置" width="100%"> |
 
-| 防火墙 · 浅色 | Xray 管理 · 深色 |
+| 防火墙 · 浅色 | Xray 管理 · 浅色 |
 |:---:|:---:|
 | <img src="docs/images/firewall.webp" alt="防火墙规则" width="100%"> | <img src="docs/images/xray.webp" alt="Xray 管理" width="100%"> |
 
