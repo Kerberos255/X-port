@@ -67,6 +67,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 EnvironmentFile=-%s/xport.env
+Environment=GODEBUG=multipathtcp=0
 ExecStart=%s serve --data %s --xray-binary %s --xray-config %s --xray-service %s
 Restart=on-failure
 RestartSec=3
