@@ -38,9 +38,17 @@ func ParseInboundStats(data []byte) (map[string]Traffic,error) {
 	out:=map[string]Traffic{}
 	for _,item:=range reply.Stat{
 		parts:=strings.Split(item.Name,">>>");if len(parts)!=4||parts[0]!="inbound"||parts[2]!="traffic"{continue}
+		if parts[3]!="uplink" && parts[3]!="downlink" {continue}
 		value,err:=parseStatValue(item.Value);if err!=nil{return nil,fmt.Errorf("decode %s: %w",item.Name,err)}
 		t:=out[parts[1]];switch parts[3]{case "uplink":t.Up+=value;case "downlink":t.Down+=value;default:continue};out[parts[1]]=t
 	}
 	return out,nil
 }
-func parseStatValue(raw json.RawMessage)(int64,error){var s string;if err:=json.Unmarshal(raw,&s);err==nil{if s==""{return 0,nil};return strconv.ParseInt(s,10,64)};var n int64;if err:=json.Unmarshal(raw,&n);err!=nil{return 0,err};return n,nil}
+func parseStatValue(raw json.RawMessage)(int64,error){
+	// Xray's protobuf JSON response omits value for zero counters.
+	// A missing value must not invalidate the entire reset-and-read batch.
+	if len(raw)==0 || string(raw)=="null" {return 0,nil}
+	var s string;if err:=json.Unmarshal(raw,&s);err==nil{if s==""{return 0,nil};return strconv.ParseInt(s,10,64)}
+	var n int64;if err:=json.Unmarshal(raw,&n);err!=nil{return 0,err}
+	return n,nil
+}
