@@ -63,7 +63,8 @@ func serve(args []string)error{
 	ctx,cancel:=context.WithCancel(context.Background());defer cancel();stats:=&xray.StatsReader{BinaryPath:*xrayBin,Server:fmt.Sprintf("127.0.0.1:%d",apiPort),Timeout:4*time.Second};go runtimeLoop(ctx,accounts,stats)
 	srv:=&http.Server{Addr:listenAddr,Handler:panel.Handler(),ReadHeaderTimeout:5*time.Second,ReadTimeout:20*time.Second,WriteTimeout:2*time.Minute,IdleTimeout:60*time.Second,MaxHeaderBytes:1<<20}
 	scheme:="http";if certFile!=""{scheme="https"};log.Printf("X-port %s listening on %s://%s%s",version,scheme,listenAddr,basePath)
-	if certFile!=""{err=srv.ListenAndServeTLS(certFile,keyFile)}else{err=srv.ListenAndServe()};if errors.Is(err,http.ErrServerClosed){return nil};return err
+	listener,err:=panelListener(listenAddr);if err!=nil{return err}
+	if certFile!=""{err=srv.ServeTLS(listener,certFile,keyFile)}else{err=srv.Serve(listener)};if errors.Is(err,http.ErrServerClosed){return nil};return err
 }
 func runtimeLoop(ctx context.Context,accounts *service.Accounts,stats *xray.StatsReader){ticker:=time.NewTicker(10*time.Second);defer ticker.Stop();lastLogged:=time.Time{};tick:=func(){now:=time.Now();values,err:=stats.ReadAndReset(ctx);if err!=nil{_ = accounts.ApplyTraffic(nil,now);if time.Since(lastLogged)>=time.Minute{log.Printf("Xray stats unavailable: %v",err);lastLogged=time.Now()};return};if err:=accounts.ApplyTraffic(values,now);err!=nil&&time.Since(lastLogged)>=time.Minute{log.Printf("account runtime policy failed: %v",err);lastLogged=time.Now()}};tick();for{select{case<-ctx.Done():return;case<-ticker.C:tick()}}}
 

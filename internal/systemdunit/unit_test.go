@@ -19,6 +19,7 @@ func TestRenderCustomPaths(t *testing.T) {
 	}
 	for _, want := range []string{
 		"EnvironmentFile=-/srv/xport-data/xport.env",
+		"Environment=GODEBUG=multipathtcp=0",
 		"ExecStart=/opt/bin/xport serve --data /srv/xport-data --xray-binary /opt/xport/bin/xray --xray-config /srv/xport-data/xray/config.json --xray-service xport-xray.service",
 		"Nice=5",
 		"ReadWritePaths=/srv/xport-data /opt/xport /opt/bin",
@@ -29,6 +30,7 @@ func TestRenderCustomPaths(t *testing.T) {
 		}
 	}
 	if strings.Contains(xray, "RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK") { t.Fatal("Xray should not need AF_NETLINK") }
+	if strings.Contains(xray, "GODEBUG=") { t.Fatalf("Xray unit must not inherit panel-only MPTCP override\n%s", xray) }
 	if strings.Contains(xray, "Nice=") {
 		t.Fatalf("Xray unit should keep the default scheduler priority\n%s", xray)
 	}
