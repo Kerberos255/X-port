@@ -2,6 +2,8 @@ module github.com/Kerberos255/X-port
 
 go 1.27.4
 
+godebug multipathtcp=0
+
 require (
 	golang.org/x/crypto v0.56.0
 	golang.org/x/sys v0.47.0
