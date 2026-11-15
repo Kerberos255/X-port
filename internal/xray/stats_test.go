@@ -17,12 +17,12 @@ func TestParseInboundStatsOmittedZeroCounters(t *testing.T) {
 	got, err := ParseInboundStats([]byte(`{"stat":[
 		{"name":"inbound>>>inbound-10001>>>traffic>>>uplink"},
 		{"name":"inbound>>>xport-20001-alpha>>>traffic>>>uplink"},
-		{"name":"inbound>>>xport-20002-beta>>>traffic>>>downlink","value":14152},
-		{"name":"inbound>>>xport-20002-beta>>>traffic>>>uplink","value":27995},
-		{"name":"inbound>>>xport-20003-gamma>>>traffic>>>downlink","value":"201170"},
-		{"name":"inbound>>>xport-20003-gamma>>>traffic>>>uplink","value":"282319"},
+		{"name":"inbound>>>xport-20002-beta>>>traffic>>>downlink","value":141},
+		{"name":"inbound>>>xport-20002-beta>>>traffic>>>uplink","value":279},
+		{"name":"inbound>>>xport-20003-gamma>>>traffic>>>downlink","value":"201"},
+		{"name":"inbound>>>xport-20003-gamma>>>traffic>>>uplink","value":"282"},
 		{"name":"inbound>>>xport-20004-delta>>>traffic>>>downlink","value":null},
-		{"name":"inbound>>>xport-20004-delta>>>traffic>>>uplink","value":44},
+		{"name":"inbound>>>xport-20004-delta>>>traffic>>>uplink","value":4},
 		{"name":"outbound>>>direct>>>traffic>>>downlink","value":9999},
 		{"name":"inbound>>>xport-20005-unused>>>traffic>>>unknown","value":"not-a-number"}
 	]}`))
@@ -30,9 +30,9 @@ func TestParseInboundStatsOmittedZeroCounters(t *testing.T) {
 	want := map[string]Traffic{
 		"inbound-10001": {},
 		"xport-20001-alpha": {},
-		"xport-20002-beta": {Up:27995, Down:14152},
-		"xport-20003-gamma": {Up:282319, Down:201170},
-		"xport-20004-delta": {Up:44},
+		"xport-20002-beta": {Up:279, Down:141},
+		"xport-20003-gamma": {Up:282, Down:201},
+		"xport-20004-delta": {Up:4},
 	}
 	if len(got)!=len(want) {t.Fatalf("unexpected inbound count: got=%d want=%d",len(got),len(want))}
 	for tag, expected := range want {
