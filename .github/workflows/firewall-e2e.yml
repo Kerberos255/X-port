@@ -39,7 +39,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
-          go-version: '1.27.3'
+          go-version: '1.27.4'
           cache: false
       - name: Build Linux executable
         run: CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o "$RUNNER_TEMP/xport-fw-e2e" ./cmd/xport
@@ -56,7 +56,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
-          go-version: '1.27.3'
+          go-version: '1.27.4'
           cache: false
       - name: Build static X-port discovery binary
         run: CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o "$RUNNER_TEMP/xport-docker-e2e" ./cmd/xport
@@ -73,7 +73,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
-          go-version: '1.27.3'
+          go-version: '1.27.4'
           cache: false
       - name: Upgrade real v0.2.8 service using local verified candidate, then test rollback
         run: bash scripts/verify-web-upgrade-e2e.sh
@@ -90,7 +90,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
-          go-version: '1.27.3'
+          go-version: '1.27.4'
           cache: false
       - name: Build X-port
         run: CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o "$RUNNER_TEMP/xport-cross-e2e" ./cmd/xport
@@ -110,7 +110,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
-          go-version: '1.27.3'
+          go-version: '1.27.4'
           cache: false
       - name: Authenticate and POST actual legacy Web upgrade with local test Release
         run: bash scripts/verify-web-update-http.sh
@@ -146,7 +146,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
-          go-version: '1.27.3'
+          go-version: '1.27.4'
           cache: false
       - name: Build X-port for isolated account systemd E2E
         run: CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o "$RUNNER_TEMP/xport-account-e2e" ./cmd/xport
@@ -162,7 +162,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
-          go-version: '1.27.3'
+          go-version: '1.27.4'
           cache: false
       - name: Build the candidate X-port binary
         run: CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o "$RUNNER_TEMP/xport-selinux-e2e" ./cmd/xport
@@ -182,7 +182,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
-          go-version: '1.27.3'
+          go-version: '1.27.4'
           cache: false
       - name: Build X-port
         run: CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o "$RUNNER_TEMP/xport-panel-coexist" ./cmd/xport
